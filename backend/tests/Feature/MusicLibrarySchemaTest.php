@@ -30,6 +30,11 @@ class MusicLibrarySchemaTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
+        $this->assertFalse(Schema::hasTable('users'));
+        $this->assertFalse(Schema::hasTable('password_reset_tokens'));
+        $this->assertTrue(Schema::hasTable('sessions'));
+        $this->assertFalse(Schema::hasColumn('sessions', 'user_id'));
+
         foreach ([
             ['library_roots', 'include_patterns'],
             ['library_roots', 'exclude_patterns'],
