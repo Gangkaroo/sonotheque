@@ -2,6 +2,8 @@
 
 namespace App\Music\Scanning;
 
+use App\Music\Artwork\EmbeddedArtwork;
+
 final readonly class AudioMetadata
 {
     /**
@@ -28,6 +30,7 @@ final readonly class AudioMetadata
         public ?int $bitrate = null,
         public ?int $sampleRate = null,
         public ?int $channels = null,
+        public ?EmbeddedArtwork $embeddedArtwork = null,
         public array $warnings = [],
         public array $rawMetadata = [],
     ) {}

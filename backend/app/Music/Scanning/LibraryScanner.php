@@ -10,21 +10,27 @@ use App\Models\Genre;
 use App\Models\MediaFile;
 use App\Models\ScanRun;
 use App\Models\Track;
+use App\Music\Artwork\AlbumArtworkManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class LibraryScanner
 {
+    /** @var array<int, true> */
+    private array $artworkSynced = [];
+
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
         private readonly AudioMetadataReader $metadataReader,
         private readonly ArtistName $artistName,
+        private readonly AlbumArtworkManager $artworkManager,
     ) {}
 
     public function scan(ScanRun $scanRun): void
     {
         $scanRun->loadMissing('libraryRoot');
+        $this->artworkSynced = [];
         $startedAt = CarbonImmutable::now();
         $scanRun->update([
             'status' => ScanStatus::Running,
@@ -55,8 +61,12 @@ class LibraryScanner
                         $scanRun->increment('warning_count', $result['warning_count']);
                     }
                 } catch (Throwable $exception) {
-                    $this->recordFileError($scanRun, $file, $startedAt, $exception);
+                    $warningCount = $this->recordFileError($scanRun, $file, $startedAt, $exception);
                     $scanRun->increment('error_count');
+
+                    if ($warningCount > 0) {
+                        $scanRun->increment('warning_count', $warningCount);
+                    }
                 }
 
                 $scanRun->increment('files_processed');
@@ -99,13 +109,16 @@ class LibraryScanner
             && $existing->file_size === $file->fileSize
             && $existing->modified_at->getTimestamp() === $file->modifiedAt) {
             $existing->update(['last_seen_at' => $seenAt]);
+            $warningCount = $existing->album === null
+                ? 0
+                : $this->syncArtwork($existing->album, $scanRun, audioPath: $file->absolutePath);
 
-            return ['created' => false, 'changed' => false, 'warning_count' => 0];
+            return ['created' => false, 'changed' => false, 'warning_count' => $warningCount];
         }
 
         $metadata = $this->metadataReader->read($file->absolutePath);
 
-        return DB::transaction(function () use ($scanRun, $file, $seenAt, $pathHash, $existing, $metadata): array {
+        $processed = DB::transaction(function () use ($scanRun, $file, $seenAt, $pathHash, $existing, $metadata): array {
             $artistName = $metadata->albumArtist ?? $metadata->artists[0] ?? $file->artistFolder;
             $artist = $this->findOrCreateArtist($artistName);
             $album = Album::firstOrNew(
@@ -125,6 +138,7 @@ class LibraryScanner
                 'metadata' => [
                     'folder_artist' => $file->artistFolder,
                     'folder_album' => $file->albumFolder,
+                    'embedded_artwork_present' => $metadata->embeddedArtwork !== null,
                 ],
             ]);
             $album->save();
@@ -186,16 +200,26 @@ class LibraryScanner
             $track->genres()->sync($genreIds);
 
             return [
+                'album' => $album,
                 'created' => $existing === null,
-                'changed' => true,
-                'warning_count' => count($metadata->warnings),
             ];
         });
+
+        return [
+            'created' => $processed['created'],
+            'changed' => true,
+            'warning_count' => count($metadata->warnings) + $this->syncArtwork(
+                $processed['album'],
+                $scanRun,
+                metadata: $metadata,
+                embeddedInspected: true,
+            ),
+        ];
     }
 
-    private function recordFileError(ScanRun $scanRun, DiscoveredAudioFile $file, CarbonImmutable $seenAt, Throwable $exception): void
+    private function recordFileError(ScanRun $scanRun, DiscoveredAudioFile $file, CarbonImmutable $seenAt, Throwable $exception): int
     {
-        DB::transaction(function () use ($scanRun, $file, $seenAt, $exception): void {
+        $album = DB::transaction(function () use ($scanRun, $file, $seenAt, $exception): Album {
             $artist = $this->findOrCreateArtist($file->artistFolder);
             $album = Album::firstOrCreate(
                 [
@@ -229,7 +253,58 @@ class LibraryScanner
                     'scan_error' => mb_substr($exception->getMessage(), 0, 65535),
                 ],
             );
+
+            return $album;
         });
+
+        return $this->syncArtwork($album, $scanRun, embeddedInspected: true);
+    }
+
+    private function syncArtwork(
+        Album $album,
+        ScanRun $scanRun,
+        ?AudioMetadata $metadata = null,
+        ?string $audioPath = null,
+        bool $embeddedInspected = false,
+    ): int {
+        if (isset($this->artworkSynced[$album->id])) {
+            return 0;
+        }
+
+        $this->artworkSynced[$album->id] = true;
+        $result = $this->artworkManager->sync(
+            $album,
+            $scanRun->libraryRoot,
+            $metadata?->embeddedArtwork,
+            $embeddedInspected,
+        );
+
+        if (! $result->requiresEmbeddedFallback) {
+            return count($result->warnings);
+        }
+
+        if ($audioPath === null) {
+            return count($result->warnings);
+        }
+
+        if (($album->metadata['embedded_artwork_present'] ?? null) === false) {
+            $fallback = $this->artworkManager->sync($album, $scanRun->libraryRoot, embeddedInspected: true);
+
+            return count($result->warnings) + count($fallback->warnings);
+        }
+
+        $metadata = $this->metadataReader->read($audioPath);
+        $albumMetadata = $album->metadata ?? [];
+        $albumMetadata['embedded_artwork_present'] = $metadata->embeddedArtwork !== null;
+        $album->update(['metadata' => $albumMetadata]);
+        $fallback = $this->artworkManager->sync(
+            $album,
+            $scanRun->libraryRoot,
+            $metadata->embeddedArtwork,
+            embeddedInspected: true,
+        );
+
+        return count($result->warnings) + count($metadata->warnings) + count($fallback->warnings);
     }
 
     private function findOrCreateArtist(string $name): Artist

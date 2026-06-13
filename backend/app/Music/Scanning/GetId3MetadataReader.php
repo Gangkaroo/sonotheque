@@ -2,6 +2,7 @@
 
 namespace App\Music\Scanning;
 
+use App\Music\Artwork\EmbeddedArtwork;
 use RuntimeException;
 
 class GetId3MetadataReader implements AudioMetadataReader
@@ -40,6 +41,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             bitrate: isset($information['audio']['bitrate']) ? (int) round($information['audio']['bitrate']) : null,
             sampleRate: isset($information['audio']['sample_rate']) ? (int) $information['audio']['sample_rate'] : null,
             channels: isset($information['audio']['channels']) ? (int) $information['audio']['channels'] : null,
+            embeddedArtwork: $this->embeddedArtwork($information),
             warnings: array_values((array) ($information['warning'] ?? [])),
             rawMetadata: $this->jsonSafe($this->withoutArtwork($information)),
         );
@@ -96,15 +98,51 @@ class GetId3MetadataReader implements AudioMetadataReader
      */
     private function withoutArtwork(array $information): array
     {
-        foreach (['comments', 'comments_html'] as $commentKey) {
-            unset($information[$commentKey]['picture']);
+        return $this->removeArtworkPayloads($information);
+    }
+
+    /** @param array<string, mixed> $information */
+    private function embeddedArtwork(array $information): ?EmbeddedArtwork
+    {
+        $pictures = array_values((array) ($information['comments']['picture'] ?? []));
+        usort(
+            $pictures,
+            static function (mixed $left, mixed $right): int {
+                $leftIsFrontCover = is_array($left) && (int) ($left['picturetypeid'] ?? -1) === 3;
+                $rightIsFrontCover = is_array($right) && (int) ($right['picturetypeid'] ?? -1) === 3;
+
+                return $rightIsFrontCover <=> $leftIsFrontCover;
+            },
+        );
+
+        foreach ($pictures as $picture) {
+            if (! is_array($picture) || ! is_string($picture['data'] ?? null) || ! is_string($picture['image_mime'] ?? null)) {
+                continue;
+            }
+
+            return new EmbeddedArtwork($picture['data'], $picture['image_mime']);
         }
 
-        foreach (array_keys($information['tags'] ?? []) as $tagType) {
-            unset($information['tags'][$tagType]['attached_picture'], $information['tags'][$tagType]['picture']);
+        return null;
+    }
+
+    /**
+     * @param  array<string|int, mixed>  $value
+     * @return array<string|int, mixed>
+     */
+    private function removeArtworkPayloads(array $value): array
+    {
+        if (isset($value['data'], $value['image_mime'])) {
+            unset($value['data']);
         }
 
-        return $information;
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $value[$key] = $this->removeArtworkPayloads($child);
+            }
+        }
+
+        return $value;
     }
 
     /**

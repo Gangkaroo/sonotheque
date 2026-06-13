@@ -6,6 +6,7 @@
     "keywords": ["music", "laravel", "api-platform"],
     "license": "MIT",
     "require": {
+        "ext-gd": "*",
         "php": "^8.3",
         "api-platform/laravel": "^4.3",
         "james-heinrich/getid3": "^1.9.25",

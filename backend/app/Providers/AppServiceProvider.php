@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\Scanning\AudioFileDiscoverer;
 use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\GetId3MetadataReader;
@@ -19,6 +20,19 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(AudioFileDiscoverer::class)
             ->needs('$extensions')
             ->giveConfig('music-library.audio_extensions');
+
+        foreach ([
+            '$disk' => 'music-library.artwork.disk',
+            '$thumbnailWidth' => 'music-library.artwork.thumbnail_width',
+            '$thumbnailHeight' => 'music-library.artwork.thumbnail_height',
+            '$thumbnailQuality' => 'music-library.artwork.thumbnail_quality',
+            '$maxSourceBytes' => 'music-library.artwork.max_source_bytes',
+            '$maxSourcePixels' => 'music-library.artwork.max_source_pixels',
+        ] as $parameter => $configuration) {
+            $this->app->when(AlbumArtworkManager::class)
+                ->needs($parameter)
+                ->giveConfig($configuration);
+        }
     }
 
     /**
