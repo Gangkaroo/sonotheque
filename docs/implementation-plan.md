@@ -1,0 +1,267 @@
+# Local Music Library - Implementation Plan
+
+## Goal
+
+Build a local-first web application that scans configurable music folders, stores metadata in PostgreSQL, and provides a responsive browser and player for the library. The application will run on the local computer or, when explicitly enabled, on the local network. User management is outside the initial scope.
+
+## Technology Stack
+
+### Backend
+
+- PHP 8.3 or newer
+- Laravel 13
+- API Platform 4.3 for Laravel with Eloquent
+- PostgreSQL 18
+- Laravel database queues for background scans
+- getID3 for audio metadata, tags, technical information, and embedded artwork
+
+### Frontend
+
+- Vue 3 with TypeScript
+- Vite
+- Pinia
+- Vue Router
+- Vue I18n
+- Vuetify 4
+
+### Development and Runtime
+
+- Monorepo containing backend, frontend, infrastructure, and documentation
+- PostgreSQL in Docker for local development
+- PHP running natively on Windows initially, so the scanner can access dynamically configured local folders
+
+## Proposed Repository Structure
+
+```text
+music-library/
+|-- backend/          Laravel and API Platform
+|-- frontend/         Vue application
+|-- infrastructure/   Docker and supporting configuration
+|-- docs/             Architecture and project documentation
+`-- compose.yaml
+```
+
+## MVP Scope
+
+The first usable release will provide:
+
+- Configuration of one or more local music folders
+- Manual and incremental library scans
+- Scan status, progress, warnings, and errors
+- Browsing by artist, album, track, and genre
+- Search, filtering, sorting, and pagination
+- Artist A-Z/# browsing based on a normalized, indexed initial
+- Album and artist text search
+- Album filtering by original release year and genre
+- Album artwork discovery from a configurable path relative to each album folder
+- Cached, smaller album-cover thumbnails for album lists and grids
+- Embedded album artwork extraction as a fallback
+- Browser playback for supported audio formats
+- Persistent playback controls and a playback queue
+- English and German translations
+- Localhost access by default and optional LAN access
+
+The following features are deferred until after the MVP:
+
+- Editing or writing audio tags
+- User accounts and permissions
+- Playlists and favorites
+- Automatic metadata lookup from external services
+- Audio transcoding
+- Duplicate-file management
+- Mobile applications
+
+## Architecture
+
+The Vue single-page application communicates with the Laravel application through an API Platform API. Laravel owns library configuration, scanning, metadata normalization, search, artwork delivery, and audio streaming.
+
+Scanning is performed asynchronously using Laravel queue jobs. Each discovered file is inspected with getID3 and normalized into relational library records. Original tag data is retained in JSONB for diagnostics and future metadata fields.
+
+For the initial library layout, each configured library root is expected to contain artist folders, with album folders beneath them:
+
+```text
+library-root/
+`-- Artist/
+    `-- Album/
+        |-- configured/relative/cover.jpg
+        |-- 01 - Track.mp3
+        `-- 02 - Track.mp3
+```
+
+The cover-image path is configured per library root and resolved relative to each album folder. For example, a value of `cover.jpg` refers to a file directly in the album folder, while `artwork/front.jpg` refers to a nested file. When the configured file is absent or invalid, the scanner falls back to embedded artwork from the album's audio files.
+
+Audio is delivered through a dedicated streaming endpoint supporting HTTP range requests. The server must verify that every requested file belongs to an enabled library root before reading it.
+
+## Data Model
+
+### `libraries`
+
+Logical music libraries. A library can span any number of physical roots located on different drives.
+
+- Name and optional description
+- One-to-many relationship with library roots
+
+### `library_roots`
+
+Configured folders and their scan settings:
+
+- Parent library
+- Path and display name
+- Enabled state
+- Include/exclude patterns
+- Cover-image path relative to each album folder
+- Last successful scan time
+
+### `scan_runs`
+
+Scan execution history:
+
+- Status and progress counters
+- Start and completion times
+- Trigger type
+- Warning and error summaries
+
+### `media_files`
+
+Physical file information:
+
+- Library root and relative path
+- Canonical path or path fingerprint
+- File size and modification time
+- MIME type, container, codec, bitrate, and sample rate
+- Scan state and last-seen timestamp
+- Raw metadata in JSONB
+
+### Library entities
+
+- `tracks`
+- `artists`
+- `albums`
+- `genres`
+- Track-artist and track-genre pivot tables
+
+Tracks contain normalized values such as title, duration, year, track number, disc number, and links to the source media file.
+
+Artists store a normalized sort name and an indexed browse initial. The browse initial contains `A` through `Z`; accented Latin initials are transliterated into those buckets, while names beginning with numbers, symbols, or other characters are grouped under `#`. Albums store the original release year separately from track-level tag data. PostgreSQL trigram indexes support case-insensitive partial searches for artist, album, and genre names. Genre names are unique without regard to letter case so filter values do not fragment into variants such as `Rock` and `rock`.
+
+### `artwork`
+
+Cached artwork metadata:
+
+- Source type and original source path
+- Cache path
+- Thumbnail cache path
+- MIME type
+- Width and height when available
+- Checksum for deduplication
+
+Artwork should be cached as files rather than stored as PostgreSQL binary data. The original-size cached image is used on album detail pages, while a generated thumbnail is used in album lists and grids. Thumbnail dimensions and image quality should be application-level configuration with sensible defaults.
+
+## Implementation Phases
+
+### 1. Project Foundation
+
+- Scaffold the Laravel/API Platform backend.
+- Scaffold the Vue, TypeScript, Vuetify frontend.
+- Configure Pinia, Vue Router, and Vue I18n.
+- Add PostgreSQL and local infrastructure configuration.
+- Establish development, linting, formatting, and test commands.
+- Configure the API under an `/api` prefix.
+
+### 2. Database and API
+
+- Create migrations and Eloquent models.
+- Define relationships and indexes.
+- Expose read-only library resources through API Platform.
+- Add pagination, filters, ordering, and search parameters.
+- Add artist A-Z/#, original-release-year, and genre filters.
+- Define custom operations for settings and scans.
+- Verify the generated OpenAPI documentation.
+
+### 3. Filesystem Scanner
+
+- Validate and canonicalize configured folders.
+- Discover supported audio files recursively.
+- Parse tags and technical metadata using getID3.
+- Normalize artists, albums, tracks, and genres.
+- Associate files using the configured `artist/album` folder layout while retaining tag metadata for display and diagnostics.
+- Resolve and validate the configured cover-image path inside each album folder.
+- Cache full-size album artwork and generate a smaller thumbnail.
+- Fall back to embedded artwork when no configured folder image is available.
+- Deduplicate cached artwork using checksums.
+- Detect unchanged files using size and modification time.
+- Update modified files and mark missing files as unavailable.
+- Record malformed files and nonfatal warnings without stopping a scan.
+- Execute scans through queued jobs.
+
+### 4. Library Frontend
+
+- Create the application shell and navigation.
+- Build dashboard, artist, album, genre, and track views.
+- Add global search, filters, sorting, and pagination.
+- Add responsive artwork grids and tabular track views.
+- Display the generated cover thumbnail for every album in album lists and grids.
+- Display the larger cached cover on album detail pages.
+- Provide useful placeholders for missing artwork and metadata.
+- Add English and German translations from the beginning.
+
+### 5. Audio Playback
+
+- Implement an audio streaming endpoint with HTTP range support.
+- Validate file access against enabled library roots.
+- Add persistent player controls.
+- Add playback queue management using Pinia.
+- Handle unavailable files and unsupported browser codecs clearly.
+- Consider FFmpeg-based transcoding only after the MVP.
+
+### 6. Settings and Scan Management
+
+- Add and remove library roots.
+- Provide a restricted server-side folder browser and manual path input.
+- Configure the album-cover path relative to album folders for each library root.
+- Validate the cover path as a safe relative path and show an example resolved location.
+- Start, cancel, and repeat scans.
+- Display live or periodically refreshed scan progress.
+- Show last-scan information and actionable file errors.
+
+### 7. Local and LAN Security
+
+- Bind services to `127.0.0.1` by default.
+- Require an explicit configuration change for LAN access.
+- Prevent path traversal and symbolic-link escapes.
+- Reject absolute or escaping album-cover paths such as paths containing unresolved `..` segments.
+- Restrict folder browsing to configured drives or parent directories.
+- Configure CORS and trusted hosts narrowly.
+- Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost.
+
+### 8. Testing and Packaging
+
+- Unit-test path validation, metadata mapping, and incremental scan decisions.
+- Test folder-based cover discovery, embedded-artwork fallback, and thumbnail generation.
+- Feature-test API filters, scan operations, and range streaming.
+- Use small MP3, FLAC, Ogg, and malformed-file fixtures.
+- Add frontend store and component tests.
+- Add end-to-end coverage for configuration, scanning, browsing, and playback.
+- Document installation, startup, backup, and recovery procedures.
+
+## First Milestone Definition
+
+The first milestone is complete when:
+
+1. A local folder can be configured.
+2. A background scan discovers supported audio files.
+3. Parsed metadata is stored in PostgreSQL.
+4. Albums and tracks can be browsed in the Vue interface.
+5. Each discovered album displays a generated cover thumbnail from its configured folder image, embedded artwork, or a placeholder.
+6. An MP3 can be streamed and played in the browser.
+7. The main workflow has automated backend and frontend tests.
+
+## Important Early Decisions
+
+- Use Pinia rather than Vuex because Pinia is the recommended state-management library for new Vue applications.
+- Use API Platform's Laravel integration with Eloquent.
+- Keep PHP native on the host initially to allow access to dynamically selected Windows folders.
+- Treat library paths as sensitive server-side configuration and never accept arbitrary streaming paths from the browser.
+- Make scans incremental from the first implementation rather than adding that behavior later.
+- Model the initial library layout as `library root / artist / album`, with the cover path configured relative to the album folder.
+- Prefer the configured folder cover over embedded artwork and generate thumbnails during scanning rather than resizing images on every request.
