@@ -8,7 +8,7 @@ Build a local-first web application that scans configurable music folders, store
 
 ### Backend
 
-- PHP 8.3 or newer
+- PHP 8.5
 - Laravel 13
 - API Platform 4.3 for Laravel with Eloquent
 - PostgreSQL 18
@@ -159,6 +159,28 @@ Artwork should be cached as files rather than stored as PostgreSQL binary data. 
 
 ## Implementation Phases
 
+### Current Status
+
+Completed:
+
+- Laravel/API Platform backend and PostgreSQL development environment
+- Database schema, relationships, browse/search indexes, and read-only catalog APIs
+- Incremental filesystem scanner with queued execution and error isolation
+- getID3 metadata extraction and normalized artist, album, track, and genre records
+- Folder-cover discovery, embedded-artwork fallback, artwork caching, and thumbnail generation
+- Vue/Vuetify application shell with responsive navigation, Pinia, routing, and English/German translations
+- Library-root list, create, and remove workflow with canonical path and safe relative cover-path validation
+
+In progress or still required for the first milestone:
+
+- Scan API operations, queue worker startup, progress/history API, and Settings UI controls
+- Connecting dashboard and catalog views to the existing API resources
+- Album grids with cached thumbnails and catalog search/filter controls
+- Audio streaming and browser playback
+- Restricted server-side folder browser; manual path entry is available first
+
+The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration workflow was brought forward so the first real scan can be exercised end to end. The next vertical slice is scan management, followed by catalog browsing.
+
 ### 1. Project Foundation
 
 - Scaffold the Laravel/API Platform backend.
@@ -216,10 +238,12 @@ Artwork should be cached as files rather than stored as PostgreSQL binary data. 
 
 ### 6. Settings and Scan Management
 
-- Add and remove library roots.
-- Provide a restricted server-side folder browser and manual path input.
-- Configure the album-cover path relative to album folders for each library root.
-- Validate the cover path as a safe relative path and show an example resolved location.
+- Add and remove library roots. (Complete)
+- Provide manual path input. (Complete)
+- Provide a restricted server-side folder browser. (Pending)
+- Configure the album-cover path relative to album folders for each library root. (Complete)
+- Validate the cover path as a safe relative path. (Complete)
+- Show an example resolved cover location. (Pending)
 - Start, cancel, and repeat scans.
 - Display live or periodically refreshed scan progress.
 - Show last-scan information and actionable file errors.
@@ -261,6 +285,7 @@ The first milestone is complete when:
 - Use Pinia rather than Vuex because Pinia is the recommended state-management library for new Vue applications.
 - Use API Platform's Laravel integration with Eloquent.
 - Keep PHP native on the host initially to allow access to dynamically selected Windows folders.
+- Use PHP 8.5 explicitly for backend commands; an older XAMPP PHP installation may still appear first on the Windows `PATH`.
 - Treat library paths as sensitive server-side configuration and never accept arbitrary streaming paths from the browser.
 - Make scans incremental from the first implementation rather than adding that behavior later.
 - Model the initial library layout as `library root / artist / album`, with the cover path configured relative to the album folder.
