@@ -9,12 +9,14 @@ use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
+use App\Music\Scanning\LibraryRootPathValidator;
 
 /** @implements ProcessorInterface<LibraryRoot, LibraryRoot> */
 class CreateLibraryRootProcessor implements ProcessorInterface
 {
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
+        private readonly LibraryRootPathValidator $rootPathValidator,
     ) {}
 
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): LibraryRoot
@@ -31,11 +33,13 @@ class CreateLibraryRootProcessor implements ProcessorInterface
             $this->invalid($field, $exception->getMessage(), $exception);
         }
 
-        $pathHash = hash('sha256', mb_strtolower($path));
-
-        if (LibraryRoot::where('path_hash', $pathHash)->exists()) {
-            $this->invalid('path', 'This folder is already configured as a library root.');
+        try {
+            $this->rootPathValidator->assertAvailable($path);
+        } catch (InvalidLibraryPath $exception) {
+            $this->invalid('path', $exception->getMessage(), $exception);
         }
+
+        $pathHash = hash('sha256', mb_strtolower($path));
 
         $library = Library::firstOrCreate(
             ['name' => 'Default Library'],

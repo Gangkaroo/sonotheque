@@ -91,4 +91,70 @@ class LibraryRootApiTest extends TestCase
 
         $this->assertSame(1, LibraryRoot::count());
     }
+
+    public function test_root_creation_rejects_overlapping_folders(): void
+    {
+        $artistPath = $this->musicPath.DIRECTORY_SEPARATOR.'Artist';
+        mkdir($artistPath);
+
+        $this->postJson('/api/library_roots', [
+            'name' => 'Main collection',
+            'path' => $this->musicPath,
+            'coverImagePath' => 'cover.jpg',
+        ], ['Accept' => 'application/ld+json'])->assertCreated();
+
+        $this->postJson('/api/library_roots', [
+            'name' => 'Nested collection',
+            'path' => $artistPath,
+            'coverImagePath' => 'cover.jpg',
+        ], ['Accept' => 'application/ld+json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('violations.0.propertyPath', 'path');
+
+        $this->delete('/api/library_roots/'.LibraryRoot::firstOrFail()->id, headers: ['Accept' => 'application/ld+json'])
+            ->assertNoContent();
+
+        $this->postJson('/api/library_roots', [
+            'name' => 'Nested collection',
+            'path' => $artistPath,
+            'coverImagePath' => 'cover.jpg',
+        ], ['Accept' => 'application/ld+json'])->assertCreated();
+
+        $this->postJson('/api/library_roots', [
+            'name' => 'Parent collection',
+            'path' => $this->musicPath,
+            'coverImagePath' => 'cover.jpg',
+        ], ['Accept' => 'application/ld+json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('violations.0.propertyPath', 'path');
+
+        LibraryRoot::query()->delete();
+        rmdir($artistPath);
+    }
+
+    public function test_a_library_root_name_and_cover_path_can_be_updated(): void
+    {
+        $root = $this->postJson('/api/library_roots', [
+            'name' => 'Main collection',
+            'path' => $this->musicPath,
+            'coverImagePath' => 'cover.jpg',
+        ], ['Accept' => 'application/ld+json'])->assertCreated();
+
+        $this->call(
+            'PATCH',
+            '/api/library_roots/'.$root->json('id'),
+            server: [
+                'CONTENT_TYPE' => 'application/merge-patch+json',
+                'HTTP_ACCEPT' => 'application/ld+json',
+            ],
+            content: json_encode([
+                'name' => 'Archive',
+                'coverImagePath' => 'artwork\\front.jpg',
+            ], JSON_THROW_ON_ERROR),
+        )
+            ->assertOk()
+            ->assertJsonPath('name', 'Archive')
+            ->assertJsonPath('coverImagePath', 'artwork/front.jpg')
+            ->assertJsonPath('path', str_replace('\\', '/', realpath($this->musicPath)));
+    }
 }

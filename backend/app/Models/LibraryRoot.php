@@ -6,8 +6,10 @@ use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Delete;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Post;
 use App\ApiPlatform\State\CreateLibraryRootProcessor;
+use App\ApiPlatform\State\UpdateLibraryRootProcessor;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,6 +37,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
                 'cover_image_path' => ['nullable', 'string', 'max:1024'],
             ],
             processor: CreateLibraryRootProcessor::class,
+        ),
+        new Patch(
+            rules: [
+                'name' => ['required', 'string', 'max:255'],
+                'cover_image_path' => ['nullable', 'string', 'max:1024'],
+            ],
+            processor: UpdateLibraryRootProcessor::class,
         ),
         new Delete,
     ],

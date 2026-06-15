@@ -33,6 +33,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
         new GetCollection(
             order: ['sort_title' => 'ASC', 'title' => 'ASC'],
             parameters: [
+                'page' => new QueryParameter(
+                    schema: ['type' => 'integer', 'minimum' => 1],
+                    castToNativeType: true,
+                ),
                 'search' => new QueryParameter(
                     filter: CaseInsensitivePartialSearchFilter::class,
                     property: 'title',

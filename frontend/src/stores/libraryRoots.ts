@@ -20,6 +20,11 @@ export interface CreateLibraryRootInput {
   coverImagePath: string
 }
 
+export interface UpdateLibraryRootInput {
+  name: string
+  coverImagePath: string
+}
+
 export const useLibraryRootsStore = defineStore('libraryRoots', () => {
   const roots = ref<LibraryRoot[]>([])
   const loading = ref(false)
@@ -54,10 +59,28 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
     }
   }
 
+  async function update(id: number, input: UpdateLibraryRootInput) {
+    saving.value = true
+    error.value = null
+    try {
+      const root = await apiRequest<LibraryRoot>(`/library_roots/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/merge-patch+json' },
+        body: JSON.stringify(input),
+      })
+      roots.value = roots.value
+        .map((existing) => existing.id === id ? root : existing)
+        .sort((left, right) => left.name.localeCompare(right.name))
+      return root
+    } finally {
+      saving.value = false
+    }
+  }
+
   async function remove(id: number) {
     await apiRequest<void>(`/library_roots/${id}`, { method: 'DELETE' })
     roots.value = roots.value.filter((root) => root.id !== id)
   }
 
-  return { roots, loading, saving, error, hasRoots, load, create, remove }
+  return { roots, loading, saving, error, hasRoots, load, create, update, remove }
 })

@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '256M'),
+    'scan_stale_after_minutes' => (int) env('SCAN_STALE_AFTER_MINUTES', 15),
+
     'audio_extensions' => [
         'aac',
         'aif',

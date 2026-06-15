@@ -31,6 +31,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
         new GetCollection(
             order: ['album_id' => 'ASC', 'disc_number' => 'ASC', 'track_number' => 'ASC'],
             parameters: [
+                'page' => new QueryParameter(
+                    schema: ['type' => 'integer', 'minimum' => 1],
+                    castToNativeType: true,
+                ),
                 'search' => new QueryParameter(
                     filter: CaseInsensitivePartialSearchFilter::class,
                     property: 'title',

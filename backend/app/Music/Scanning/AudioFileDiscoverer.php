@@ -3,11 +3,12 @@
 namespace App\Music\Scanning;
 
 use App\Models\LibraryRoot;
+use FilesystemIterator;
 use Generator;
 use Illuminate\Support\Str;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use SplFileInfo;
+use Throwable;
+use UnexpectedValueException;
 
 class AudioFileDiscoverer
 {
@@ -18,44 +19,112 @@ class AudioFileDiscoverer
     ) {}
 
     /** @return Generator<int, DiscoveredAudioFile> */
-    public function discover(LibraryRoot $libraryRoot): Generator
+    public function discover(LibraryRoot $libraryRoot, ?DiscoveryDiagnostics $diagnostics = null): Generator
     {
+        $diagnostics ??= new DiscoveryDiagnostics;
         $rootPath = $this->pathGuard->canonicalizeDirectory($libraryRoot->path);
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($rootPath, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::LEAVES_ONLY,
-            RecursiveIteratorIterator::CATCH_GET_CHILD,
-        );
+
+        yield from $this->walk($rootPath, $rootPath, $libraryRoot, $diagnostics);
+    }
+
+    /** @return Generator<int, DiscoveredAudioFile> */
+    private function walk(
+        string $directory,
+        string $rootPath,
+        LibraryRoot $libraryRoot,
+        DiscoveryDiagnostics $diagnostics,
+    ): Generator {
+        try {
+            $iterator = new FilesystemIterator($directory, FilesystemIterator::SKIP_DOTS);
+        } catch (UnexpectedValueException) {
+            $diagnostics->record(
+                'unreadable_directory',
+                'A directory could not be read and was skipped.',
+                $this->relativePath($directory, $rootPath),
+            );
+
+            return;
+        }
 
         foreach ($iterator as $file) {
-            if (! $file instanceof SplFileInfo || ! $file->isFile() || $file->isLink() || ! $file->isReadable()) {
-                continue;
+            try {
+                if (! $file instanceof SplFileInfo) {
+                    continue;
+                }
+
+                $relativePath = $this->relativePath($file->getPathname(), $rootPath);
+
+                if ($file->isLink()) {
+                    if ($file->isDir() || in_array(strtolower($file->getExtension()), $this->extensions, true)) {
+                        $diagnostics->record('symlink_skipped', 'A symbolic link was skipped for safety.', $relativePath);
+                    }
+
+                    continue;
+                }
+
+                if ($file->isDir()) {
+                    yield from $this->walk($file->getPathname(), $rootPath, $libraryRoot, $diagnostics);
+
+                    continue;
+                }
+
+                if (! $file->isFile()) {
+                    continue;
+                }
+
+                $extension = strtolower($file->getExtension());
+
+                if (! in_array($extension, $this->extensions, true)) {
+                    continue;
+                }
+
+                if (! $file->isReadable()) {
+                    $diagnostics->record('unreadable_file', 'A supported audio file could not be read.', $relativePath);
+
+                    continue;
+                }
+
+                $absolutePath = str_replace('\\', '/', $file->getPathname());
+                $segments = explode('/', $relativePath);
+
+                if (count($segments) < 3) {
+                    $diagnostics->record(
+                        'invalid_layout',
+                        'A supported audio file was outside the expected Artist/Album folder layout.',
+                        $relativePath,
+                    );
+
+                    continue;
+                }
+
+                if (! $this->matchesPatterns($relativePath, $libraryRoot)) {
+                    continue;
+                }
+
+                yield new DiscoveredAudioFile(
+                    absolutePath: $absolutePath,
+                    relativePath: $relativePath,
+                    albumRelativePath: $segments[0].'/'.$segments[1],
+                    artistFolder: $segments[0],
+                    albumFolder: $segments[1],
+                    fileSize: $file->getSize(),
+                    modifiedAt: $file->getMTime(),
+                );
+            } catch (Throwable) {
+                $diagnostics->record(
+                    'unreadable_entry',
+                    'A filesystem entry could not be inspected and was skipped.',
+                    isset($relativePath) ? $relativePath : null,
+                );
             }
-
-            $extension = strtolower($file->getExtension());
-
-            if (! in_array($extension, $this->extensions, true)) {
-                continue;
-            }
-
-            $absolutePath = str_replace('\\', '/', $file->getPathname());
-            $relativePath = ltrim(substr($absolutePath, strlen($rootPath)), '/');
-            $segments = explode('/', $relativePath);
-
-            if (count($segments) < 3 || ! $this->matchesPatterns($relativePath, $libraryRoot)) {
-                continue;
-            }
-
-            yield new DiscoveredAudioFile(
-                absolutePath: $absolutePath,
-                relativePath: $relativePath,
-                albumRelativePath: $segments[0].'/'.$segments[1],
-                artistFolder: $segments[0],
-                albumFolder: $segments[1],
-                fileSize: $file->getSize(),
-                modifiedAt: $file->getMTime(),
-            );
         }
+    }
+
+    private function relativePath(string $path, string $rootPath): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+
+        return ltrim(substr($normalized, strlen($rootPath)), '/');
     }
 
     private function matchesPatterns(string $relativePath, LibraryRoot $libraryRoot): bool

@@ -7,6 +7,8 @@ use RuntimeException;
 
 class GetId3MetadataReader implements AudioMetadataReader
 {
+    public function __construct(private readonly RawMetadataSanitizer $metadataSanitizer) {}
+
     public function read(string $absolutePath): AudioMetadata
     {
         $getId3 = new \getID3;
@@ -43,7 +45,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             channels: isset($information['audio']['channels']) ? (int) $information['audio']['channels'] : null,
             embeddedArtwork: $this->embeddedArtwork($information),
             warnings: array_values((array) ($information['warning'] ?? [])),
-            rawMetadata: $this->jsonSafe($this->withoutArtwork($information)),
+            rawMetadata: $this->metadataSanitizer->sanitize($this->withoutArtwork($information)),
         );
     }
 
@@ -143,18 +145,5 @@ class GetId3MetadataReader implements AudioMetadataReader
         }
 
         return $value;
-    }
-
-    /**
-     * @param  array<string, mixed>  $information
-     * @return array<string, mixed>
-     */
-    private function jsonSafe(array $information): array
-    {
-        return json_decode(
-            json_encode($information, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR),
-            true,
-            flags: JSON_THROW_ON_ERROR,
-        );
     }
 }

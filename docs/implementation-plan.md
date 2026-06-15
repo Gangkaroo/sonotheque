@@ -170,16 +170,22 @@ Completed:
 - Folder-cover discovery, embedded-artwork fallback, artwork caching, and thumbnail generation
 - Vue/Vuetify application shell with responsive navigation, Pinia, routing, and English/German translations
 - Library-root list, create, and remove workflow with canonical path and safe relative cover-path validation
+- Scan start/cancel API, queued dispatch, progress/history API, and periodically refreshed Settings UI controls
+- Structured scan diagnostics for invalid layouts, unreadable entries, malformed files, missing files, and unavailable roots
+- Safe handling for suspicious empty rescans so an unavailable drive does not mark the existing catalog missing
+- Read-only Explorer-style server folder browser for selecting library roots
+- Batched scan progress, cancellation checks, incremental fingerprints, and repeated metadata lookup caches
+- Raw tag metadata sanitation for binary ID3 payloads that PostgreSQL JSONB cannot represent
+- Dashboard metrics with lightweight aggregate queries
+- Paginated artist, album, track, and genre browsing with server-side search and artist A-Z/# filtering
+- Album grids with cached thumbnail delivery and missing-artwork placeholders
 
 In progress or still required for the first milestone:
 
-- Scan API operations, queue worker startup, progress/history API, and Settings UI controls
-- Connecting dashboard and catalog views to the existing API resources
-- Album grids with cached thumbnails and catalog search/filter controls
+- Queue worker startup documentation and local runtime integration
 - Audio streaming and browser playback
-- Restricted server-side folder browser; manual path entry is available first
 
-The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration workflow was brought forward so the first real scan can be exercised end to end. The next vertical slice is scan management, followed by catalog browsing.
+The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration and scan-management workflows were brought forward so a real scan can be exercised end to end. Catalog browsing is now connected to paginated, purpose-built API endpoints. The next vertical slice is secure audio streaming and browser playback.
 
 ### 1. Project Foundation
 
@@ -240,13 +246,13 @@ The implementation order changed slightly from the original phase list. The scan
 
 - Add and remove library roots. (Complete)
 - Provide manual path input. (Complete)
-- Provide a restricted server-side folder browser. (Pending)
+- Provide a restricted server-side folder browser. (Complete)
 - Configure the album-cover path relative to album folders for each library root. (Complete)
 - Validate the cover path as a safe relative path. (Complete)
 - Show an example resolved cover location. (Pending)
-- Start, cancel, and repeat scans.
-- Display live or periodically refreshed scan progress.
-- Show last-scan information and actionable file errors.
+- Start, cancel, and repeat scans. (Complete)
+- Display live or periodically refreshed scan progress. (Complete)
+- Show last-scan information and actionable file errors. (Complete)
 
 ### 7. Local and LAN Security
 

@@ -70,4 +70,16 @@ class LibraryPathGuard
 
         return $resolved;
     }
+
+    public function containsDirectory(string $parent, string $candidate): bool
+    {
+        $comparisonParent = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($parent) : $parent;
+        $comparisonCandidate = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($candidate) : $candidate;
+        $parentPrefix = str_ends_with($comparisonParent, '/')
+            ? $comparisonParent
+            : $comparisonParent.'/';
+
+        return $comparisonCandidate !== $comparisonParent
+            && str_starts_with($comparisonCandidate, $parentPrefix);
+    }
 }

@@ -4,9 +4,10 @@ namespace App\Console\Commands;
 
 use App\Enums\ScanStatus;
 use App\Enums\ScanTrigger;
-use App\Jobs\ScanLibraryRoot as ScanLibraryRootJob;
 use App\Models\LibraryRoot;
 use App\Music\Scanning\LibraryScanner;
+use App\Music\Scanning\ScanDispatcher;
+use App\Music\Scanning\ScanDispatchException;
 use Illuminate\Console\Command;
 
 class ScanLibraryRoot extends Command
@@ -17,7 +18,7 @@ class ScanLibraryRoot extends Command
 
     protected $description = 'Scan a configured music-library root';
 
-    public function handle(LibraryScanner $scanner): int
+    public function handle(LibraryScanner $scanner, ScanDispatcher $dispatcher): int
     {
         $root = LibraryRoot::find($this->argument('root'));
 
@@ -33,17 +34,22 @@ class ScanLibraryRoot extends Command
             return self::FAILURE;
         }
 
-        $scanRun = $root->scanRuns()->create([
-            'status' => ScanStatus::Pending,
-            'trigger' => ScanTrigger::Manual,
-            'summary' => ['phase' => 'queued'],
-        ]);
-
         if ($this->option('sync')) {
+            $scanRun = $root->scanRuns()->create([
+                'status' => ScanStatus::Pending,
+                'trigger' => ScanTrigger::Manual,
+                'summary' => ['phase' => 'queued'],
+            ]);
             $scanner->scan($scanRun);
             $this->info("Scan {$scanRun->id} completed.");
         } else {
-            ScanLibraryRootJob::dispatch($scanRun->id);
+            try {
+                $scanRun = $dispatcher->dispatch($root);
+            } catch (ScanDispatchException $exception) {
+                $this->error($exception->getMessage());
+
+                return self::FAILURE;
+            }
             $this->info("Scan {$scanRun->id} queued.");
         }
 
