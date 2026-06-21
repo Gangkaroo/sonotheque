@@ -135,13 +135,14 @@ class LibraryScanner
                         }
                     }
                 } catch (Throwable $exception) {
+                    $message = $this->exceptionMessage($exception);
                     $warnings = $this->recordFileError($scanRun, $file, $startedAt, $exception);
                     $progress['error_count']++;
                     $this->addIssue(
                         $issues,
                         'file_error',
                         'error',
-                        $exception->getMessage(),
+                        $message,
                         $file->relativePath,
                     );
 
@@ -221,6 +222,8 @@ class LibraryScanner
                 $progress['warning_count'] += $missing;
             }
 
+            $this->deleteAlbumsWithoutMediaFiles($scanRun);
+
             $scanRun->libraryRoot->update(['last_scanned_at' => now()]);
             $scanRun->update(array_merge($progress, [
                 'status' => ScanStatus::Completed,
@@ -252,13 +255,14 @@ class LibraryScanner
             && $existing['status'] === MediaFileStatus::Available
             && $existing['file_size'] === $file->fileSize
             && $existing['modified_at'] === $file->modifiedAt) {
-            $this->unchangedFileIds[] = $existing['id'];
             $album = $this->findAlbumById($existing['album_id']);
-            $warnings = $album === null
-                ? []
-                : $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
 
-            return ['created' => false, 'changed' => false, 'warnings' => $warnings];
+            if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
+                $this->unchangedFileIds[] = $existing['id'];
+                $warnings = $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
+
+                return ['created' => false, 'changed' => false, 'warnings' => $warnings];
+            }
         }
 
         $metadata = $this->metadataReader->read($file->absolutePath);
@@ -268,16 +272,14 @@ class LibraryScanner
                 $artistName = $metadata->albumArtist ?? $metadata->artists[0] ?? $file->artistFolder;
                 $artist = $this->findOrCreateArtist($artistName);
                 $albumHash = $this->pathHash($file->albumRelativePath);
-                $album = $this->albumCache[$albumHash] ??= Album::firstOrNew([
-                    'library_root_id' => $scanRun->library_root_id,
-                    'relative_path_hash' => $albumHash,
-                ]);
+                $album = $this->albumCache[$albumHash] ??= $this->albumForFile($scanRun, $existing, $albumHash);
                 $albumTitle = $this->limited($metadata->album ?? $file->albumFolder, 512);
                 $album->fill([
                     'primary_artist_id' => $artist->id,
                     'title' => $albumTitle,
                     'sort_title' => $albumTitle,
                     'relative_path' => $file->albumRelativePath,
+                    'relative_path_hash' => $albumHash,
                     'original_release_year' => $metadata->originalReleaseYear ?? $album->original_release_year,
                     'disc_total' => $metadata->discTotal ?? $album->disc_total,
                     'metadata' => [
@@ -377,7 +379,9 @@ class LibraryScanner
     /** @return list<string> */
     private function recordFileError(ScanRun $scanRun, DiscoveredAudioFile $file, CarbonImmutable $seenAt, Throwable $exception): array
     {
-        $album = DB::transaction(function () use ($scanRun, $file, $seenAt, $exception): Album {
+        $message = $this->exceptionMessage($exception, 4096);
+
+        $album = DB::transaction(function () use ($scanRun, $file, $seenAt, $message): Album {
             $artist = $this->findOrCreateArtist($file->artistFolder);
             $album = Album::firstOrCreate(
                 [
@@ -408,7 +412,7 @@ class LibraryScanner
                     'modified_at' => CarbonImmutable::createFromTimestamp($file->modifiedAt),
                     'status' => MediaFileStatus::Error,
                     'last_seen_at' => $seenAt,
-                    'scan_error' => mb_substr($exception->getMessage(), 0, 65535),
+                    'scan_error' => mb_substr($message, 0, 65535),
                 ],
             );
 
@@ -512,6 +516,14 @@ class LibraryScanner
         $this->unchangedFileIds = [];
     }
 
+    private function deleteAlbumsWithoutMediaFiles(ScanRun $scanRun): void
+    {
+        Album::query()
+            ->where('library_root_id', $scanRun->library_root_id)
+            ->whereDoesntHave('mediaFiles')
+            ->delete();
+    }
+
     private function prepareScanCaches(ScanRun $scanRun): void
     {
         $this->artworkSynced = [];
@@ -548,6 +560,26 @@ class LibraryScanner
         }
 
         return $this->albumIdCache[$albumId] ??= Album::with('artwork')->find($albumId);
+    }
+
+    private function albumForFile(ScanRun $scanRun, ?array $existing, string $albumHash): Album
+    {
+        $existingAlbum = $existing === null ? null : $this->findAlbumById($existing['album_id']);
+
+        if ($existingAlbum !== null
+            && $existingAlbum->library_root_id === $scanRun->library_root_id
+            && $existingAlbum->relative_path_hash !== $albumHash
+            && ! Album::query()
+                ->where('library_root_id', $scanRun->library_root_id)
+                ->where('relative_path_hash', $albumHash)
+                ->exists()) {
+            return $existingAlbum;
+        }
+
+        return Album::firstOrNew([
+            'library_root_id' => $scanRun->library_root_id,
+            'relative_path_hash' => $albumHash,
+        ]);
     }
 
     private function resetModelCaches(): void
@@ -635,5 +667,16 @@ class LibraryScanner
     private function limited(string $value, int $length): string
     {
         return mb_substr($value, 0, $length);
+    }
+
+    private function exceptionMessage(Throwable $exception, int $limit = 1000): string
+    {
+        $message = str_replace("\0", '', $exception->getMessage());
+
+        if (str_contains($message, ' (Connection:')) {
+            $message = strstr($message, ' (Connection:', before_needle: true) ?: $message;
+        }
+
+        return $this->limited($message, $limit);
     }
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -9,11 +10,16 @@ import { useCatalogStore } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
 
 const { t } = useI18n()
+const route = useRoute()
 const catalog = useCatalogStore()
 const player = usePlayerStore()
-const search = ref('')
+const search = ref(querySearch(route.query.search))
 const page = ref(1)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+function querySearch(value: unknown) {
+  return typeof value === 'string' ? value : ''
+}
 
 function duration(milliseconds?: number) {
   if (!milliseconds) return '—'
@@ -31,10 +37,14 @@ function toggleTrack(track: Track) {
     return
   }
 
-  player.playTrack(track, catalog.tracks.items)
+  player.playTrack(track, catalog.tracks.items, 'track-list')
 }
 
 watch(page, load, { immediate: true })
+watch(() => route.query.search, (value) => {
+  search.value = querySearch(value)
+  page.value = 1
+})
 watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer)
   if (page.value !== 1) {
@@ -50,6 +60,14 @@ onUnmounted(() => {
 
 <template>
   <PageHeader :title="t('tracks.title')" :description="t('tracks.description')" icon="mdi-music-note-outline" />
+  <div class="d-flex flex-wrap ga-3 mb-4">
+    <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="void player.playRandomAlbum()">
+      {{ t('player.playRandomAlbum') }}
+    </v-btn>
+    <v-btn color="primary" prepend-icon="mdi-shuffle-variant" variant="tonal" @click="void player.playRandomTrack()">
+      {{ t('player.playRandomTrack') }}
+    </v-btn>
+  </div>
   <v-text-field v-model="search" class="mb-6" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('tracks.search')" />
   <v-alert v-if="catalog.tracksError" type="error" variant="tonal">{{ catalog.tracksError }}</v-alert>
   <v-skeleton-loader v-else-if="catalog.tracksLoading" type="list-item-three-line@8" />

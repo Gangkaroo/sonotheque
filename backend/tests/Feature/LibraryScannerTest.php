@@ -291,6 +291,105 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(IMAGETYPE_WEBP, $thumbnailType);
     }
 
+    public function test_scanner_uses_the_track_parent_folder_as_album_when_root_has_prefix_directories(): void
+    {
+        $albumPath = $this->musicPath
+            .DIRECTORY_SEPARATOR.'L'
+            .DIRECTORY_SEPARATOR.'Lyvten'
+            .DIRECTORY_SEPARATOR.'Sondern Vom Mut Mit Dem Du Lebst (2015)';
+        $coverPath = $albumPath.DIRECTORY_SEPARATOR.'Cover';
+        mkdir($coverPath, recursive: true);
+        file_put_contents($albumPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
+        $this->createCover($coverPath.DIRECTORY_SEPARATOR.'Front.jpg', 640, 640);
+        $root = $this->createRoot();
+        $root->update(['cover_image_path' => 'Cover/Front.jpg']);
+
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+
+        $album = Album::with('artwork')->sole();
+        $this->assertSame('L/Lyvten/Sondern Vom Mut Mit Dem Du Lebst (2015)', $album->relative_path);
+        $this->assertNotNull($album->artwork);
+        $this->assertSame(ArtworkSource::Folder, $album->artwork->source_type);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $secondScan = $this->createScan($root);
+        $scanner->scan($secondScan);
+
+        $this->assertSame(1, $this->metadataReader->calls);
+        $this->assertSame(0, $secondScan->fresh()->files_updated);
+        $this->assertDatabaseCount(Album::class, 1);
+    }
+
+    public function test_scanner_repairs_existing_album_paths_when_folder_depth_changes(): void
+    {
+        $albumPath = $this->musicPath
+            .DIRECTORY_SEPARATOR.'L'
+            .DIRECTORY_SEPARATOR.'Lyvten'
+            .DIRECTORY_SEPARATOR.'Sondern Vom Mut Mit Dem Du Lebst (2015)';
+        $coverPath = $albumPath.DIRECTORY_SEPARATOR.'Cover';
+        mkdir($coverPath, recursive: true);
+        $trackPath = $albumPath.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $this->createCover($coverPath.DIRECTORY_SEPARATOR.'Front.jpg', 640, 640);
+        $root = $this->createRoot();
+        $root->update(['cover_image_path' => 'Cover/Front.jpg']);
+        $artist = Artist::create(['name' => 'Lyvten', 'sort_name' => 'Lyvten', 'browse_initial' => 'L']);
+        $album = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Sondern Vom Mut Mit Dem Du Lebst',
+            'sort_title' => 'Sondern Vom Mut Mit Dem Du Lebst',
+            'relative_path' => 'L/Lyvten',
+            'relative_path_hash' => hash('sha256', 'l/lyvten'),
+        ]);
+        $mediaFile = MediaFile::create([
+            'library_root_id' => $root->id,
+            'album_id' => $album->id,
+            'relative_path' => 'L/Lyvten/Sondern Vom Mut Mit Dem Du Lebst (2015)/01.mp3',
+            'relative_path_hash' => hash('sha256', 'l/lyvten/sondern vom mut mit dem du lebst (2015)/01.mp3'),
+            'file_size' => filesize($trackPath),
+            'modified_at' => CarbonImmutable::createFromTimestamp(filemtime($trackPath)),
+            'last_seen_at' => now(),
+            'status' => MediaFileStatus::Available,
+        ]);
+        Track::create([
+            'album_id' => $album->id,
+            'media_file_id' => $mediaFile->id,
+            'title' => 'Weisse Pyramiden',
+            'sort_title' => 'Weisse Pyramiden',
+        ]);
+
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $album->refresh();
+        $this->assertSame('L/Lyvten/Sondern Vom Mut Mit Dem Du Lebst (2015)', $album->relative_path);
+        $this->assertNotNull($album->artwork_id);
+        $this->assertSame($album->id, $mediaFile->fresh()->album_id);
+        $this->assertDatabaseCount(Album::class, 1);
+    }
+
+    public function test_successful_scan_deletes_albums_without_media_files(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        file_put_contents($albumPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
+        $root = $this->createRoot();
+        $artist = Artist::create(['name' => 'Bjoerk', 'sort_name' => 'Bjoerk', 'browse_initial' => 'B']);
+        $orphanedAlbum = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Bjoerk',
+            'sort_title' => 'Bjoerk',
+            'relative_path' => 'Bjoerk',
+            'relative_path_hash' => hash('sha256', 'bjoerk'),
+        ]);
+
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $this->assertDatabaseMissing(Album::class, ['id' => $orphanedAlbum->id]);
+        $this->assertDatabaseHas(Album::class, ['title' => 'Debut']);
+    }
+
     public function test_invalid_folder_cover_is_a_nonfatal_scan_warning(): void
     {
         $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';

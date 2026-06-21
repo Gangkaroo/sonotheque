@@ -101,12 +101,28 @@ class AudioFileDiscoverer
                     continue;
                 }
 
+                $fileName = array_pop($segments);
+                $albumFolder = array_pop($segments);
+                $artistFolder = array_pop($segments);
+
+                if ($fileName === null || $albumFolder === null || $artistFolder === null) {
+                    $diagnostics->record(
+                        'invalid_layout',
+                        'A supported audio file was outside the expected Artist/Album folder layout.',
+                        $relativePath,
+                    );
+
+                    continue;
+                }
+
+                $albumRelativePath = implode('/', [...$segments, $artistFolder, $albumFolder]);
+
                 yield new DiscoveredAudioFile(
                     absolutePath: $absolutePath,
                     relativePath: $relativePath,
-                    albumRelativePath: $segments[0].'/'.$segments[1],
-                    artistFolder: $segments[0],
-                    albumFolder: $segments[1],
+                    albumRelativePath: $albumRelativePath,
+                    artistFolder: $artistFolder,
+                    albumFolder: $albumFolder,
                     fileSize: $file->getSize(),
                     modifiedAt: $file->getMTime(),
                 );

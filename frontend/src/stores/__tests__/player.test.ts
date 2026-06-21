@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Track } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
@@ -24,9 +24,10 @@ const tracks: Track[] = [
 describe('player store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.unstubAllGlobals()
   })
 
-  it('plays a track with its page queue and moves through the queue', () => {
+  it('plays a track with its page queue and moves through the queue', async () => {
     const player = usePlayerStore()
 
     player.playTrack(tracks[0], tracks)
@@ -35,12 +36,34 @@ describe('player store', () => {
     expect(player.isPlaying).toBe(true)
     expect(player.hasNext).toBe(true)
 
-    player.next()
+    await player.next()
     expect(player.currentTrack?.title).toBe('Second')
     expect(player.hasPrevious).toBe(true)
 
     player.previous()
     expect(player.currentTrack?.title).toBe('First')
+  })
+
+  it('loads a random next track when continuous random track-list playback is enabled', async () => {
+    const nextTrack: Track = {
+      id: 3,
+      title: 'Random next',
+      streamUrl: '/api/tracks/3/stream',
+      album: { id: 11, title: 'Other Album' },
+      artists: [{ id: 101, name: 'Other Artist' }],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(nextTrack), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks, 'track-list')
+    player.setContinuousPlay(true)
+    player.setRandomPlay(true)
+    await player.next()
+
+    expect(player.currentTrack?.title).toBe('Random next')
+    expect(player.playbackContext).toBe('track-list')
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/playback/tracks/random?exclude=1', expect.any(Object))
   })
 
   it('stops playback and records playback errors', () => {

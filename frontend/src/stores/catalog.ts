@@ -22,6 +22,14 @@ export interface Album {
   primaryArtist: NamedCatalogItem | null
   trackCount: number
   artworkThumbnailUrl?: string | null
+  artworkUrl?: string | null
+  artworkWidth?: number | null
+  artworkHeight?: number | null
+}
+
+export interface AlbumDetail extends Album {
+  genres: NamedCatalogItem[]
+  tracks: Track[]
 }
 
 export interface Track {
@@ -60,6 +68,7 @@ interface CatalogQuery {
   page?: number
   search?: string
   initial?: string | null
+  year?: number | string | null
 }
 
 function emptyPage<T>(): CatalogPage<T> {
@@ -70,20 +79,26 @@ function queryPath(path: string, query: CatalogQuery): string {
   const parameters = new URLSearchParams({ page: String(query.page ?? 1) })
   if (query.search?.trim()) parameters.set('search', query.search.trim())
   if (query.initial) parameters.set('initial', query.initial)
+  if (query.year !== undefined && query.year !== null && String(query.year).trim() !== '') {
+    parameters.set('year', String(query.year).trim())
+  }
   return `${path}?${parameters}`
 }
 
 export const useCatalogStore = defineStore('catalog', () => {
   const artists = ref<CatalogPage<Artist>>(emptyPage())
   const albums = ref<CatalogPage<Album>>(emptyPage())
+  const albumDetail = ref<AlbumDetail | null>(null)
   const tracks = ref<CatalogPage<Track>>(emptyPage())
   const genres = ref<CatalogPage<Genre>>(emptyPage())
   const artistsLoading = ref(false)
   const albumsLoading = ref(false)
+  const albumDetailLoading = ref(false)
   const tracksLoading = ref(false)
   const genresLoading = ref(false)
   const artistsError = ref<string | null>(null)
   const albumsError = ref<string | null>(null)
+  const albumDetailError = ref<string | null>(null)
   const tracksError = ref<string | null>(null)
   const genresError = ref<string | null>(null)
   const metrics = ref<CatalogMetrics>({ artists: 0, albums: 0, tracks: 0, genres: 0 })
@@ -93,6 +108,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   let metricsPromise: Promise<void> | null = null
   let artistsRequest = 0
   let albumsRequest = 0
+  let albumDetailRequest = 0
   let tracksRequest = 0
   let genresRequest = 0
 
@@ -147,6 +163,21 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  async function loadAlbum(id: number) {
+    const request = ++albumDetailRequest
+    albumDetail.value = null
+    albumDetailLoading.value = true
+    albumDetailError.value = null
+    try {
+      const result = await apiRequest<AlbumDetail>(`/catalog/albums/${id}`)
+      if (request === albumDetailRequest) albumDetail.value = result
+    } catch (cause) {
+      if (request === albumDetailRequest) albumDetailError.value = errorMessage(cause)
+    } finally {
+      if (request === albumDetailRequest) albumDetailLoading.value = false
+    }
+  }
+
   async function loadTracks(query: CatalogQuery = {}) {
     const request = ++tracksRequest
     tracksLoading.value = true
@@ -178,14 +209,17 @@ export const useCatalogStore = defineStore('catalog', () => {
   return {
     artists,
     albums,
+    albumDetail,
     tracks,
     genres,
     artistsLoading,
     albumsLoading,
+    albumDetailLoading,
     tracksLoading,
     genresLoading,
     artistsError,
     albumsError,
+    albumDetailError,
     tracksError,
     genresError,
     metrics,
@@ -196,6 +230,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadMetrics,
     loadArtists,
     loadAlbums,
+    loadAlbum,
     loadTracks,
     loadGenres,
   }

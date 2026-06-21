@@ -14,8 +14,8 @@ const theme = useTheme()
 const navigation = computed(() => [
   { title: t('navigation.dashboard'), icon: 'mdi-view-dashboard-outline', to: '/' },
   { title: t('navigation.artists'), icon: 'mdi-account-music-outline', to: '/artists' },
-  { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
   { title: t('navigation.genres'), icon: 'mdi-tag-multiple-outline', to: '/genres' },
+  { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
   { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
 ])
 

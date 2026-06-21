@@ -40,14 +40,45 @@ describe('catalog store', () => {
 
     const store = useCatalogStore()
     await Promise.all([
-      store.loadAlbums({ page: 2 }),
+      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999 }),
       store.loadTracks({ page: 2 }),
       store.loadGenres({ page: 2 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/genres?page=2', expect.any(Object))
+  })
+
+  it('loads album details with playable tracks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 5,
+      title: 'Album',
+      originalReleaseYear: 1999,
+      primaryArtist: { id: 3, name: 'Artist' },
+      trackCount: 1,
+      artworkThumbnailUrl: null,
+      artworkUrl: '/api/artwork/2/original',
+      artworkWidth: 1200,
+      artworkHeight: 1200,
+      genres: [{ id: 4, name: 'Rock' }],
+      tracks: [{
+        id: 9,
+        title: 'Track',
+        streamUrl: '/api/tracks/9/stream',
+        durationMs: 123000,
+        album: { id: 5, title: 'Album' },
+        artists: [{ id: 3, name: 'Artist' }],
+      }],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadAlbum(5)
+
+    expect(store.albumDetail?.tracks[0]?.streamUrl).toBe('/api/tracks/9/stream')
+    expect(store.albumDetail?.genres[0]?.name).toBe('Rock')
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums/5', expect.any(Object))
   })
 
   it('loads dashboard metrics without loading catalog pages', async () => {

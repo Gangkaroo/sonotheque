@@ -13,7 +13,10 @@ const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
   set: (value: number) => player.setVolume(value / 100),
 })
-const progress = computed(() => duration.value ? (currentTime.value / duration.value) * 100 : 0)
+const seekPosition = computed({
+  get: () => currentTime.value,
+  set: (value: number) => seekTo(value),
+})
 const artistLine = computed(() => {
   const track = player.currentTrack
   if (!track) return ''
@@ -22,6 +25,17 @@ const artistLine = computed(() => {
   const album = track.album?.title
 
   return [artists, album].filter(Boolean).join(' · ')
+})
+
+const primaryArtist = computed(() => player.currentTrack?.artists[0] ?? null)
+const artistNames = computed(() => player.currentTrack?.artists.map((artist) => artist.name).join(', ') ?? '')
+const albumRoute = computed(() => {
+  const albumId = player.currentTrack?.album?.id
+
+  return albumId ? { name: 'album-detail', params: { id: albumId } } : null
+})
+const artistAlbumsRoute = computed(() => {
+  return primaryArtist.value ? { name: 'albums', query: { search: primaryArtist.value.name } } : null
 })
 
 watch(
@@ -77,8 +91,16 @@ function updateProgress() {
   duration.value = Number.isFinite(audio.value?.duration) ? audio.value?.duration ?? 0 : 0
 }
 
+function seekTo(value: number) {
+  if (!audio.value || !duration.value || !Number.isFinite(value)) return
+
+  const target = Math.min(duration.value, Math.max(0, value))
+  audio.value.currentTime = target
+  currentTime.value = target
+}
+
 function onEnded() {
-  player.next()
+  void player.next()
 }
 
 function onError() {
@@ -107,8 +129,26 @@ function formatTime(value: number) {
 
     <div class="player-content">
       <div class="player-meta">
-        <div class="text-subtitle-2 font-weight-bold text-truncate">{{ player.currentTrack.title }}</div>
-        <div class="text-caption text-medium-emphasis text-truncate">{{ artistLine }}</div>
+        <RouterLink
+          v-if="albumRoute"
+          class="player-meta-link text-subtitle-2 font-weight-bold text-truncate"
+          :to="albumRoute"
+        >
+          {{ player.currentTrack.title }}
+        </RouterLink>
+        <div v-else class="text-subtitle-2 font-weight-bold text-truncate">{{ player.currentTrack.title }}</div>
+        <div class="text-caption text-medium-emphasis text-truncate">
+          <RouterLink v-if="artistAlbumsRoute" class="player-meta-link" :to="artistAlbumsRoute">
+            {{ artistNames }}
+          </RouterLink>
+          <span v-else-if="!albumRoute">{{ artistLine }}</span>
+          <template v-if="albumRoute && player.currentTrack.album">
+            <span v-if="artistAlbumsRoute"> · </span>
+            <RouterLink class="player-meta-link" :to="albumRoute">
+              {{ player.currentTrack.album.title }}
+            </RouterLink>
+          </template>
+        </div>
         <div v-if="player.error" class="text-caption text-error text-truncate">{{ player.error }}</div>
       </div>
 
@@ -130,9 +170,9 @@ function formatTime(value: number) {
         <v-btn
           :aria-label="t('player.next')"
           :disabled="!player.hasNext"
-          icon="mdi-skip-next"
+          :icon="player.loadingNext ? 'mdi-loading' : 'mdi-skip-next'"
           variant="text"
-          @click="player.next"
+          @click="void player.next()"
         />
         <v-menu location="top" :close-on-content-click="false">
           <template #activator="{ props }">
@@ -144,6 +184,19 @@ function formatTime(value: number) {
             />
           </template>
           <v-card class="player-settings pa-4" min-width="260">
+            <v-switch
+              v-model="player.continuousPlay"
+              color="primary"
+              hide-details
+              :label="t('player.continuousPlay')"
+            />
+            <v-switch
+              v-model="player.randomPlay"
+              color="primary"
+              hide-details
+              :label="t('player.randomPlay')"
+            />
+            <v-divider class="my-3" />
             <div class="d-flex align-center ga-3">
               <v-icon icon="mdi-volume-high" />
               <div class="text-body-2 font-weight-medium">{{ t('player.volume') }}</div>
@@ -165,7 +218,18 @@ function formatTime(value: number) {
       </div>
 
       <div class="player-progress">
-        <v-progress-linear :model-value="progress" color="primary" rounded />
+        <v-slider
+          v-model="seekPosition"
+          :aria-label="t('player.seek')"
+          :disabled="!duration"
+          color="primary"
+          density="compact"
+          hide-details
+          :max="duration || 0"
+          min="0"
+          step="1"
+          thumb-label
+        />
         <div class="text-caption text-medium-emphasis">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</div>
       </div>
     </div>
@@ -195,6 +259,21 @@ function formatTime(value: number) {
 .player-progress {
   display: grid;
   gap: 4px;
+}
+
+.player-meta-link {
+  color: inherit;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.player-meta-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 760px) {

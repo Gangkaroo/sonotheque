@@ -19,4 +19,16 @@ class ArtworkThumbnailController extends Controller
             'Content-Type' => 'image/webp',
         ]);
     }
+
+    public function original(Artwork $artwork): StreamedResponse
+    {
+        $storage = Storage::disk(config('music-library.artwork.disk'));
+
+        abort_unless($storage->exists($artwork->cache_path), 404);
+
+        return $storage->response($artwork->cache_path, null, [
+            'Cache-Control' => 'public, max-age=86400',
+            'Content-Type' => $artwork->mime_type,
+        ]);
+    }
 }

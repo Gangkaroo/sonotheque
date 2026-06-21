@@ -5,14 +5,16 @@ import { useI18n } from 'vue-i18n'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useCatalogStore } from '@/stores/catalog'
+import { usePlayerStore } from '@/stores/player'
 
 const { t } = useI18n()
 const catalog = useCatalogStore()
+const player = usePlayerStore()
 const metrics = computed(() => [
   { key: 'artists', value: catalog.metrics.artists, icon: 'mdi-account-music-outline', to: '/artists' },
+  { key: 'genres', value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
   { key: 'albums', value: catalog.metrics.albums, icon: 'mdi-album', to: '/albums' },
   { key: 'tracks', value: catalog.metrics.tracks, icon: 'mdi-music-note-outline', to: '/tracks' },
-  { key: 'genres', value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
 ])
 
 onMounted(() => catalog.loadMetrics(true))
@@ -47,6 +49,15 @@ onMounted(() => catalog.loadMetrics(true))
       </v-card>
     </v-col>
   </v-row>
+
+  <div class="d-flex flex-wrap ga-3 mb-6">
+    <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="void player.playRandomAlbum()">
+      {{ t('player.playRandomAlbum') }}
+    </v-btn>
+    <v-btn color="primary" prepend-icon="mdi-shuffle-variant" variant="tonal" @click="void player.playRandomTrack()">
+      {{ t('player.playRandomTrack') }}
+    </v-btn>
+  </div>
 
   <v-alert v-if="catalog.metricsError" type="error" variant="tonal">{{ catalog.metricsError }}</v-alert>
   <EmptyCatalogState

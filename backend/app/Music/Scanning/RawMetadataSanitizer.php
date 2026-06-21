@@ -20,17 +20,36 @@ class RawMetadataSanitizer
     private function sanitizeValue(mixed $value): mixed
     {
         if (is_array($value)) {
+            $sanitized = [];
+
             foreach ($value as $key => $child) {
-                $value[$key] = $this->sanitizeValue($child);
+                $sanitized[$this->sanitizeKey($key)] = $this->sanitizeValue($child);
             }
 
-            return $value;
+            return $sanitized;
         }
 
         if (is_string($value) && str_contains($value, "\0")) {
             return sprintf('[binary data omitted: %d bytes]', strlen($value));
         }
 
+        if (is_float($value) && ! is_finite($value)) {
+            return '[non-finite number omitted]';
+        }
+
         return $value;
+    }
+
+    private function sanitizeKey(int|string $key): int|string
+    {
+        if (is_int($key)) {
+            return $key;
+        }
+
+        if (str_contains($key, "\0")) {
+            return sprintf('[binary key omitted: %d bytes]', strlen($key));
+        }
+
+        return $key;
     }
 }
