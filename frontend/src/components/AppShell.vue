@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTheme } from 'vuetify'
 
+import AppPlayer from '@/components/AppPlayer.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 
 const drawer = ref(/** @type {boolean | null} */ (null))
@@ -110,6 +111,8 @@ function setLocale(value) {
         <router-view />
       </v-container>
     </v-main>
+
+    <AppPlayer />
   </v-app>
 </template>
 

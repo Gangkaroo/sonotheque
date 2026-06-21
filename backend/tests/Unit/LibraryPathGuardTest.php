@@ -9,6 +9,14 @@ use PHPUnit\Framework\TestCase;
 
 class LibraryPathGuardTest extends TestCase
 {
+    public function test_drive_roots_use_a_single_separator_for_containment(): void
+    {
+        $guard = new LibraryPathGuard;
+
+        $this->assertTrue($guard->containsDirectory('P:/', 'P:/Artist/Album/track.mp3'));
+        $this->assertFalse($guard->containsDirectory('P:/', 'Q:/Artist/Album/track.mp3'));
+    }
+
     public function test_it_normalizes_safe_relative_paths(): void
     {
         $guard = new LibraryPathGuard;

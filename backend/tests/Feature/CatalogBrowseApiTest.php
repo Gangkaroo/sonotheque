@@ -34,6 +34,7 @@ class CatalogBrowseApiTest extends TestCase
         $this->getJson('/api/catalog/tracks?search=Track')
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('items.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('items.0.album.title', 'Album')
             ->assertJsonPath('items.0.artists.0.name', 'Artist');
 

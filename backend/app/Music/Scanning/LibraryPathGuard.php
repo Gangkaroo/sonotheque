@@ -44,7 +44,7 @@ class LibraryPathGuard
     {
         $base = $this->canonicalizeDirectory($directory);
         $relative = $this->normalizeRelativePath($relativePath);
-        $candidate = $base.'/'.$relative;
+        $candidate = (str_ends_with($base, '/') ? $base : $base.'/').$relative;
 
         if (! file_exists($candidate)) {
             return null;
@@ -61,10 +61,7 @@ class LibraryPathGuard
         }
 
         $resolved = str_replace('\\', '/', $resolved);
-        $comparisonBase = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($base) : $base;
-        $comparisonResolved = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($resolved) : $resolved;
-
-        if (! str_starts_with($comparisonResolved, $comparisonBase.'/')) {
+        if (! $this->containsDirectory($base, $resolved)) {
             throw new InvalidLibraryPath("File [{$relativePath}] escapes its album directory.");
         }
 

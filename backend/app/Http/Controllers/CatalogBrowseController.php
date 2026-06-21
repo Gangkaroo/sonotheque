@@ -93,6 +93,7 @@ class CatalogBrowseController extends Controller
         return $this->paginated($tracks, fn (Track $track) => [
             'id' => $track->id,
             'title' => $track->title,
+            'streamUrl' => "/api/tracks/{$track->id}/stream",
             'durationMs' => $track->duration_ms,
             'trackNumber' => $track->track_number,
             'discNumber' => $track->disc_number,

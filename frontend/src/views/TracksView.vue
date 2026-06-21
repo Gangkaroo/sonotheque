@@ -4,10 +4,13 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
+import { usePlayerStore } from '@/stores/player'
 
 const { t } = useI18n()
 const catalog = useCatalogStore()
+const player = usePlayerStore()
 const search = ref('')
 const page = ref(1)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -20,6 +23,15 @@ function duration(milliseconds?: number) {
 
 function load() {
   void catalog.loadTracks({ page: page.value, search: search.value })
+}
+
+function toggleTrack(track: Track) {
+  if (player.currentTrack?.id === track.id && player.isPlaying) {
+    player.pause()
+    return
+  }
+
+  player.playTrack(track, catalog.tracks.items)
 }
 
 watch(page, load, { immediate: true })
@@ -48,7 +60,18 @@ onUnmounted(() => {
         {{ track.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist') }}
       </v-list-item-subtitle>
       <v-list-item-subtitle>{{ track.album?.title ?? t('catalog.unknownAlbum') }}</v-list-item-subtitle>
-      <template #append><span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span></template>
+      <template #append>
+        <div class="d-flex align-center ga-2">
+          <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
+          <v-btn
+            :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
+            :color="player.currentTrack?.id === track.id ? 'primary' : undefined"
+            :icon="player.currentTrack?.id === track.id && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
+            variant="text"
+            @click="toggleTrack(track)"
+          />
+        </div>
+      </template>
     </v-list-item>
   </v-list>
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />

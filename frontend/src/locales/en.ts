@@ -55,6 +55,16 @@ export default {
     emptyTitle: 'No tracks found',
     search: 'Search tracks',
   },
+  player: {
+    play: 'Play',
+    pause: 'Pause',
+    previous: 'Previous track',
+    next: 'Next track',
+    settings: 'Player settings',
+    volume: 'Volume',
+    close: 'Close player',
+    playbackError: 'This track could not be played.',
+  },
   settings: {
     title: 'Settings',
     description: 'Configure library locations, artwork paths, and scan behavior.',

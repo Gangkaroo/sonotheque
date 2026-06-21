@@ -27,6 +27,7 @@ export interface Album {
 export interface Track {
   id: number
   title: string
+  streamUrl: string
   durationMs?: number
   trackNumber?: number
   discNumber?: number

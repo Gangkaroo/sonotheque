@@ -179,11 +179,13 @@ Completed:
 - Dashboard metrics with lightweight aggregate queries
 - Paginated artist, album, track, and genre browsing with server-side search and artist A-Z/# filtering
 - Album grids with cached thumbnail delivery and missing-artwork placeholders
+- Secure audio streaming with HTTP range support and enabled-root/path validation
+- Persistent browser playback controls with current-page queue navigation
 
 In progress or still required for the first milestone:
 
 - Queue worker startup documentation and local runtime integration
-- Audio streaming and browser playback
+- Playback UI polish and broader queue management
 
 The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration and scan-management workflows were brought forward so a real scan can be exercised end to end. Catalog browsing is now connected to paginated, purpose-built API endpoints. The next vertical slice is secure audio streaming and browser playback.
 
@@ -235,10 +237,10 @@ The implementation order changed slightly from the original phase list. The scan
 
 ### 5. Audio Playback
 
-- Implement an audio streaming endpoint with HTTP range support.
-- Validate file access against enabled library roots.
-- Add persistent player controls.
-- Add playback queue management using Pinia.
+- Implement an audio streaming endpoint with HTTP range support. (Complete)
+- Validate file access against enabled library roots. (Complete)
+- Add persistent player controls. (Complete)
+- Add playback queue management using Pinia. (Basic current-page queue complete)
 - Handle unavailable files and unsupported browser codecs clearly.
 - Consider FFmpeg-based transcoding only after the MVP.
 

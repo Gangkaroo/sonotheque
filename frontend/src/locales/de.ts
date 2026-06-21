@@ -55,6 +55,16 @@ export default {
     emptyTitle: 'Keine Titel gefunden',
     search: 'Titel suchen',
   },
+  player: {
+    play: 'Abspielen',
+    pause: 'Pausieren',
+    previous: 'Vorheriger Titel',
+    next: 'Nächster Titel',
+    settings: 'Player-Einstellungen',
+    volume: 'Lautstärke',
+    close: 'Player schließen',
+    playbackError: 'Dieser Titel konnte nicht abgespielt werden.',
+  },
   settings: {
     title: 'Einstellungen',
     description: 'Konfiguriere Bibliotheksordner, Coverpfade und das Scanverhalten.',
