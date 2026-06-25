@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
@@ -16,6 +17,8 @@ const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
 const artworkDialog = ref(false)
+const addToPlaylistDialog = ref(false)
+const playlistTracks = ref<Track[]>([])
 
 const albumId = computed(() => Number(route.params.id))
 const album = computed(() => catalog.albumDetail)
@@ -62,6 +65,16 @@ function queueAlbum() {
   if (!album.value) return
 
   player.queueAlbum(album.value)
+}
+
+function addAlbumToPlaylist() {
+  playlistTracks.value = [...tracks.value]
+  addToPlaylistDialog.value = true
+}
+
+function addTrackToPlaylist(track: Track) {
+  playlistTracks.value = [track]
+  addToPlaylistDialog.value = true
 }
 
 function openArtwork() {
@@ -146,6 +159,9 @@ watch(() => player.currentTrack?.album?.id, (id) => {
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :disabled="!tracks.length" @click="queueAlbum">
               {{ t('albums.queueAlbum') }}
             </v-btn>
+            <v-btn color="primary" variant="text" prepend-icon="mdi-playlist-music" :disabled="!tracks.length" @click="addAlbumToPlaylist">
+              {{ t('playlists.addAlbumToPlaylist') }}
+            </v-btn>
             <v-btn
               :color="favorites.isAlbumFavorite(album.id) ? 'primary' : undefined"
               :prepend-icon="favorites.isAlbumFavorite(album.id) ? 'mdi-heart' : 'mdi-heart-outline'"
@@ -196,6 +212,12 @@ watch(() => player.currentTrack?.album?.id, (id) => {
               @click="toggleTrack(track)"
             />
             <v-btn
+              :aria-label="t('playlists.addTrackToPlaylist')"
+              icon="mdi-playlist-music"
+              variant="text"
+              @click="addTrackToPlaylist(track)"
+            />
+            <v-btn
               :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
               :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
@@ -219,6 +241,8 @@ watch(() => player.currentTrack?.album?.id, (id) => {
       />
     </div>
   </v-dialog>
+
+  <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 </template>
 
 <style scoped>

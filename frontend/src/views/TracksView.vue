@@ -3,6 +3,7 @@ import { onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import type { Track } from '@/stores/catalog'
@@ -20,6 +21,8 @@ const search = ref(querySearch(route.query.search))
 const genre = ref(queryNumber(route.query.genre))
 const genreName = ref(querySearch(route.query.genreName))
 const page = ref(1)
+const addToPlaylistDialog = ref(false)
+const playlistTracks = ref<Track[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 function querySearch(value: unknown) {
@@ -63,6 +66,11 @@ function toggleTrack(track: Track) {
 
 function queueTrack(track: Track) {
   player.queueTrack(track, 'track-list')
+}
+
+function openAddToPlaylist(track: Track) {
+  playlistTracks.value = [track]
+  addToPlaylistDialog.value = true
 }
 
 watch([page, genre], load, { immediate: true })
@@ -151,6 +159,12 @@ onUnmounted(() => {
             @click="queueTrack(track)"
           />
           <v-btn
+            :aria-label="t('playlists.addTrackToPlaylist')"
+            icon="mdi-playlist-music"
+            variant="text"
+            @click="openAddToPlaylist(track)"
+          />
+          <v-btn
             :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
             :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
             :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
@@ -163,6 +177,7 @@ onUnmounted(() => {
   </v-list>
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
   <v-pagination v-if="catalog.tracks.lastPage > 1" v-model="page" class="mt-6" :length="catalog.tracks.lastPage" />
+  <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 </template>
 
 <style scoped>

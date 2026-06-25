@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
+import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -13,6 +14,7 @@ const route = useRoute()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
+const addToPlaylistDialog = ref(false)
 
 const trackId = computed(() => Number(route.params.id))
 const backAlbumId = computed(() => {
@@ -27,6 +29,7 @@ const backRoute = computed(() => {
 })
 const backLabel = computed(() => backAlbumId.value ? t('tracks.backToAlbum') : t('tracks.back'))
 const track = computed(() => catalog.trackDetail)
+const playlistTracks = computed(() => track.value ? [track.value] : [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
 const artistNames = computed(() => track.value?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
 const technicalRows = computed(() => {
@@ -171,6 +174,14 @@ watch(trackId, (id) => {
         >
           {{ favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack') }}
         </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-playlist-music"
+          variant="text"
+          @click="addToPlaylistDialog = true"
+        >
+          {{ t('playlists.addTrackToPlaylist') }}
+        </v-btn>
       </v-card-actions>
     </v-card>
 
@@ -213,6 +224,8 @@ watch(trackId, (id) => {
   </template>
 
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
+
+  <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 </template>
 
 <style scoped>

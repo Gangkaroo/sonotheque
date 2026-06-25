@@ -157,7 +157,38 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   }
 
   async function addTrack(playlistId: number, trackId: number) {
-    return apiRequest<PlaylistItem>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'POST' })
+    const item = await apiRequest<PlaylistItem>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'POST' })
+    incrementPlaylistCount(playlistId, 1)
+
+    if (current.value?.id === playlistId) {
+      current.value = { ...current.value, items: [...current.value.items, item], trackCount: current.value.trackCount + 1 }
+    }
+
+    return item
+  }
+
+  async function addTracks(playlistId: number, trackIds: number[]) {
+    const items: PlaylistItem[] = []
+    for (const trackId of trackIds) {
+      items.push(await apiRequest<PlaylistItem>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'POST' }))
+    }
+
+    incrementPlaylistCount(playlistId, items.length)
+    if (current.value?.id === playlistId) {
+      current.value = {
+        ...current.value,
+        items: [...current.value.items, ...items],
+        trackCount: current.value.trackCount + items.length,
+      }
+    }
+
+    return items
+  }
+
+  function incrementPlaylistCount(playlistId: number, amount: number) {
+    playlists.value = playlists.value.map((playlist) => playlist.id === playlistId
+      ? { ...playlist, trackCount: playlist.trackCount + amount }
+      : playlist)
   }
 
   return {
@@ -174,6 +205,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     deleteFolder,
     deletePlaylist,
     addTrack,
+    addTracks,
   }
 })
 

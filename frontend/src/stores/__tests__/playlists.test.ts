@@ -65,6 +65,29 @@ describe('playlists store', () => {
     expect(store.playlists).toEqual([])
     expect(store.folders).toEqual([])
   })
+
+  it('adds tracks to a playlist and updates counts', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/tracks/1' && init?.method === 'POST') {
+        return jsonResponse({ id: 100, position: 1, track: trackResponse(1) }, 201)
+      }
+
+      if (url === '/api/playlists/10/tracks/2' && init?.method === 'POST') {
+        return jsonResponse({ id: 101, position: 2, track: trackResponse(2) }, 201)
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = usePlaylistsStore()
+    store.playlists = [{ id: 10, name: 'Mix', trackCount: 0 }]
+
+    await store.addTracks(10, [1, 2])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(store.playlists[0]?.trackCount).toBe(2)
+  })
 })
 
 function jsonResponse(body: unknown, status = 200) {
@@ -73,4 +96,14 @@ function jsonResponse(body: unknown, status = 200) {
 
 function emptyResponse() {
   return new Response(null, { status: 204 })
+}
+
+function trackResponse(id: number) {
+  return {
+    id,
+    title: `Track ${id}`,
+    streamUrl: `/api/tracks/${id}/stream`,
+    album: null,
+    artists: [],
+  }
 }
