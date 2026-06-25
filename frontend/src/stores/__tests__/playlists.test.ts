@@ -91,6 +91,31 @@ describe('playlists store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(store.playlists[0]?.trackCount).toBe(2)
   })
+
+  it('removes a playlist item and updates current playlist state', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/items/100' && init?.method === 'DELETE') {
+        return emptyResponse()
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.playlists = [{ id: 10, name: 'Mix', trackCount: 1 }]
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 1,
+      items: [{ id: 100, position: 0, track: trackResponse(1) }],
+    }
+
+    await store.removeItem(10, 100)
+
+    expect(store.playlists[0]?.trackCount).toBe(0)
+    expect(store.current?.items).toEqual([])
+    expect(store.current?.trackCount).toBe(0)
+  })
 })
 
 function jsonResponse(body: unknown, status = 200) {

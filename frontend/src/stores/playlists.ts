@@ -188,9 +188,30 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     return items
   }
 
+  async function removeItem(playlistId: number, itemId: number) {
+    saving.value = true
+    error.value = null
+    try {
+      await apiRequest<void>(`/playlists/${playlistId}/items/${itemId}`, { method: 'DELETE' })
+      incrementPlaylistCount(playlistId, -1)
+      if (current.value?.id === playlistId) {
+        current.value = {
+          ...current.value,
+          items: current.value.items.filter((item) => item.id !== itemId),
+          trackCount: Math.max(0, current.value.trackCount - 1),
+        }
+      }
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   function incrementPlaylistCount(playlistId: number, amount: number) {
     playlists.value = playlists.value.map((playlist) => playlist.id === playlistId
-      ? { ...playlist, trackCount: playlist.trackCount + amount }
+      ? { ...playlist, trackCount: Math.max(0, playlist.trackCount + amount) }
       : playlist)
   }
 
@@ -209,6 +230,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     deletePlaylist,
     addTrack,
     addTracks,
+    removeItem,
   }
 })
 

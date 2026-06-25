@@ -158,7 +158,7 @@ onMounted(() => {
 
         <v-skeleton-loader v-if="playlists.loading" type="list-item-three-line@5" />
         <v-list v-else-if="playlists.playlists.length" lines="three">
-          <v-list-item v-for="playlist in playlists.playlists" :key="playlist.id">
+          <v-list-item v-for="playlist in playlists.playlists" :key="playlist.id" :to="{ name: 'playlist-detail', params: { id: playlist.id } }">
             <template #prepend>
               <v-avatar color="primary" variant="tonal">
                 <v-icon icon="mdi-playlist-music-outline" />
@@ -178,7 +178,7 @@ onMounted(() => {
                 :disabled="playlists.saving"
                 icon="mdi-delete-outline"
                 variant="text"
-                @click="void playlists.deletePlaylist(playlist.id)"
+                @click.prevent.stop="void playlists.deletePlaylist(playlist.id)"
               />
             </template>
           </v-list-item>
