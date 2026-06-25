@@ -87,7 +87,7 @@ class PlaylistsController extends Controller
 
     public function playlist(Playlist $playlist): JsonResponse
     {
-        $playlist->load(['folder:id,name', 'items.track.album:id,title', 'items.track.artists:id,name'])
+        $playlist->load(['folder:id,name', 'items.track.album:id,title,original_release_year', 'items.track.artists:id,name'])
             ->loadCount('items');
 
         return response()->json($this->playlistDetailPayload($playlist));
@@ -154,6 +154,30 @@ class PlaylistsController extends Controller
         $this->normalizeItemPositions($playlist);
 
         return response()->json(null, 204);
+    }
+
+    public function removeItems(Request $request, Playlist $playlist): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*' => ['integer', 'distinct'],
+        ]);
+
+        $itemIds = collect($validated['items'])->values();
+        $existingCount = $playlist->items()->whereKey($itemIds->all())->count();
+
+        if ($existingCount !== $itemIds->count()) {
+            throw ValidationException::withMessages([
+                'items' => 'All selected playlist items must belong to this playlist.',
+            ]);
+        }
+
+        DB::transaction(function () use ($playlist, $itemIds) {
+            $playlist->items()->whereKey($itemIds->all())->delete();
+            $this->normalizeItemPositions($playlist);
+        });
+
+        return $this->playlist($playlist);
     }
 
     public function reorderItems(Request $request, Playlist $playlist): JsonResponse
@@ -309,7 +333,7 @@ class PlaylistsController extends Controller
 
         return PlaylistItem::query()
             ->whereIn('id', $items->pluck('id'))
-            ->with(['track.album:id,title', 'track.artists:id,name'])
+            ->with(['track.album:id,title,original_release_year', 'track.artists:id,name'])
             ->orderBy('position')
             ->get();
     }

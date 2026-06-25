@@ -5,10 +5,19 @@ import { useRoute, useRouter } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Album } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+
+interface AlbumFilters {
+  search: string
+  initial: string | null
+  year: number | null
+  genre: number | null
+  genreName: string
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -16,13 +25,16 @@ const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
-const initial = ref<string | null>(null)
-const search = ref(querySearch(route.query.search))
-const genre = ref(queryNumber(route.query.genre))
-const genreName = ref(querySearch(route.query.genreName))
-const year = ref<number | null>(null)
+const storageKey = 'music-library:album-filters'
+const restoredFilters = initialFilters()
+const initial = ref<string | null>(restoredFilters.initial)
+const search = ref(restoredFilters.search)
+const genre = ref(restoredFilters.genre)
+const genreName = ref(restoredFilters.genreName)
+const year = ref<number | null>(restoredFilters.year)
 const page = ref(1)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let applyingRouteFilters = false
 const releaseYears = computed(() => {
   const currentYear = new Date().getFullYear()
 
@@ -30,7 +42,7 @@ const releaseYears = computed(() => {
 })
 
 function load() {
-  void catalog.loadAlbums({ page: page.value, search: search.value, initial: initial.value, year: year.value, genre: genre.value })
+  void catalog.loadAlbums({ page: page.value, search: querySearch(search.value), initial: initial.value, year: year.value, genre: genre.value })
 }
 
 function selectInitial(value: string | null) {
@@ -38,8 +50,126 @@ function selectInitial(value: string | null) {
   initial.value = value
 }
 
+function currentFilters(): AlbumFilters {
+  return {
+    search: querySearch(search.value),
+    initial: initial.value,
+    year: year.value,
+    genre: genre.value,
+    genreName: genreName.value,
+  }
+}
+
+function defaultFilters(): AlbumFilters {
+  return {
+    search: '',
+    initial: null,
+    year: null,
+    genre: null,
+    genreName: '',
+  }
+}
+
+function initialFilters(): AlbumFilters {
+  const routeFilters = filtersFromQuery()
+
+  if (routeFilters) return routeFilters
+
+  return filtersFromStorage() ?? defaultFilters()
+}
+
+function filtersFromQuery(): AlbumFilters | null {
+  if (!hasFilterQuery()) return null
+
+  return {
+    search: querySearch(route.query.search),
+    initial: queryInitial(route.query.initial),
+    year: queryNumber(route.query.year),
+    genre: queryNumber(route.query.genre),
+    genreName: querySearch(route.query.genreName),
+  }
+}
+
+function hasFilterQuery() {
+  return ['search', 'initial', 'year', 'genre', 'genreName'].some((key) => route.query[key] !== undefined)
+}
+
+function filtersFromStorage(): AlbumFilters | null {
+  try {
+    const stored = window.sessionStorage.getItem(storageKey)
+    if (!stored) return null
+
+    const parsed = JSON.parse(stored) as Partial<AlbumFilters>
+
+    return {
+      search: typeof parsed.search === 'string' ? parsed.search : '',
+      initial: queryInitial(parsed.initial),
+      year: typeof parsed.year === 'number' ? parsed.year : null,
+      genre: typeof parsed.genre === 'number' ? parsed.genre : null,
+      genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveFilters() {
+  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
+}
+
+function syncFiltersToRoute() {
+  const query = filterQuery(currentFilters())
+
+  if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
+
+  void router.replace({ name: 'albums', query })
+}
+
+function applyFilters(filters: AlbumFilters) {
+  applyingRouteFilters = true
+  search.value = filters.search
+  initial.value = filters.initial
+  year.value = filters.year
+  genre.value = filters.genre
+  genreName.value = filters.genreName
+  page.value = 1
+  applyingRouteFilters = false
+  saveFilters()
+}
+
+function filterQuery(filters: AlbumFilters) {
+  const query: Record<string, string> = {}
+
+  if (filters.search.trim()) query.search = filters.search.trim()
+  if (filters.initial) query.initial = filters.initial
+  if (filters.year) query.year = String(filters.year)
+  if (filters.genre) query.genre = String(filters.genre)
+  if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+
+  return query
+}
+
+function normalizedFilterQuery(query: typeof route.query) {
+  return filterQuery({
+    search: querySearch(query.search),
+    initial: queryInitial(query.initial),
+    year: queryNumber(query.year),
+    genre: queryNumber(query.genre),
+    genreName: querySearch(query.genreName),
+  })
+}
+
 function querySearch(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+function queryInitial(value: unknown) {
+  if (typeof value !== 'string') return null
+  if (value === '#') return value
+
+  const normalized = value.toUpperCase()
+
+  return /^[A-Z]$/.test(normalized) ? normalized : null
 }
 
 function queryNumber(value: unknown) {
@@ -49,13 +179,9 @@ function queryNumber(value: unknown) {
 }
 
 function clearGenreFilter() {
-  const query = { ...route.query }
-  delete query.genre
-  delete query.genreName
   genre.value = null
   genreName.value = ''
   page.value = 1
-  void router.replace({ name: 'albums', query })
 }
 
 function albumDetails(album: Album) {
@@ -66,22 +192,39 @@ function albumDetails(album: Album) {
   return t('albums.details', { year: album.originalReleaseYear, count: album.trackCount })
 }
 
-watch([page, initial, year, genre], load, { immediate: true })
-watch(() => route.query.search, (value) => {
-  search.value = querySearch(value)
-  page.value = 1
-})
-watch(() => [route.query.genre, route.query.genreName], ([genreValue, genreNameValue]) => {
-  genre.value = queryNumber(genreValue)
-  genreName.value = querySearch(genreNameValue)
-  page.value = 1
-})
-watch(search, () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  if (page.value !== 1) {
-    page.value = 1
+saveFilters()
+
+watch(() => route.query, () => {
+  const routeFilters = filtersFromQuery()
+  if (routeFilters) {
+    applyFilters(routeFilters)
     return
   }
+
+  syncFiltersToRoute()
+})
+watch([initial, year, genre, genreName], () => {
+  if (applyingRouteFilters) return
+
+  page.value = 1
+  saveFilters()
+  syncFiltersToRoute()
+})
+watch([page, initial, year, genre], load, { immediate: true })
+watch(search, () => {
+  const wasNotFirstPage = page.value !== 1
+  if (searchTimer) clearTimeout(searchTimer)
+
+  if (!applyingRouteFilters) {
+    page.value = 1
+    saveFilters()
+    syncFiltersToRoute()
+  } else if (wasNotFirstPage) {
+    page.value = 1
+  }
+
+  if (wasNotFirstPage) return
+
   searchTimer = setTimeout(load, 300)
 })
 onUnmounted(() => {
@@ -138,8 +281,9 @@ onUnmounted(() => {
           <div v-else class="d-flex align-center justify-center bg-surface-bright" style="aspect-ratio: 1">
             <v-icon icon="mdi-album" size="72" color="medium-emphasis" />
           </div>
-          <v-btn
-            class="favorite-album-button"
+          <TooltipIconButton
+            wrapper-class="favorite-album-button"
+            :text="favorites.isAlbumFavorite(album.id) ? t('favorites.removeAlbum') : t('favorites.addAlbum')"
             :aria-label="favorites.isAlbumFavorite(album.id) ? t('favorites.removeAlbum') : t('favorites.addAlbum')"
             :color="favorites.isAlbumFavorite(album.id) ? 'primary' : undefined"
             :icon="favorites.isAlbumFavorite(album.id) ? 'mdi-heart' : 'mdi-heart-outline'"
@@ -170,7 +314,7 @@ onUnmounted(() => {
   position: relative;
 }
 
-.favorite-album-button {
+.album-card-media :deep(.favorite-album-button) {
   position: absolute;
   right: 12px;
   top: 12px;

@@ -133,6 +133,27 @@ class PlaylistsApiTest extends TestCase
         );
     }
 
+    public function test_multiple_playlist_items_can_be_removed_in_one_request(): void
+    {
+        [, , $firstTrack, , $secondTrack] = $this->createCatalog();
+        $playlist = Playlist::create(['name' => 'Trim me']);
+        $this->postJson("/api/playlists/{$playlist->id}/tracks", [
+            'trackIds' => [$firstTrack->id, $secondTrack->id, $firstTrack->id],
+        ])->assertCreated();
+
+        $items = $playlist->items()->orderBy('position')->pluck('id')->values();
+
+        $this->deleteJson("/api/playlists/{$playlist->id}/items", [
+            'items' => [$items[0], $items[1]],
+        ])
+            ->assertOk()
+            ->assertJsonPath('trackCount', 1)
+            ->assertJsonPath('items.0.position', 0)
+            ->assertJsonPath('items.0.track.title', 'First track');
+
+        $this->assertSame([$items[2]], $playlist->items()->orderBy('position')->pluck('id')->all());
+    }
+
     public function test_reorder_requires_all_playlist_items(): void
     {
         [, , $firstTrack, , $secondTrack] = $this->createCatalog();

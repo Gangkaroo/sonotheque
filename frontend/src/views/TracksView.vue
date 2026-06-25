@@ -6,10 +6,17 @@ import { useRoute, useRouter } from 'vue-router'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+
+interface TrackFilters {
+  search: string
+  genre: number | null
+  genreName: string
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -17,13 +24,111 @@ const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
-const search = ref(querySearch(route.query.search))
-const genre = ref(queryNumber(route.query.genre))
-const genreName = ref(querySearch(route.query.genreName))
+const storageKey = 'music-library:track-filters'
+const restoredFilters = initialFilters()
+const search = ref(restoredFilters.search)
+const genre = ref(restoredFilters.genre)
+const genreName = ref(restoredFilters.genreName)
 const page = ref(1)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let applyingRouteFilters = false
+
+function currentFilters(): TrackFilters {
+  return {
+    search: querySearch(search.value),
+    genre: genre.value,
+    genreName: genreName.value,
+  }
+}
+
+function defaultFilters(): TrackFilters {
+  return {
+    search: '',
+    genre: null,
+    genreName: '',
+  }
+}
+
+function initialFilters(): TrackFilters {
+  const routeFilters = filtersFromQuery()
+
+  if (routeFilters) return routeFilters
+
+  return filtersFromStorage() ?? defaultFilters()
+}
+
+function filtersFromQuery(): TrackFilters | null {
+  if (!hasFilterQuery()) return null
+
+  return {
+    search: querySearch(route.query.search),
+    genre: queryNumber(route.query.genre),
+    genreName: querySearch(route.query.genreName),
+  }
+}
+
+function hasFilterQuery() {
+  return ['search', 'genre', 'genreName'].some((key) => route.query[key] !== undefined)
+}
+
+function filtersFromStorage(): TrackFilters | null {
+  try {
+    const stored = window.sessionStorage.getItem(storageKey)
+    if (!stored) return null
+
+    const parsed = JSON.parse(stored) as Partial<TrackFilters>
+
+    return {
+      search: typeof parsed.search === 'string' ? parsed.search : '',
+      genre: typeof parsed.genre === 'number' ? parsed.genre : null,
+      genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveFilters() {
+  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
+}
+
+function syncFiltersToRoute() {
+  const query = filterQuery(currentFilters())
+
+  if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
+
+  void router.replace({ name: 'tracks', query })
+}
+
+function applyFilters(filters: TrackFilters) {
+  applyingRouteFilters = true
+  search.value = filters.search
+  genre.value = filters.genre
+  genreName.value = filters.genreName
+  page.value = 1
+  applyingRouteFilters = false
+  saveFilters()
+}
+
+function filterQuery(filters: TrackFilters) {
+  const query: Record<string, string> = {}
+
+  if (filters.search.trim()) query.search = filters.search.trim()
+  if (filters.genre) query.genre = String(filters.genre)
+  if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+
+  return query
+}
+
+function normalizedFilterQuery(query: typeof route.query) {
+  return filterQuery({
+    search: querySearch(query.search),
+    genre: queryNumber(query.genre),
+    genreName: querySearch(query.genreName),
+  })
+}
 
 function querySearch(value: unknown) {
   return typeof value === 'string' ? value : ''
@@ -36,13 +141,9 @@ function queryNumber(value: unknown) {
 }
 
 function clearGenreFilter() {
-  const query = { ...route.query }
-  delete query.genre
-  delete query.genreName
   genre.value = null
   genreName.value = ''
   page.value = 1
-  void router.replace({ name: 'tracks', query })
 }
 
 function duration(milliseconds?: number) {
@@ -52,7 +153,7 @@ function duration(milliseconds?: number) {
 }
 
 function load() {
-  void catalog.loadTracks({ page: page.value, search: search.value, genre: genre.value })
+  void catalog.loadTracks({ page: page.value, search: querySearch(search.value), genre: genre.value })
 }
 
 function toggleTrack(track: Track) {
@@ -73,22 +174,39 @@ function openAddToPlaylist(track: Track) {
   addToPlaylistDialog.value = true
 }
 
-watch([page, genre], load, { immediate: true })
-watch(() => route.query.search, (value) => {
-  search.value = querySearch(value)
-  page.value = 1
-})
-watch(() => [route.query.genre, route.query.genreName], ([genreValue, genreNameValue]) => {
-  genre.value = queryNumber(genreValue)
-  genreName.value = querySearch(genreNameValue)
-  page.value = 1
-})
-watch(search, () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  if (page.value !== 1) {
-    page.value = 1
+saveFilters()
+
+watch(() => route.query, () => {
+  const routeFilters = filtersFromQuery()
+  if (routeFilters) {
+    applyFilters(routeFilters)
     return
   }
+
+  syncFiltersToRoute()
+})
+watch([genre, genreName], () => {
+  if (applyingRouteFilters) return
+
+  page.value = 1
+  saveFilters()
+  syncFiltersToRoute()
+})
+watch([page, genre], load, { immediate: true })
+watch(search, () => {
+  const wasNotFirstPage = page.value !== 1
+  if (searchTimer) clearTimeout(searchTimer)
+
+  if (!applyingRouteFilters) {
+    page.value = 1
+    saveFilters()
+    syncFiltersToRoute()
+  } else if (wasNotFirstPage) {
+    page.value = 1
+  }
+
+  if (wasNotFirstPage) return
+
   searchTimer = setTimeout(load, 300)
 })
 onUnmounted(() => {
@@ -145,26 +263,30 @@ onUnmounted(() => {
       <template #append>
         <div class="d-flex align-center ga-2">
           <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
-          <v-btn
+          <TooltipIconButton
+            :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
             :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
             :color="player.currentTrack?.id === track.id ? 'primary' : undefined"
             :icon="player.currentTrack?.id === track.id && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
             variant="text"
             @click="toggleTrack(track)"
           />
-          <v-btn
+          <TooltipIconButton
+            :text="t('tracks.queueTrack')"
             :aria-label="t('tracks.queueTrack')"
             icon="mdi-playlist-plus"
             variant="text"
             @click="queueTrack(track)"
           />
-          <v-btn
+          <TooltipIconButton
+            :text="t('playlists.addTrackToPlaylist')"
             :aria-label="t('playlists.addTrackToPlaylist')"
             icon="mdi-playlist-music"
             variant="text"
             @click="openAddToPlaylist(track)"
           />
-          <v-btn
+          <TooltipIconButton
+            :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
             :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
             :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
             :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"

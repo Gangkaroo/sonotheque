@@ -96,10 +96,55 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   function removeQueuedTrack(index: number) {
-    if (!Number.isInteger(index) || index < 0 || index >= queue.value.length || index === currentIndex.value) return
+    if (!Number.isInteger(index) || index < 0 || index >= queue.value.length) return
 
-    queue.value = queue.value.filter((_, itemIndex) => itemIndex !== index)
-    if (index < currentIndex.value) currentIndex.value -= 1
+    const removedCurrentTrack = index === currentIndex.value
+    const wasPlaying = isPlaying.value
+    const nextQueue = queue.value.filter((_, itemIndex) => itemIndex !== index)
+
+    if (!nextQueue.length) {
+      stop()
+      return
+    }
+
+    queue.value = nextQueue
+
+    if (!removedCurrentTrack) {
+      if (index < currentIndex.value) currentIndex.value -= 1
+      return
+    }
+
+    currentIndex.value = Math.min(index, queue.value.length - 1)
+    playbackPosition.value = 0
+    error.value = null
+    isPlaying.value = wasPlaying
+    playbackState.value = wasPlaying ? 'loading' : 'paused'
+  }
+
+  function moveQueuedTrack(index: number, targetIndex: number) {
+    if (
+      !Number.isInteger(index)
+      || !Number.isInteger(targetIndex)
+      || index < 0
+      || targetIndex < 0
+      || index >= queue.value.length
+      || targetIndex >= queue.value.length
+      || index === targetIndex
+    ) return
+
+    const current = currentTrack.value
+    const nextQueue = [...queue.value]
+    const item = nextQueue[index]
+    if (!item) return
+
+    nextQueue.splice(index, 1)
+    nextQueue.splice(targetIndex, 0, item)
+    queue.value = nextQueue
+    currentIndex.value = current ? queue.value.indexOf(current) : -1
+  }
+
+  function clearQueue() {
+    stop()
   }
 
   async function playRandomAlbum() {
@@ -294,6 +339,8 @@ export const usePlayerStore = defineStore('player', () => {
     queueAlbum,
     playQueueIndex,
     removeQueuedTrack,
+    moveQueuedTrack,
+    clearQueue,
     playRandomAlbum,
     playRandomTrack,
     previous,

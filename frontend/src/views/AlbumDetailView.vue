@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -204,20 +205,23 @@ watch(() => player.currentTrack?.album?.id, (id) => {
         <template #append>
           <div class="d-flex align-center ga-2">
             <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
-            <v-btn
+            <TooltipIconButton
+              :text="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :aria-label="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :color="isCurrentTrack(track) ? 'primary' : undefined"
               :icon="isCurrentTrack(track) && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
               variant="text"
               @click="toggleTrack(track)"
             />
-            <v-btn
+            <TooltipIconButton
+              :text="t('playlists.addTrackToPlaylist')"
               :aria-label="t('playlists.addTrackToPlaylist')"
               icon="mdi-playlist-music"
               variant="text"
               @click="addTrackToPlaylist(track)"
             />
-            <v-btn
+            <TooltipIconButton
+              :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
               :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"

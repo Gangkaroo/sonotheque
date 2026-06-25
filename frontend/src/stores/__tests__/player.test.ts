@@ -101,7 +101,7 @@ describe('player store', () => {
     expect(player.playbackContext).toBe('album')
   })
 
-  it('jumps to queued tracks and removes non-current queue entries', () => {
+  it('jumps to queued tracks and removes queue entries', () => {
     const player = usePlayerStore()
 
     player.playTrack(tracks[0], tracks)
@@ -114,7 +114,47 @@ describe('player store', () => {
     expect(player.currentTrack?.title).toBe('Second')
 
     player.removeQueuedTrack(0)
+    expect(player.queue).toEqual([])
+    expect(player.currentTrack).toBeNull()
+    expect(player.playbackState).toBe('idle')
+  })
+
+  it('removes the current queue entry and continues with the next track', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks)
+    player.setPlaybackState('playing')
+
+    player.removeQueuedTrack(0)
+
     expect(player.queue.map((track) => track.title)).toEqual(['Second'])
+    expect(player.currentTrack?.title).toBe('Second')
+    expect(player.isPlaying).toBe(true)
+    expect(player.playbackState).toBe('loading')
+  })
+
+  it('moves queued tracks to a target position without changing the active track', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks)
+    player.playQueueIndex(1)
+
+    player.moveQueuedTrack(1, 0)
+
+    expect(player.queue.map((track) => track.title)).toEqual(['Second', 'First'])
+    expect(player.currentTrack?.title).toBe('Second')
+    expect(player.currentIndex).toBe(0)
+  })
+
+  it('clears the queue', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks)
+    player.clearQueue()
+
+    expect(player.queue).toEqual([])
+    expect(player.currentTrack).toBeNull()
+    expect(player.playbackState).toBe('idle')
   })
 
   it('stops playback and records playback errors', () => {

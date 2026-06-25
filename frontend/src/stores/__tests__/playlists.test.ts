@@ -116,6 +116,77 @@ describe('playlists store', () => {
     expect(store.current?.items).toEqual([])
     expect(store.current?.trackCount).toBe(0)
   })
+
+  it('removes multiple playlist items and keeps returned order', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/items' && init?.method === 'DELETE') {
+        expect(JSON.parse(String(init.body))).toEqual({ items: [100, 101] })
+
+        return jsonResponse({
+          id: 10,
+          name: 'Mix',
+          trackCount: 1,
+          items: [{ id: 102, position: 0, track: trackResponse(3) }],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.playlists = [{ id: 10, name: 'Mix', trackCount: 3 }]
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 3,
+      items: [
+        { id: 100, position: 0, track: trackResponse(1) },
+        { id: 101, position: 1, track: trackResponse(2) },
+        { id: 102, position: 2, track: trackResponse(3) },
+      ],
+    }
+
+    await store.removeItems(10, [100, 101])
+
+    expect(store.playlists[0]?.trackCount).toBe(1)
+    expect(store.current?.items.map((item) => item.id)).toEqual([102])
+    expect(store.current?.trackCount).toBe(1)
+  })
+
+  it('reorders playlist items', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/items/reorder' && init?.method === 'PATCH') {
+        expect(JSON.parse(String(init.body))).toEqual({ items: [101, 100] })
+
+        return jsonResponse({
+          id: 10,
+          name: 'Mix',
+          trackCount: 2,
+          items: [
+            { id: 101, position: 0, track: trackResponse(2) },
+            { id: 100, position: 1, track: trackResponse(1) },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 2,
+      items: [
+        { id: 100, position: 0, track: trackResponse(1) },
+        { id: 101, position: 1, track: trackResponse(2) },
+      ],
+    }
+
+    await store.reorderItems(10, [101, 100])
+
+    expect(store.current?.items.map((item) => item.id)).toEqual([101, 100])
+  })
 })
 
 function jsonResponse(body: unknown, status = 200) {

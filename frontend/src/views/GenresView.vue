@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore } from '@/stores/catalog'
 
 const { t } = useI18n()
@@ -41,14 +42,16 @@ onUnmounted(() => {
       <v-list-item-subtitle>{{ t('genres.trackCount', { count: genre.trackCount }) }}</v-list-item-subtitle>
       <template #append>
         <div class="d-flex align-center ga-1">
-          <v-btn
+          <TooltipIconButton
+            :text="t('genres.viewAlbums', { name: genre.name })"
             :aria-label="t('genres.viewAlbums', { name: genre.name })"
             icon="mdi-album"
             size="small"
             :to="{ name: 'albums', query: { genre: genre.id, genreName: genre.name } }"
             variant="text"
           />
-          <v-btn
+          <TooltipIconButton
+            :text="t('genres.viewTracks', { name: genre.name })"
             :aria-label="t('genres.viewTracks', { name: genre.name })"
             icon="mdi-music-note"
             size="small"

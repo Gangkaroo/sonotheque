@@ -40,7 +40,7 @@ export interface Track {
   trackNumber?: number
   discNumber?: number
   year?: number | null
-  album: { id: number, title: string } | null
+  album: { id: number, title: string, originalReleaseYear?: number | null } | null
   artists: NamedCatalogItem[]
 }
 

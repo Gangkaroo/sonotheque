@@ -42,5 +42,6 @@ Route::patch('/playlists/{playlist}', [PlaylistsController::class, 'updatePlayli
 Route::delete('/playlists/{playlist}', [PlaylistsController::class, 'deletePlaylist']);
 Route::post('/playlists/{playlist}/tracks', [PlaylistsController::class, 'addTracks']);
 Route::post('/playlists/{playlist}/tracks/{track}', [PlaylistsController::class, 'addTrack']);
+Route::delete('/playlists/{playlist}/items', [PlaylistsController::class, 'removeItems']);
 Route::delete('/playlists/{playlist}/items/{item}', [PlaylistsController::class, 'removeItem']);
 Route::patch('/playlists/{playlist}/items/reorder', [PlaylistsController::class, 'reorderItems']);

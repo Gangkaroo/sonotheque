@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Album, Track } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
@@ -87,7 +88,8 @@ onMounted(() => {
             <v-list-item-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-list-item-subtitle>
             <v-list-item-subtitle>{{ albumDetails(album) }}</v-list-item-subtitle>
             <template #append>
-              <v-btn
+              <TooltipIconButton
+                :text="t('favorites.removeAlbum')"
                 :aria-label="t('favorites.removeAlbum')"
                 color="primary"
                 icon="mdi-heart"
@@ -130,15 +132,23 @@ onMounted(() => {
             <template #append>
               <div class="d-flex align-center ga-1">
                 <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
-                <v-btn
+                <TooltipIconButton
+                  :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :color="player.currentTrack?.id === track.id ? 'primary' : undefined"
                   :icon="player.currentTrack?.id === track.id && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
                   variant="text"
                   @click="toggleTrack(track)"
                 />
-                <v-btn :aria-label="t('tracks.queueTrack')" icon="mdi-playlist-plus" variant="text" @click="player.queueTrack(track, 'track-list')" />
-                <v-btn
+                <TooltipIconButton
+                  :text="t('tracks.queueTrack')"
+                  :aria-label="t('tracks.queueTrack')"
+                  icon="mdi-playlist-plus"
+                  variant="text"
+                  @click="player.queueTrack(track, 'track-list')"
+                />
+                <TooltipIconButton
+                  :text="t('favorites.removeTrack')"
                   :aria-label="t('favorites.removeTrack')"
                   color="primary"
                   icon="mdi-heart"

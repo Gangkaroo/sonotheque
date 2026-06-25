@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
@@ -87,7 +88,8 @@ onMounted(() => {
             <v-list-item-title class="font-weight-bold">{{ folder.name }}</v-list-item-title>
             <v-list-item-subtitle>{{ t('playlists.playlistCount', { count: folder.playlistCount }) }}</v-list-item-subtitle>
             <template #append>
-              <v-btn
+              <TooltipIconButton
+                :text="t('playlists.deleteFolder', { name: folder.name })"
                 :aria-label="t('playlists.deleteFolder', { name: folder.name })"
                 :disabled="playlists.saving"
                 icon="mdi-delete-outline"
@@ -173,7 +175,8 @@ onMounted(() => {
               <span v-if="playlist.description"> &middot; {{ playlist.description }}</span>
             </v-list-item-subtitle>
             <template #append>
-              <v-btn
+              <TooltipIconButton
+                :text="t('playlists.deletePlaylist', { name: playlist.name })"
                 :aria-label="t('playlists.deletePlaylist', { name: playlist.name })"
                 :disabled="playlists.saving"
                 icon="mdi-delete-outline"

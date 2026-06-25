@@ -209,6 +209,46 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  async function removeItems(playlistId: number, itemIds: number[]) {
+    if (!itemIds.length) return current.value
+
+    saving.value = true
+    error.value = null
+    try {
+      const playlist = await apiRequest<PlaylistDetail>(`/playlists/${playlistId}/items`, {
+        method: 'DELETE',
+        body: JSON.stringify({ items: itemIds }),
+      })
+      const removedCount = itemIds.length
+      incrementPlaylistCount(playlistId, -removedCount)
+      if (current.value?.id === playlistId) current.value = playlist
+      return playlist
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
+  async function reorderItems(playlistId: number, itemIds: number[]) {
+    saving.value = true
+    error.value = null
+    try {
+      const playlist = await apiRequest<PlaylistDetail>(`/playlists/${playlistId}/items/reorder`, {
+        method: 'PATCH',
+        body: JSON.stringify({ items: itemIds }),
+      })
+      if (current.value?.id === playlistId) current.value = playlist
+      return playlist
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   function incrementPlaylistCount(playlistId: number, amount: number) {
     playlists.value = playlists.value.map((playlist) => playlist.id === playlistId
       ? { ...playlist, trackCount: Math.max(0, playlist.trackCount + amount) }
@@ -231,6 +271,8 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     addTrack,
     addTracks,
     removeItem,
+    removeItems,
+    reorderItems,
   }
 })
 
