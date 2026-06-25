@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\ArtworkSource;
+use App\Enums\MediaFileStatus;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Artwork;
@@ -54,6 +55,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.id', $secondAlbum->id)
             ->assertJsonPath('total', 1);
 
+        $this->getJson("/api/catalog/albums?genre={$genre->id}")
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $album->id)
+            ->assertJsonPath('total', 1);
+
         $this->getJson('/api/catalog/tracks?search=Track')
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
@@ -62,6 +68,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.artists.0.name', 'Artist');
 
         $this->getJson('/api/catalog/tracks?search=Artist')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('total', 1);
+
+        $this->getJson("/api/catalog/tracks?genre={$genre->id}")
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('total', 1);
@@ -104,6 +115,39 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('tracks.0.album.title', 'Album')
             ->assertJsonPath('tracks.0.artists.0.name', 'Artist');
+    }
+
+    public function test_track_detail_returns_catalog_and_media_file_metadata(): void
+    {
+        [$artist, $album, $track, $genre] = $this->createCatalog();
+        $track->mediaFile->update([
+            'mime_type' => 'audio/mpeg',
+            'container' => 'mp3',
+            'codec' => 'mp3',
+            'bitrate' => 320000,
+            'sample_rate' => 44100,
+            'channels' => 2,
+            'status' => MediaFileStatus::Available,
+        ]);
+
+        $this->getJson("/api/catalog/tracks/{$track->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $track->id)
+            ->assertJsonPath('title', 'Track')
+            ->assertJsonPath('streamUrl', "/api/tracks/{$track->id}/stream")
+            ->assertJsonPath('album.id', $album->id)
+            ->assertJsonPath('album.title', 'Album')
+            ->assertJsonPath('artists.0.id', $artist->id)
+            ->assertJsonPath('artists.0.name', 'Artist')
+            ->assertJsonPath('genres.0.id', $genre->id)
+            ->assertJsonPath('genres.0.name', 'Rock')
+            ->assertJsonPath('mediaFile.relativePath', 'Artist/Album/track.mp3')
+            ->assertJsonPath('mediaFile.status', MediaFileStatus::Available->value)
+            ->assertJsonPath('mediaFile.mimeType', 'audio/mpeg')
+            ->assertJsonPath('mediaFile.codec', 'mp3')
+            ->assertJsonPath('mediaFile.bitrate', 320000)
+            ->assertJsonPath('mediaFile.sampleRate', 44100)
+            ->assertJsonPath('mediaFile.channels', 2);
     }
 
     public function test_albums_are_sorted_by_primary_artist_and_can_filter_by_artist_initial(): void

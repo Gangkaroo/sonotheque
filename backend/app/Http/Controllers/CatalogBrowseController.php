@@ -45,6 +45,7 @@ class CatalogBrowseController extends Controller
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
             'initial' => ['sometimes', 'nullable', 'string', 'in:#,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z'],
             'year' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:9999'],
+            'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
         $albums = Album::query()
@@ -61,6 +62,7 @@ class CatalogBrowseController extends Controller
             ->withCount('tracks')
             ->has('tracks')
             ->when($filters['year'] ?? null, fn (Builder $query, int $year) => $query->where('albums.original_release_year', $year))
+            ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('tracks.genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $pattern = '%'.$this->escapeLike($search).'%';
                 $query->where(function (Builder $query) use ($pattern): void {
@@ -153,11 +155,13 @@ class CatalogBrowseController extends Controller
         $filters = $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
+            'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
         $tracks = Track::query()
             ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
             ->with(['album:id,title', 'artists:id,name'])
+            ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $pattern = '%'.$this->escapeLike($search).'%';
                 $query->where(function (Builder $query) use ($pattern): void {
@@ -187,6 +191,11 @@ class CatalogBrowseController extends Controller
                 'name' => $artist->name,
             ])->values(),
         ]);
+    }
+
+    public function track(Track $track): JsonResponse
+    {
+        return response()->json($this->trackDetailPayload($track));
     }
 
     public function genres(Request $request): JsonResponse
@@ -263,6 +272,41 @@ class CatalogBrowseController extends Controller
     private function loadPlayableTrack(Track $track): Track
     {
         return $track->load(['album:id,title', 'artists:id,name']);
+    }
+
+    private function trackDetailPayload(Track $track): array
+    {
+        $track->load([
+            'album:id,title,original_release_year',
+            'artists:id,name',
+            'genres:id,name',
+            'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error',
+        ]);
+
+        $mediaFile = $track->mediaFile;
+
+        return [
+            ...$this->trackPayload($track),
+            'year' => $track->year,
+            'genres' => $track->genres->map(fn (Genre $genre) => [
+                'id' => $genre->id,
+                'name' => $genre->name,
+            ])->values(),
+            'mediaFile' => $mediaFile ? [
+                'id' => $mediaFile->id,
+                'relativePath' => $mediaFile->relative_path,
+                'fileSize' => $mediaFile->file_size,
+                'modifiedAt' => $mediaFile->modified_at?->toIso8601String(),
+                'mimeType' => $mediaFile->mime_type,
+                'container' => $mediaFile->container,
+                'codec' => $mediaFile->codec,
+                'bitrate' => $mediaFile->bitrate,
+                'sampleRate' => $mediaFile->sample_rate,
+                'channels' => $mediaFile->channels,
+                'status' => $mediaFile->status?->value,
+                'scanError' => $mediaFile->scan_error,
+            ] : null,
+        ];
     }
 
     private function trackPayload(Track $track): array

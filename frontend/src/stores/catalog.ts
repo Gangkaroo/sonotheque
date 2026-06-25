@@ -39,8 +39,27 @@ export interface Track {
   durationMs?: number
   trackNumber?: number
   discNumber?: number
+  year?: number | null
   album: { id: number, title: string } | null
   artists: NamedCatalogItem[]
+}
+
+export interface TrackDetail extends Track {
+  genres: NamedCatalogItem[]
+  mediaFile: {
+    id: number
+    relativePath: string
+    fileSize: number
+    modifiedAt?: string | null
+    mimeType?: string | null
+    container?: string | null
+    codec?: string | null
+    bitrate?: number | null
+    sampleRate?: number | null
+    channels?: number | null
+    status?: string | null
+    scanError?: string | null
+  } | null
 }
 
 export interface Genre {
@@ -69,6 +88,7 @@ interface CatalogQuery {
   search?: string
   initial?: string | null
   year?: number | string | null
+  genre?: number | string | null
 }
 
 function emptyPage<T>(): CatalogPage<T> {
@@ -82,6 +102,9 @@ function queryPath(path: string, query: CatalogQuery): string {
   if (query.year !== undefined && query.year !== null && String(query.year).trim() !== '') {
     parameters.set('year', String(query.year).trim())
   }
+  if (query.genre !== undefined && query.genre !== null && String(query.genre).trim() !== '') {
+    parameters.set('genre', String(query.genre).trim())
+  }
   return `${path}?${parameters}`
 }
 
@@ -90,16 +113,19 @@ export const useCatalogStore = defineStore('catalog', () => {
   const albums = ref<CatalogPage<Album>>(emptyPage())
   const albumDetail = ref<AlbumDetail | null>(null)
   const tracks = ref<CatalogPage<Track>>(emptyPage())
+  const trackDetail = ref<TrackDetail | null>(null)
   const genres = ref<CatalogPage<Genre>>(emptyPage())
   const artistsLoading = ref(false)
   const albumsLoading = ref(false)
   const albumDetailLoading = ref(false)
   const tracksLoading = ref(false)
+  const trackDetailLoading = ref(false)
   const genresLoading = ref(false)
   const artistsError = ref<string | null>(null)
   const albumsError = ref<string | null>(null)
   const albumDetailError = ref<string | null>(null)
   const tracksError = ref<string | null>(null)
+  const trackDetailError = ref<string | null>(null)
   const genresError = ref<string | null>(null)
   const metrics = ref<CatalogMetrics>({ artists: 0, albums: 0, tracks: 0, genres: 0 })
   const metricsLoading = ref(false)
@@ -110,6 +136,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   let albumsRequest = 0
   let albumDetailRequest = 0
   let tracksRequest = 0
+  let trackDetailRequest = 0
   let genresRequest = 0
 
   const metricsHaveCatalog = computed(() => metrics.value.albums > 0 || metrics.value.tracks > 0)
@@ -192,6 +219,21 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  async function loadTrack(id: number) {
+    const request = ++trackDetailRequest
+    trackDetail.value = null
+    trackDetailLoading.value = true
+    trackDetailError.value = null
+    try {
+      const result = await apiRequest<TrackDetail>(`/catalog/tracks/${id}`)
+      if (request === trackDetailRequest) trackDetail.value = result
+    } catch (cause) {
+      if (request === trackDetailRequest) trackDetailError.value = errorMessage(cause)
+    } finally {
+      if (request === trackDetailRequest) trackDetailLoading.value = false
+    }
+  }
+
   async function loadGenres(query: CatalogQuery = {}) {
     const request = ++genresRequest
     genresLoading.value = true
@@ -211,16 +253,19 @@ export const useCatalogStore = defineStore('catalog', () => {
     albums,
     albumDetail,
     tracks,
+    trackDetail,
     genres,
     artistsLoading,
     albumsLoading,
     albumDetailLoading,
     tracksLoading,
+    trackDetailLoading,
     genresLoading,
     artistsError,
     albumsError,
     albumDetailError,
     tracksError,
+    trackDetailError,
     genresError,
     metrics,
     metricsLoading,
@@ -232,6 +277,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadAlbums,
     loadAlbum,
     loadTracks,
+    loadTrack,
     loadGenres,
   }
 })

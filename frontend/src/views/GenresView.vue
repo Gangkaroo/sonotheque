@@ -39,6 +39,24 @@ onUnmounted(() => {
     <v-list-item v-for="genre in catalog.genres.items" :key="genre.id" prepend-icon="mdi-tag-outline">
       <v-list-item-title class="font-weight-bold">{{ genre.name }}</v-list-item-title>
       <v-list-item-subtitle>{{ t('genres.trackCount', { count: genre.trackCount }) }}</v-list-item-subtitle>
+      <template #append>
+        <div class="d-flex align-center ga-1">
+          <v-btn
+            :aria-label="t('genres.viewAlbums', { name: genre.name })"
+            icon="mdi-album"
+            size="small"
+            :to="{ name: 'albums', query: { genre: genre.id, genreName: genre.name } }"
+            variant="text"
+          />
+          <v-btn
+            :aria-label="t('genres.viewTracks', { name: genre.name })"
+            icon="mdi-music-note"
+            size="small"
+            :to="{ name: 'tracks', query: { genre: genre.id, genreName: genre.name } }"
+            variant="text"
+          />
+        </div>
+      </template>
     </v-list-item>
   </v-list>
   <EmptyCatalogState v-else :title="t('genres.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-tag-multiple-outline" />

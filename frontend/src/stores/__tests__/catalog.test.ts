@@ -40,13 +40,13 @@ describe('catalog store', () => {
 
     const store = useCatalogStore()
     await Promise.all([
-      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999 }),
-      store.loadTracks({ page: 2 }),
+      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7 }),
+      store.loadTracks({ page: 2, genre: 7 }),
       store.loadGenres({ page: 2 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999', expect.any(Object))
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/genres?page=2', expect.any(Object))
   })
 
@@ -79,6 +79,44 @@ describe('catalog store', () => {
     expect(store.albumDetail?.tracks[0]?.streamUrl).toBe('/api/tracks/9/stream')
     expect(store.albumDetail?.genres[0]?.name).toBe('Rock')
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums/5', expect.any(Object))
+  })
+
+  it('loads track details with media metadata', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 9,
+      title: 'Track',
+      streamUrl: '/api/tracks/9/stream',
+      durationMs: 123000,
+      trackNumber: 1,
+      discNumber: 1,
+      year: 1999,
+      album: { id: 5, title: 'Album' },
+      artists: [{ id: 3, name: 'Artist' }],
+      genres: [{ id: 4, name: 'Rock' }],
+      mediaFile: {
+        id: 11,
+        relativePath: 'Artist/Album/track.mp3',
+        fileSize: 123456,
+        modifiedAt: '2026-01-02T03:04:05+00:00',
+        mimeType: 'audio/mpeg',
+        container: 'mp3',
+        codec: 'mp3',
+        bitrate: 320000,
+        sampleRate: 44100,
+        channels: 2,
+        status: 'available',
+        scanError: null,
+      },
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadTrack(9)
+
+    expect(store.trackDetail?.album?.title).toBe('Album')
+    expect(store.trackDetail?.genres[0]?.name).toBe('Rock')
+    expect(store.trackDetail?.mediaFile?.codec).toBe('mp3')
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks/9', expect.any(Object))
   })
 
   it('loads dashboard metrics without loading catalog pages', async () => {

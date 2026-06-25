@@ -51,13 +51,19 @@ The first usable release will provide:
 - Browsing by artist, album, track, and genre
 - Search, filtering, sorting, and pagination
 - Artist A-Z/# browsing based on a normalized, indexed initial
-- Album and artist text search
-- Album filtering by original release year and genre
+- Album, artist, track, and genre search
+- Album filtering by artist initial, original release year, and genre
+- Track filtering by genre
+- Cross-navigation from artists and genres to filtered album and track lists
 - Album artwork discovery from a configurable path relative to each album folder
 - Cached, smaller album-cover thumbnails for album lists and grids
 - Embedded album artwork extraction as a fallback
+- Album detail pages with full-size artwork, track listing, album genres, and artwork overlay
 - Browser playback for supported audio formats
-- Persistent playback controls and a playback queue
+- Persistent playback controls, seeking, volume, current-page queue navigation, and random playback actions
+- Continuous album and track playback with optional random next-item selection
+- Visible current playback queue with album and track queue actions
+- Favorite tracks and favorite albums with browse sections
 - English and German translations
 - Localhost access by default and optional LAN access
 
@@ -65,7 +71,7 @@ The following features are deferred until after the MVP:
 
 - Editing or writing audio tags
 - User accounts and permissions
-- Playlists and favorites
+- Persisted custom playlists, playlist folders, favorite tracks, and favorite albums
 - Automatic metadata lookup from external services
 - Audio transcoding
 - Duplicate-file management
@@ -157,6 +163,33 @@ Cached artwork metadata:
 
 Artwork should be cached as files rather than stored as PostgreSQL binary data. The original-size cached image is used on album detail pages, while a generated thumbnail is used in album lists and grids. Thumbnail dimensions and image quality should be application-level configuration with sensible defaults.
 
+### Playback queue
+
+The active playback queue is a runtime concept owned by the frontend player store for the first milestone. It contains ordered track snapshots, the current index, playback context, playback position, and player settings. It is persisted in browser storage so a refresh can restore the current player state, but it is not yet a server-side library entity.
+
+The queue UI should be designed as a stepping stone toward playlists:
+
+- Display the current queue and highlight the active track.
+- Allow jumping to a queued track.
+- Allow removing queued tracks.
+- Add queue actions from album, track list, and track detail contexts.
+- Preserve the distinction between "play now" and "add to queue".
+- Keep the queue data shape close to future playlist item data: ordered track references plus display metadata.
+
+### Future user collection entities
+
+Playlists and favorites are intentionally deferred until after the first milestone, but the queue and playback UI should leave room for them.
+
+Planned persisted entities:
+
+- `playlist_folders`: optional folder hierarchy for organizing playlists.
+- `playlists`: user-created named track collections, optionally assigned to a folder.
+- `playlist_items`: ordered track references inside a playlist, with position and timestamps.
+- `favorite_tracks`: track-level favorites.
+- `favorite_albums`: album-level favorites.
+
+Early local-only builds have no user accounts, so favorites and playlists can initially be global to the local installation. If user management is introduced later, these tables can gain an owner column without changing the core catalog entities. Favorites should reference catalog entities rather than duplicate metadata, so rescans keep favorites attached as long as the track or album identity remains stable.
+
 ## Implementation Phases
 
 ### Current Status
@@ -180,12 +213,22 @@ Completed:
 - Paginated artist, album, track, and genre browsing with server-side search and artist A-Z/# filtering
 - Album grids with cached thumbnail delivery and missing-artwork placeholders
 - Secure audio streaming with HTTP range support and enabled-root/path validation
-- Persistent browser playback controls with current-page queue navigation
+- Album detail pages with full-size artwork, genre display, track listing, and clickable artwork overlay
+- Album and track list filters for artist, release year, and genre
+- Cross-links from artists and genres to filtered album and track lists
+- Clickable player metadata, artist links, album links, and track-list artist/album links
+- Track detail pages with technical metadata, playback action, album-aware back navigation, and track-title links from track and album lists
+- Persistent browser playback controls with seeking, volume, explicit playback state, current-track navigation, random album/track actions, continuous play, and optional random continuation
+- Visible current queue drawer with jump/remove actions plus queue album and queue track actions
+- Favorite track and favorite album persistence, buttons, and browse sections
+- Playlist folder, playlist, and ordered playlist-item persistence APIs
+- Playlists navigation page with folder and playlist creation/deletion
 
 In progress or still required for the first milestone:
 
 - Queue worker startup documentation and local runtime integration
-- Playback UI polish and broader queue management
+- Add-to-playlist actions from tracks, albums, queue entries, and the player
+- Runtime documentation for local startup, queue worker, Docker database, scanning, and troubleshooting
 
 The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration and scan-management workflows were brought forward so a real scan can be exercised end to end. Catalog browsing is now connected to paginated, purpose-built API endpoints. The next vertical slice is secure audio streaming and browser playback.
 
@@ -232,6 +275,9 @@ The implementation order changed slightly from the original phase list. The scan
 - Add responsive artwork grids and tabular track views.
 - Display the generated cover thumbnail for every album in album lists and grids.
 - Display the larger cached cover on album detail pages.
+- Add album detail pages with album artwork overlay, album-level genre chips, play-album action, and highlighted current track.
+- Add artist and genre action icons that open filtered album and track lists.
+- Add clickable artist and album metadata in track lists.
 - Provide useful placeholders for missing artwork and metadata.
 - Add English and German translations from the beginning.
 
@@ -240,9 +286,32 @@ The implementation order changed slightly from the original phase list. The scan
 - Implement an audio streaming endpoint with HTTP range support. (Complete)
 - Validate file access against enabled library roots. (Complete)
 - Add persistent player controls. (Complete)
-- Add playback queue management using Pinia. (Basic current-page queue complete)
+- Add playback queue management using Pinia. (Current-page queue complete)
+- Show and manage the visible current queue. (Complete)
+- Add "queue album" and "queue track" actions beside "play now" actions. (Complete)
+- Add random album and random track actions. (Complete)
+- Add continuous play and random continuation settings. (Complete)
+- Continue by album when album playback reaches the end, and switch visible album detail pages accordingly. (Complete)
+- Continue by track when track-list playback reaches the end. (Complete)
+- Make player metadata navigable: track title opens track detail, album opens album detail, artist opens filtered albums, and "Now playing" jumps to the current track. (Complete)
 - Handle unavailable files and unsupported browser codecs clearly.
+- Decide and implement the track-title navigation model for track-centric playback. (Complete)
 - Consider FFmpeg-based transcoding only after the MVP.
+
+### 5a. Playlists and Favorites
+
+This phase is planned after the first milestone. It should build on the queue model rather than replace it.
+
+- Add favorite buttons to track detail, album detail, track lists, album lists, and player affordances. (Complete)
+- Add favorite track and favorite album browse sections. (Complete)
+- Add a playlist navigation section. (Complete)
+- Add playlist folders for organizing custom playlists. (Foundation complete)
+- Add playlist create, rename, move-to-folder, delete, and reorder workflows.
+- Add playlist create and delete workflows. (Foundation complete)
+- Add ordered playlist item API for adding, removing, and reordering tracks. (Complete)
+- Add "add to playlist" actions from tracks, albums, queue entries, and the player.
+- Allow creating a playlist from the current queue.
+- Consider importing/exporting playlists only after the core local workflow is stable.
 
 ### 6. Settings and Scan Management
 
@@ -276,6 +345,27 @@ The implementation order changed slightly from the original phase list. The scan
 - Add end-to-end coverage for configuration, scanning, browsing, and playback.
 - Document installation, startup, backup, and recovery procedures.
 
+## Recommended Next Step
+
+The next best slice is **add-to-playlist actions**.
+
+Playlist and folder persistence now exists, along with a first Playlists page. The next useful step is connecting catalog and player actions to those playlists.
+
+Recommended scope:
+
+1. Add a reusable "add to playlist" dialog fed by the playlists store.
+2. Add track-to-playlist actions from track detail and track list rows.
+3. Add album-to-playlist action from album detail that appends all current album tracks in order.
+4. Add queue-entry-to-playlist and current-track-to-playlist actions in the player.
+5. Add playlist detail pages with ordered track lists, play/queue actions, remove item, and reorder controls.
+6. Add "create playlist from queue" after playlist detail and item management are stable.
+
+Design constraints:
+
+- Playlist items should reference `tracks` and store an explicit position.
+- Adding an album to a playlist should initially add the current album track order as a snapshot of track references.
+- Playlist folders can stay local-installation global records until user management exists.
+- Queue actions and playlist actions should share helper logic wherever practical.
 ## First Milestone Definition
 
 The first milestone is complete when:
@@ -286,7 +376,8 @@ The first milestone is complete when:
 4. Albums and tracks can be browsed in the Vue interface.
 5. Each discovered album displays a generated cover thumbnail from its configured folder image, embedded artwork, or a placeholder.
 6. An MP3 can be streamed and played in the browser.
-7. The main workflow has automated backend and frontend tests.
+7. Album details, filtered browsing, and playback controls are usable from the main navigation.
+8. The main workflow has automated backend and frontend tests.
 
 ## Important Early Decisions
 

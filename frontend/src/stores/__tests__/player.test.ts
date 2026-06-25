@@ -24,6 +24,7 @@ const tracks: Track[] = [
 describe('player store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    localStorage.clear()
     vi.unstubAllGlobals()
   })
 
@@ -34,14 +35,17 @@ describe('player store', () => {
 
     expect(player.currentTrack?.title).toBe('First')
     expect(player.isPlaying).toBe(true)
+    expect(player.playbackState).toBe('loading')
     expect(player.hasNext).toBe(true)
 
     await player.next()
     expect(player.currentTrack?.title).toBe('Second')
+    expect(player.playbackState).toBe('loading')
     expect(player.hasPrevious).toBe(true)
 
     player.previous()
     expect(player.currentTrack?.title).toBe('First')
+    expect(player.playbackState).toBe('loading')
   })
 
   it('loads a random next track when continuous random track-list playback is enabled', async () => {
@@ -66,6 +70,53 @@ describe('player store', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/playback/tracks/random?exclude=1', expect.any(Object))
   })
 
+  it('queues tracks without interrupting the current track', () => {
+    const player = usePlayerStore()
+    const queuedTrack: Track = {
+      id: 3,
+      title: 'Queued',
+      streamUrl: '/api/tracks/3/stream',
+      album: { id: 11, title: 'Other Album' },
+      artists: [{ id: 101, name: 'Other Artist' }],
+    }
+
+    player.playTrack(tracks[0], tracks, 'track-list')
+    player.setPlaybackState('playing')
+    player.queueTrack(queuedTrack)
+
+    expect(player.queue.map((track) => track.title)).toEqual(['First', 'Second', 'Queued'])
+    expect(player.currentTrack?.title).toBe('First')
+    expect(player.playbackState).toBe('playing')
+  })
+
+  it('prepares queued tracks paused when the queue is empty', () => {
+    const player = usePlayerStore()
+
+    player.queueTracks(tracks, 'album')
+
+    expect(player.queue).toHaveLength(2)
+    expect(player.currentTrack?.title).toBe('First')
+    expect(player.isPlaying).toBe(false)
+    expect(player.playbackState).toBe('paused')
+    expect(player.playbackContext).toBe('album')
+  })
+
+  it('jumps to queued tracks and removes non-current queue entries', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks)
+    player.playQueueIndex(1)
+    expect(player.currentTrack?.title).toBe('Second')
+    expect(player.playbackState).toBe('loading')
+
+    player.removeQueuedTrack(0)
+    expect(player.queue.map((track) => track.title)).toEqual(['Second'])
+    expect(player.currentTrack?.title).toBe('Second')
+
+    player.removeQueuedTrack(0)
+    expect(player.queue.map((track) => track.title)).toEqual(['Second'])
+  })
+
   it('stops playback and records playback errors', () => {
     const player = usePlayerStore()
 
@@ -74,10 +125,12 @@ describe('player store', () => {
 
     expect(player.error).toBe('Nope')
     expect(player.isPlaying).toBe(false)
+    expect(player.playbackState).toBe('error')
 
     player.stop()
     expect(player.currentTrack).toBeNull()
     expect(player.queue).toEqual([])
+    expect(player.playbackState).toBe('idle')
   })
 
   it('keeps volume between silent and full volume', () => {
@@ -91,5 +144,89 @@ describe('player store', () => {
 
     player.setVolume(-1)
     expect(player.volume).toBe(0)
+  })
+
+  it('persists player settings, queue, context, position, and active playback between store instances', () => {
+    const player = usePlayerStore()
+
+    player.setVolume(0.42)
+    player.setContinuousPlay(true)
+    player.setRandomPlay(true)
+    player.playTrack(tracks[1], tracks, 'album')
+    player.setPlaybackPosition(73)
+
+    setActivePinia(createPinia())
+    const restoredPlayer = usePlayerStore()
+
+    expect(restoredPlayer.volume).toBe(0.42)
+    expect(restoredPlayer.continuousPlay).toBe(true)
+    expect(restoredPlayer.randomPlay).toBe(true)
+    expect(restoredPlayer.currentTrack?.title).toBe('Second')
+    expect(restoredPlayer.queue).toHaveLength(2)
+    expect(restoredPlayer.playbackContext).toBe('album')
+    expect(restoredPlayer.playbackPosition).toBe(73)
+    expect(restoredPlayer.isPlaying).toBe(true)
+    expect(restoredPlayer.playbackState).toBe('loading')
+  })
+
+  it('restores paused playback as paused between store instances', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[1], tracks, 'album')
+    player.setPlaybackPosition(73)
+    player.pause()
+
+    setActivePinia(createPinia())
+    const restoredPlayer = usePlayerStore()
+
+    expect(restoredPlayer.currentTrack?.title).toBe('Second')
+    expect(restoredPlayer.playbackPosition).toBe(73)
+    expect(restoredPlayer.isPlaying).toBe(false)
+    expect(restoredPlayer.playbackState).toBe('paused')
+  })
+
+  it('clears the persisted queue on stop without resetting player settings', () => {
+    const player = usePlayerStore()
+
+    player.setVolume(0.3)
+    player.setContinuousPlay(true)
+    player.playTrack(tracks[0], tracks, 'track-list')
+    player.setPlaybackPosition(11)
+    player.stop()
+
+    setActivePinia(createPinia())
+    const restoredPlayer = usePlayerStore()
+
+    expect(restoredPlayer.currentTrack).toBeNull()
+    expect(restoredPlayer.queue).toEqual([])
+    expect(restoredPlayer.playbackPosition).toBe(0)
+    expect(restoredPlayer.volume).toBe(0.3)
+    expect(restoredPlayer.continuousPlay).toBe(true)
+  })
+
+  it('moves into ended state when the queue finishes without continuous play', async () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[1], tracks, 'track-list')
+    await player.next()
+
+    expect(player.isPlaying).toBe(false)
+    expect(player.playbackState).toBe('ended')
+    expect(player.currentTrack?.title).toBe('Second')
+  })
+
+  it('allows media events to update playback state', () => {
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks)
+    player.setPlaybackState('playing')
+
+    expect(player.isPlaying).toBe(true)
+    expect(player.playbackState).toBe('playing')
+
+    player.setPlaybackState('paused')
+
+    expect(player.isPlaying).toBe(false)
+    expect(player.playbackState).toBe('paused')
   })
 })

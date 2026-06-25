@@ -6,12 +6,14 @@ import { useRoute, useRouter } from 'vue-router'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
+import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
+const favorites = useFavoritesStore()
 const player = usePlayerStore()
 const artworkDialog = ref(false)
 
@@ -45,11 +47,21 @@ function trackNumber(track: Track) {
   return parts.length ? parts.join('.') : '-'
 }
 
+function isCurrentTrack(track: Track) {
+  return player.currentTrack?.id === track.id
+}
+
 function playAlbum() {
   const [firstTrack] = tracks.value
   if (!firstTrack) return
 
   player.playTrack(firstTrack, tracks.value, 'album')
+}
+
+function queueAlbum() {
+  if (!album.value) return
+
+  player.queueAlbum(album.value)
 }
 
 function openArtwork() {
@@ -131,6 +143,17 @@ watch(() => player.currentTrack?.album?.id, (id) => {
             <v-btn color="primary" variant="flat" prepend-icon="mdi-play" :disabled="!tracks.length" @click="playAlbum">
               {{ t('albums.playAlbum') }}
             </v-btn>
+            <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :disabled="!tracks.length" @click="queueAlbum">
+              {{ t('albums.queueAlbum') }}
+            </v-btn>
+            <v-btn
+              :color="favorites.isAlbumFavorite(album.id) ? 'primary' : undefined"
+              :prepend-icon="favorites.isAlbumFavorite(album.id) ? 'mdi-heart' : 'mdi-heart-outline'"
+              variant="text"
+              @click="void favorites.toggleAlbum(album.id)"
+            >
+              {{ favorites.isAlbumFavorite(album.id) ? t('favorites.removeAlbum') : t('favorites.addAlbum') }}
+            </v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -138,11 +161,27 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 
     <h2 class="text-h5 font-weight-bold mb-4">{{ t('albums.trackList') }}</h2>
     <v-list v-if="tracks.length" border rounded="xl" lines="two">
-      <v-list-item v-for="track in tracks" :key="track.id">
+      <v-list-item
+        v-for="track in tracks"
+        :key="track.id"
+        :class="{ 'current-track': isCurrentTrack(track) }"
+      >
         <template #prepend>
-          <span class="track-number text-medium-emphasis">{{ trackNumber(track) }}</span>
+          <span
+            class="track-number"
+            :class="isCurrentTrack(track) ? 'text-primary font-weight-bold' : 'text-medium-emphasis'"
+          >
+            {{ trackNumber(track) }}
+          </span>
         </template>
-        <v-list-item-title class="font-weight-bold">{{ track.title }}</v-list-item-title>
+        <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': isCurrentTrack(track) }">
+          <RouterLink
+            class="track-detail-link"
+            :to="{ name: 'track-detail', params: { id: track.id }, query: { backAlbum: album.id } }"
+          >
+            {{ track.title }}
+          </RouterLink>
+        </v-list-item-title>
         <v-list-item-subtitle>
           {{ track.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist') }}
         </v-list-item-subtitle>
@@ -150,11 +189,18 @@ watch(() => player.currentTrack?.album?.id, (id) => {
           <div class="d-flex align-center ga-2">
             <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
             <v-btn
-              :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
-              :color="player.currentTrack?.id === track.id ? 'primary' : undefined"
-              :icon="player.currentTrack?.id === track.id && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
+              :aria-label="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
+              :color="isCurrentTrack(track) ? 'primary' : undefined"
+              :icon="isCurrentTrack(track) && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
               variant="text"
               @click="toggleTrack(track)"
+            />
+            <v-btn
+              :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
+              :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
+              :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
+              variant="text"
+              @click="void favorites.toggleTrack(track.id)"
             />
           </div>
         </template>
@@ -197,11 +243,24 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   width: 92vw;
 }
 
+.current-track {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
 .track-number {
   display: inline-flex;
   justify-content: end;
   min-width: 2.5rem;
   padding-inline-end: 0.75rem;
   font-variant-numeric: tabular-nums;
+}
+
+.track-detail-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.track-detail-link:hover {
+  text-decoration: underline;
 }
 </style>

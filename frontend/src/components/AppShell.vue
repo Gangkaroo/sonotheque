@@ -1,13 +1,17 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTheme } from 'vuetify'
 
 import AppPlayer from '@/components/AppPlayer.vue'
+import { useFavoritesStore } from '@/stores/favorites'
 import { usePreferencesStore } from '@/stores/preferences'
+import { usePlayerStore } from '@/stores/player'
 
 const drawer = ref(/** @type {boolean | null} */ (null))
+const favorites = useFavoritesStore()
 const preferences = usePreferencesStore()
+const player = usePlayerStore()
 const { locale, t } = useI18n()
 const theme = useTheme()
 
@@ -17,7 +21,20 @@ const navigation = computed(() => [
   { title: t('navigation.genres'), icon: 'mdi-tag-multiple-outline', to: '/genres' },
   { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
   { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
+  { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
+  { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
 ])
+const nowPlayingRoute = computed(() => {
+  const track = player.currentTrack
+  if (!track) return null
+
+  const route = { name: 'track-detail', params: { id: track.id } }
+  if (player.playbackContext === 'album' && track.album?.id) {
+    return { ...route, query: { backAlbum: track.album.id } }
+  }
+
+  return route
+})
 
 watch(
   () => preferences.locale,
@@ -27,6 +44,10 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  void favorites.loadIds()
+})
 
 watch(
   () => preferences.theme,
@@ -68,6 +89,20 @@ function setLocale(value) {
         />
       </v-list>
 
+      <template v-if="nowPlayingRoute">
+        <v-divider />
+        <v-list nav class="pa-3">
+          <v-list-item
+            color="primary"
+            prepend-icon="mdi-play-circle-outline"
+            :subtitle="player.currentTrack?.title"
+            :title="t('navigation.nowPlaying')"
+            :to="nowPlayingRoute"
+            rounded="lg"
+          />
+        </v-list>
+      </template>
+
       <template #append>
         <v-list nav class="pa-3">
           <v-list-item
@@ -85,6 +120,14 @@ function setLocale(value) {
       <v-app-bar-title class="app-title">{{ t('app.name') }}</v-app-bar-title>
 
       <template #append>
+        <v-btn
+          v-if="nowPlayingRoute"
+          color="primary"
+          :aria-label="t('navigation.nowPlaying')"
+          icon="mdi-play-circle-outline"
+          :to="nowPlayingRoute"
+          variant="text"
+        />
         <v-btn
           :aria-label="t('actions.toggleTheme')"
           :icon="preferences.theme === 'dark' ? 'mdi-weather-sunny' : 'mdi-weather-night'"
