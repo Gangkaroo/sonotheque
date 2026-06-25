@@ -66,6 +66,57 @@ describe('playlists store', () => {
     expect(store.folders).toEqual([])
   })
 
+  it('updates folders and refreshes playlist folder names', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlist-folders/1' && init?.method === 'PATCH') {
+        expect(JSON.parse(String(init.body))).toEqual({ name: 'Road trips' })
+
+        return jsonResponse({ id: 1, name: 'Road trips', playlistCount: 1 })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.folders = [{ id: 1, name: 'Trips', playlistCount: 1 }]
+    store.playlists = [{ id: 10, name: 'Drive', folder: { id: 1, name: 'Trips' }, trackCount: 0 }]
+
+    await store.updateFolder(1, { name: 'Road trips' })
+
+    expect(store.folders[0]?.name).toBe('Road trips')
+    expect(store.playlists[0]?.folder?.name).toBe('Road trips')
+  })
+
+  it('updates playlists and adjusts folder counts when moved', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10' && init?.method === 'PATCH') {
+        expect(JSON.parse(String(init.body))).toEqual({ name: 'Drive', description: 'Updated', folderId: 2 })
+
+        return jsonResponse({
+          id: 10,
+          name: 'Drive',
+          description: 'Updated',
+          folder: { id: 2, name: 'Favorites' },
+          trackCount: 3,
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.folders = [
+      { id: 1, name: 'Trips', playlistCount: 1 },
+      { id: 2, name: 'Favorites', playlistCount: 0 },
+    ]
+    store.playlists = [{ id: 10, name: 'Drive', description: null, folder: { id: 1, name: 'Trips' }, trackCount: 3 }]
+
+    await store.updatePlaylist(10, { name: 'Drive', description: 'Updated', folderId: 2 })
+
+    expect(store.playlists[0]).toMatchObject({ description: 'Updated', folder: { id: 2, name: 'Favorites' } })
+    expect(store.folders.map((folder) => [folder.id, folder.playlistCount])).toEqual([[1, 0], [2, 1]])
+  })
+
   it('adds tracks to a playlist and updates counts', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/playlists/10/tracks' && init?.method === 'POST') {

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import type { PlaylistFolder, PlaylistSummary } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
@@ -13,12 +14,22 @@ const folderName = ref('')
 const playlistName = ref('')
 const playlistDescription = ref('')
 const playlistFolderId = ref<number | null>(null)
+const folderDialog = ref(false)
+const playlistDialog = ref(false)
+const folderToEdit = ref<PlaylistFolder | null>(null)
+const playlistToEdit = ref<PlaylistSummary | null>(null)
+const editFolderName = ref('')
+const editPlaylistName = ref('')
+const editPlaylistDescription = ref('')
+const editPlaylistFolderId = ref<number | null>(null)
 const folderOptions = computed(() => [
   { title: t('playlists.noFolder'), value: null },
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
 ])
 const canCreateFolder = computed(() => folderName.value.trim().length > 0 && !playlists.saving)
 const canCreatePlaylist = computed(() => playlistName.value.trim().length > 0 && !playlists.saving)
+const canSaveFolder = computed(() => editFolderName.value.trim().length > 0 && !playlists.saving)
+const canSavePlaylist = computed(() => editPlaylistName.value.trim().length > 0 && !playlists.saving)
 
 async function createFolder() {
   if (!canCreateFolder.value) return
@@ -38,6 +49,38 @@ async function createPlaylist() {
   playlistName.value = ''
   playlistDescription.value = ''
   playlistFolderId.value = null
+}
+
+function openFolderDialog(folder: PlaylistFolder) {
+  folderToEdit.value = folder
+  editFolderName.value = folder.name
+  folderDialog.value = true
+}
+
+async function saveFolder() {
+  if (!folderToEdit.value || !canSaveFolder.value) return
+
+  await playlists.updateFolder(folderToEdit.value.id, { name: editFolderName.value.trim() })
+  folderDialog.value = false
+}
+
+function openPlaylistDialog(playlist: PlaylistSummary) {
+  playlistToEdit.value = playlist
+  editPlaylistName.value = playlist.name
+  editPlaylistDescription.value = playlist.description ?? ''
+  editPlaylistFolderId.value = playlist.folder?.id ?? null
+  playlistDialog.value = true
+}
+
+async function savePlaylist() {
+  if (!playlistToEdit.value || !canSavePlaylist.value) return
+
+  await playlists.updatePlaylist(playlistToEdit.value.id, {
+    name: editPlaylistName.value.trim(),
+    description: editPlaylistDescription.value.trim() || null,
+    folderId: editPlaylistFolderId.value,
+  })
+  playlistDialog.value = false
 }
 
 onMounted(() => {
@@ -88,14 +131,24 @@ onMounted(() => {
             <v-list-item-title class="font-weight-bold">{{ folder.name }}</v-list-item-title>
             <v-list-item-subtitle>{{ t('playlists.playlistCount', { count: folder.playlistCount }) }}</v-list-item-subtitle>
             <template #append>
-              <TooltipIconButton
-                :text="t('playlists.deleteFolder', { name: folder.name })"
-                :aria-label="t('playlists.deleteFolder', { name: folder.name })"
-                :disabled="playlists.saving"
-                icon="mdi-delete-outline"
-                variant="text"
-                @click="void playlists.deleteFolder(folder.id)"
-              />
+              <div class="d-flex align-center ga-1">
+                <TooltipIconButton
+                  :text="t('playlists.editFolder', { name: folder.name })"
+                  :aria-label="t('playlists.editFolder', { name: folder.name })"
+                  :disabled="playlists.saving"
+                  icon="mdi-pencil-outline"
+                  variant="text"
+                  @click="openFolderDialog(folder)"
+                />
+                <TooltipIconButton
+                  :text="t('playlists.deleteFolder', { name: folder.name })"
+                  :aria-label="t('playlists.deleteFolder', { name: folder.name })"
+                  :disabled="playlists.saving"
+                  icon="mdi-delete-outline"
+                  variant="text"
+                  @click="void playlists.deleteFolder(folder.id)"
+                />
+              </div>
             </template>
           </v-list-item>
         </v-list>
@@ -175,14 +228,24 @@ onMounted(() => {
               <span v-if="playlist.description"> &middot; {{ playlist.description }}</span>
             </v-list-item-subtitle>
             <template #append>
-              <TooltipIconButton
-                :text="t('playlists.deletePlaylist', { name: playlist.name })"
-                :aria-label="t('playlists.deletePlaylist', { name: playlist.name })"
-                :disabled="playlists.saving"
-                icon="mdi-delete-outline"
-                variant="text"
-                @click.prevent.stop="void playlists.deletePlaylist(playlist.id)"
-              />
+              <div class="d-flex align-center ga-1">
+                <TooltipIconButton
+                  :text="t('playlists.editPlaylist', { name: playlist.name })"
+                  :aria-label="t('playlists.editPlaylist', { name: playlist.name })"
+                  :disabled="playlists.saving"
+                  icon="mdi-pencil-outline"
+                  variant="text"
+                  @click.prevent.stop="openPlaylistDialog(playlist)"
+                />
+                <TooltipIconButton
+                  :text="t('playlists.deletePlaylist', { name: playlist.name })"
+                  :aria-label="t('playlists.deletePlaylist', { name: playlist.name })"
+                  :disabled="playlists.saving"
+                  icon="mdi-delete-outline"
+                  variant="text"
+                  @click.prevent.stop="void playlists.deletePlaylist(playlist.id)"
+                />
+              </div>
             </template>
           </v-list-item>
         </v-list>
@@ -192,4 +255,70 @@ onMounted(() => {
       </v-card>
     </v-col>
   </v-row>
+
+  <v-dialog v-model="folderDialog" max-width="460">
+    <v-card :title="t('playlists.editFolderTitle')" prepend-icon="mdi-folder-edit-outline">
+      <v-card-text>
+        <v-text-field
+          v-model="editFolderName"
+          autofocus
+          :disabled="playlists.saving"
+          :label="t('playlists.folderName')"
+          variant="outlined"
+          @keydown.enter.prevent="saveFolder"
+        />
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn @click="folderDialog = false">{{ t('settings.cancel') }}</v-btn>
+        <v-btn color="primary" :disabled="!canSaveFolder" :loading="playlists.saving" variant="flat" @click="saveFolder">
+          {{ t('settings.saveChanges') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="playlistDialog" max-width="560">
+    <v-card :title="t('playlists.editPlaylistTitle')" prepend-icon="mdi-playlist-edit">
+      <v-card-text>
+        <v-row dense>
+          <v-col cols="12">
+            <v-text-field
+              v-model="editPlaylistName"
+              autofocus
+              :disabled="playlists.saving"
+              :label="t('playlists.playlistName')"
+              variant="outlined"
+              @keydown.enter.prevent="savePlaylist"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-select
+              v-model="editPlaylistFolderId"
+              :disabled="playlists.saving"
+              :items="folderOptions"
+              :label="t('playlists.folder')"
+              variant="outlined"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-textarea
+              v-model="editPlaylistDescription"
+              :disabled="playlists.saving"
+              :label="t('playlists.descriptionField')"
+              rows="3"
+              variant="outlined"
+            />
+          </v-col>
+        </v-row>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn @click="playlistDialog = false">{{ t('settings.cancel') }}</v-btn>
+        <v-btn color="primary" :disabled="!canSavePlaylist" :loading="playlists.saving" variant="flat" @click="savePlaylist">
+          {{ t('settings.saveChanges') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>

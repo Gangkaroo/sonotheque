@@ -99,6 +99,32 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  async function updateFolder(id: number, payload: { name: string, parentId?: number | null }) {
+    saving.value = true
+    error.value = null
+    try {
+      const folder = await apiRequest<PlaylistFolder>(`/playlist-folders/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      folders.value = folders.value
+        .map((item) => item.id === id ? folder : item)
+        .sort((left, right) => left.name.localeCompare(right.name))
+      playlists.value = playlists.value.map((playlist) => playlist.folder?.id === id
+        ? { ...playlist, folder: { id: folder.id, name: folder.name } }
+        : playlist)
+      if (current.value?.folder?.id === id) {
+        current.value = { ...current.value, folder: { id: folder.id, name: folder.name } }
+      }
+      return folder
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   async function createPlaylist(payload: { name: string, description?: string | null, folderId?: number | null }) {
     saving.value = true
     error.value = null
@@ -112,6 +138,38 @@ export const usePlaylistsStore = defineStore('playlists', () => {
         folders.value = folders.value.map((folder) => folder.id === playlist.folder?.id
           ? { ...folder, playlistCount: folder.playlistCount + 1 }
           : folder)
+      }
+      return playlist
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
+  async function updatePlaylist(id: number, payload: { name?: string, description?: string | null, folderId?: number | null }) {
+    saving.value = true
+    error.value = null
+    try {
+      const previousPlaylist = playlists.value.find((playlist) => playlist.id === id) ?? current.value
+      const playlist = await apiRequest<PlaylistSummary>(`/playlists/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      playlists.value = playlists.value
+        .map((item) => item.id === id ? playlist : item)
+        .sort((left, right) => left.name.localeCompare(right.name))
+      updateFolderCounts(previousPlaylist?.folder?.id ?? null, playlist.folder?.id ?? null)
+      if (current.value?.id === id) {
+        current.value = {
+          ...current.value,
+          name: playlist.name,
+          description: playlist.description,
+          folder: playlist.folder,
+          trackCount: playlist.trackCount,
+          updatedAt: playlist.updatedAt,
+        }
       }
       return playlist
     } catch (cause) {
@@ -255,6 +313,17 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       : playlist)
   }
 
+  function updateFolderCounts(previousFolderId: number | null, nextFolderId: number | null) {
+    if (previousFolderId === nextFolderId) return
+
+    folders.value = folders.value.map((folder) => {
+      if (folder.id === previousFolderId) return { ...folder, playlistCount: Math.max(0, folder.playlistCount - 1) }
+      if (folder.id === nextFolderId) return { ...folder, playlistCount: folder.playlistCount + 1 }
+
+      return folder
+    })
+  }
+
   return {
     folders,
     playlists,
@@ -265,7 +334,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     loadAll,
     loadPlaylist,
     createFolder,
+    updateFolder,
     createPlaylist,
+    updatePlaylist,
     deleteFolder,
     deletePlaylist,
     addTrack,
