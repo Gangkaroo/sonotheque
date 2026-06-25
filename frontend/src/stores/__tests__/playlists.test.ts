@@ -68,12 +68,15 @@ describe('playlists store', () => {
 
   it('adds tracks to a playlist and updates counts', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === '/api/playlists/10/tracks/1' && init?.method === 'POST') {
-        return jsonResponse({ id: 100, position: 1, track: trackResponse(1) }, 201)
-      }
+      if (url === '/api/playlists/10/tracks' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ trackIds: [1, 2] })
 
-      if (url === '/api/playlists/10/tracks/2' && init?.method === 'POST') {
-        return jsonResponse({ id: 101, position: 2, track: trackResponse(2) }, 201)
+        return jsonResponse({
+          items: [
+            { id: 100, position: 1, track: trackResponse(1) },
+            { id: 101, position: 2, track: trackResponse(2) },
+          ],
+        }, 201)
       }
 
       throw new Error(`Unexpected request: ${url}`)
@@ -85,7 +88,7 @@ describe('playlists store', () => {
 
     await store.addTracks(10, [1, 2])
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(store.playlists[0]?.trackCount).toBe(2)
   })
 })

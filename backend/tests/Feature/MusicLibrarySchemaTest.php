@@ -236,15 +236,18 @@ class MusicLibrarySchemaTest extends TestCase
                 'albums_original_release_year_index',
                 'albums_artist_year_title_index',
                 'genres_name_trgm_index',
+                'tracks_title_trgm_index',
+                'tracks_sort_title_trgm_index',
                 'genres_name_ci_unique',
                 'genre_track_pkey',
                 'genre_track_track_id_index',
             ])
             ->pluck('indexdef', 'indexname');
 
-        $this->assertCount(11, $indexes);
+        $this->assertCount(13, $indexes);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['artists_name_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['albums_title_trgm_index']);
+        $this->assertStringContainsString('gin_trgm_ops', $indexes['tracks_title_trgm_index']);
         $this->assertStringContainsString('browse_initial', $indexes['artists_browse_index']);
         $this->assertStringContainsString('original_release_year', $indexes['albums_artist_year_title_index']);
         $this->assertStringContainsString('lower((name)::text)', $indexes['genres_name_ci_unique']);

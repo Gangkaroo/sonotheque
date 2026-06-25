@@ -22,9 +22,18 @@ class PlaylistsApiTest extends TestCase
         $this->postJson('/api/playlist-folders', ['name' => 'Road trips'])
             ->assertCreated()
             ->assertJsonPath('name', 'Road trips')
+            ->assertJsonPath('parent', null)
             ->assertJsonPath('playlistCount', 0);
 
         $folder = PlaylistFolder::firstOrFail();
+
+        $this->postJson('/api/playlist-folders', [
+            'name' => 'Road trips',
+            'parentId' => $folder->id,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('name', 'Road trips')
+            ->assertJsonPath('parent.id', $folder->id);
 
         $this->postJson('/api/playlists', [
             'name' => 'Late night',
@@ -43,6 +52,9 @@ class PlaylistsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.name', 'Road trips')
             ->assertJsonPath('items.0.playlistCount', 1);
+
+        $childFolder = PlaylistFolder::where('parent_id', $folder->id)->firstOrFail();
+        $this->deleteJson("/api/playlist-folders/{$childFolder->id}")->assertNoContent();
 
         $this->patchJson("/api/playlists/{$playlist->id}", [
             'name' => 'Late night edits',
@@ -99,6 +111,26 @@ class PlaylistsApiTest extends TestCase
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('items.0.track.title', 'First track')
             ->assertJsonPath('items.0.position', 0);
+    }
+
+    public function test_multiple_tracks_can_be_added_to_a_playlist_in_one_request(): void
+    {
+        [, , $firstTrack, , $secondTrack] = $this->createCatalog();
+        $playlist = Playlist::create(['name' => 'Bulk additions']);
+
+        $this->postJson("/api/playlists/{$playlist->id}/tracks", [
+            'trackIds' => [$firstTrack->id, $secondTrack->id],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('items.0.position', 0)
+            ->assertJsonPath('items.0.track.title', 'First track')
+            ->assertJsonPath('items.1.position', 1)
+            ->assertJsonPath('items.1.track.title', 'Second track');
+
+        $this->assertSame(
+            [$firstTrack->id, $secondTrack->id],
+            $playlist->items()->orderBy('position')->pluck('track_id')->all(),
+        );
     }
 
     public function test_reorder_requires_all_playlist_items(): void

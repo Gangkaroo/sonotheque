@@ -40,6 +40,7 @@ Route::post('/playlists', [PlaylistsController::class, 'createPlaylist']);
 Route::get('/playlists/{playlist}', [PlaylistsController::class, 'playlist']);
 Route::patch('/playlists/{playlist}', [PlaylistsController::class, 'updatePlaylist']);
 Route::delete('/playlists/{playlist}', [PlaylistsController::class, 'deletePlaylist']);
+Route::post('/playlists/{playlist}/tracks', [PlaylistsController::class, 'addTracks']);
 Route::post('/playlists/{playlist}/tracks/{track}', [PlaylistsController::class, 'addTrack']);
 Route::delete('/playlists/{playlist}/items/{item}', [PlaylistsController::class, 'removeItem']);
 Route::patch('/playlists/{playlist}/items/reorder', [PlaylistsController::class, 'reorderItems']);

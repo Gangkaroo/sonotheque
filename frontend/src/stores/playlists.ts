@@ -7,7 +7,9 @@ import type { Track } from '@/stores/catalog'
 export interface PlaylistFolder {
   id: number
   name: string
+  parent?: Pick<PlaylistFolder, 'id' | 'name'> | null
   playlistCount: number
+  childCount?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -168,10 +170,11 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   }
 
   async function addTracks(playlistId: number, trackIds: number[]) {
-    const items: PlaylistItem[] = []
-    for (const trackId of trackIds) {
-      items.push(await apiRequest<PlaylistItem>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'POST' }))
-    }
+    const result = await apiRequest<{ items: PlaylistItem[] }>(`/playlists/${playlistId}/tracks`, {
+      method: 'POST',
+      body: JSON.stringify({ trackIds }),
+    })
+    const items = result.items
 
     incrementPlaylistCount(playlistId, items.length)
     if (current.value?.id === playlistId) {

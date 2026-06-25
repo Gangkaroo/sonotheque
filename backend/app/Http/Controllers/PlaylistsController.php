@@ -2,22 +2,28 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Artist;
 use App\Models\Playlist;
 use App\Models\PlaylistFolder;
 use App\Models\PlaylistItem;
 use App\Models\Track;
+use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class PlaylistsController extends Controller
 {
+    public function __construct(private readonly CatalogPayloads $payloads) {}
+
     public function folders(): JsonResponse
     {
         $folders = PlaylistFolder::query()
-            ->withCount('playlists')
+            ->with(['parent:id,name'])
+            ->withCount(['playlists', 'children'])
+            ->orderByRaw('parent_id is not null')
+            ->orderBy('parent_id')
             ->orderBy('name')
             ->get()
             ->map(fn (PlaylistFolder $folder) => $this->folderPayload($folder));
@@ -28,10 +34,12 @@ class PlaylistsController extends Controller
     public function createFolder(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255', 'unique:playlist_folders,name'],
+            'name' => ['required', 'string', 'max:255'],
+            'parentId' => ['sometimes', 'nullable', 'integer', 'exists:playlist_folders,id'],
         ]);
 
-        $folder = PlaylistFolder::create($validated);
+        $this->ensureUniqueFolderName($validated['name'], $validated['parentId'] ?? null);
+        $folder = PlaylistFolder::create($this->folderAttributes($validated));
 
         return response()->json($this->folderPayload($folder->loadCount('playlists')), 201);
     }
@@ -39,10 +47,13 @@ class PlaylistsController extends Controller
     public function updateFolder(Request $request, PlaylistFolder $folder): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255', "unique:playlist_folders,name,{$folder->id}"],
+            'name' => ['required', 'string', 'max:255'],
+            'parentId' => ['sometimes', 'nullable', 'integer', Rule::notIn([$folder->id]), 'exists:playlist_folders,id'],
         ]);
 
-        $folder->update($validated);
+        $parentId = array_key_exists('parentId', $validated) ? $validated['parentId'] : $folder->parent_id;
+        $this->ensureUniqueFolderName($validated['name'], $parentId, $folder->id);
+        $folder->update($this->folderAttributes($validated));
 
         return response()->json($this->folderPayload($folder->loadCount('playlists')));
     }
@@ -114,23 +125,25 @@ class PlaylistsController extends Controller
             'position' => ['sometimes', 'integer', 'min:0'],
         ]);
 
-        $item = DB::transaction(function () use ($playlist, $track, $validated) {
-            $maxPosition = $playlist->items()->max('position');
-            $position = $validated['position'] ?? ($maxPosition === null ? 0 : (int) $maxPosition + 1);
-
-            if (array_key_exists('position', $validated)) {
-                $playlist->items()->where('position', '>=', $position)->increment('position');
-            }
-
-            return $playlist->items()->create([
-                'track_id' => $track->id,
-                'position' => $position,
-            ]);
-        });
-
-        $item->load(['track.album:id,title', 'track.artists:id,name']);
+        $items = $this->createPlaylistItems($playlist, [$track->id], $validated['position'] ?? null);
+        $item = $items->firstOrFail();
 
         return response()->json($this->itemPayload($item), 201);
+    }
+
+    public function addTracks(Request $request, Playlist $playlist): JsonResponse
+    {
+        $validated = $request->validate([
+            'trackIds' => ['required', 'array', 'min:1', 'max:500'],
+            'trackIds.*' => ['integer', 'exists:tracks,id'],
+            'position' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $items = $this->createPlaylistItems($playlist, $validated['trackIds'], $validated['position'] ?? null);
+
+        return response()->json([
+            'items' => $items->map(fn (PlaylistItem $item) => $this->itemPayload($item))->values(),
+        ], 201);
     }
 
     public function removeItem(Playlist $playlist, PlaylistItem $item): JsonResponse
@@ -174,7 +187,12 @@ class PlaylistsController extends Controller
         return [
             'id' => $folder->id,
             'name' => $folder->name,
+            'parent' => $folder->parent ? [
+                'id' => $folder->parent->id,
+                'name' => $folder->parent->name,
+            ] : null,
             'playlistCount' => $folder->playlists_count ?? 0,
+            'childCount' => $folder->children_count ?? 0,
             'createdAt' => $folder->created_at?->toJSON(),
             'updatedAt' => $folder->updated_at?->toJSON(),
         ];
@@ -212,30 +230,9 @@ class PlaylistsController extends Controller
         return [
             'id' => $item->id,
             'position' => $item->position,
-            'track' => $this->trackPayload($item->track),
+            'track' => $this->payloads->trackSummary($item->track),
             'createdAt' => $item->created_at?->toJSON(),
             'updatedAt' => $item->updated_at?->toJSON(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function trackPayload(Track $track): array
-    {
-        return [
-            'id' => $track->id,
-            'title' => $track->title,
-            'streamUrl' => "/api/tracks/{$track->id}/stream",
-            'durationMs' => $track->duration_ms,
-            'trackNumber' => $track->track_number,
-            'discNumber' => $track->disc_number,
-            'album' => $track->album ? [
-                'id' => $track->album->id,
-                'title' => $track->album->title,
-            ] : null,
-            'artists' => $track->artists->map(fn (Artist $artist) => [
-                'id' => $artist->id,
-                'name' => $artist->name,
-            ])->values(),
         ];
     }
 
@@ -247,6 +244,20 @@ class PlaylistsController extends Controller
             'description' => ['sometimes', 'nullable', 'string'],
             'folderId' => ['sometimes', 'nullable', 'integer', 'exists:playlist_folders,id'],
         ];
+    }
+
+    /** @param array<string, mixed> $validated */
+    private function folderAttributes(array $validated): array
+    {
+        $attributes = [
+            'name' => $validated['name'],
+        ];
+
+        if (array_key_exists('parentId', $validated)) {
+            $attributes['parent_id'] = $validated['parentId'];
+        }
+
+        return $attributes;
     }
 
     /** @param array<string, mixed> $validated */
@@ -274,5 +285,47 @@ class PlaylistsController extends Controller
         $playlist->items()->orderBy('position')->pluck('id')->each(function (int $id, int $position) {
             PlaylistItem::query()->whereKey($id)->update(['position' => $position]);
         });
+    }
+
+    /**
+     * @param  list<int>  $trackIds
+     * @return \Illuminate\Database\Eloquent\Collection<int, PlaylistItem>
+     */
+    private function createPlaylistItems(Playlist $playlist, array $trackIds, ?int $position)
+    {
+        $items = DB::transaction(function () use ($playlist, $trackIds, $position) {
+            $maxPosition = $playlist->items()->max('position');
+            $startPosition = $position ?? ($maxPosition === null ? 0 : (int) $maxPosition + 1);
+
+            if ($position !== null) {
+                $playlist->items()->where('position', '>=', $startPosition)->increment('position', count($trackIds));
+            }
+
+            return collect($trackIds)->map(fn (int $trackId, int $offset) => $playlist->items()->create([
+                'track_id' => $trackId,
+                'position' => $startPosition + $offset,
+            ]));
+        });
+
+        return PlaylistItem::query()
+            ->whereIn('id', $items->pluck('id'))
+            ->with(['track.album:id,title', 'track.artists:id,name'])
+            ->orderBy('position')
+            ->get();
+    }
+
+    private function ensureUniqueFolderName(string $name, ?int $parentId, ?int $ignoreId = null): void
+    {
+        $exists = PlaylistFolder::query()
+            ->when($ignoreId !== null, fn ($query) => $query->whereKeyNot($ignoreId))
+            ->where('name', $name)
+            ->when($parentId === null, fn ($query) => $query->whereNull('parent_id'), fn ($query) => $query->where('parent_id', $parentId))
+            ->exists();
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'name' => 'A playlist folder with this name already exists in the selected parent folder.',
+            ]);
+        }
     }
 }
