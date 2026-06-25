@@ -7,6 +7,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
+import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
@@ -19,6 +20,10 @@ const playlist = computed(() => playlists.current)
 const tracks = computed(() => playlist.value?.items.map((item) => item.track) ?? [])
 const selectedItemIds = ref<number[]>([])
 const draggedItemId = ref<number | null>(null)
+const dropTargetItemId = ref<number | null>(null)
+const removeSelectedDialog = ref(false)
+const removeItemDialog = ref(false)
+const itemToRemove = ref<PlaylistItem | null>(null)
 const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [])
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
@@ -53,11 +58,33 @@ function toggleAllItems() {
   selectedItemIds.value = allSelected.value ? [] : [...itemIds.value]
 }
 
+function confirmRemoveSelectedItems() {
+  if (!selectedItemIds.value.length) return
+
+  removeSelectedDialog.value = true
+}
+
 async function removeSelectedItems() {
   if (!playlist.value || !selectedItemIds.value.length) return
 
   await playlists.removeItems(playlist.value.id, selectedItemIds.value)
   selectedItemIds.value = []
+  removeSelectedDialog.value = false
+}
+
+function confirmRemoveItem(item: PlaylistItem) {
+  itemToRemove.value = item
+  removeItemDialog.value = true
+}
+
+async function removeSingleItem() {
+  if (!playlist.value || !itemToRemove.value) return
+
+  const itemId = itemToRemove.value.id
+  await playlists.removeItem(playlist.value.id, itemId)
+  selectedItemIds.value = selectedItemIds.value.filter((id) => id !== itemId)
+  removeItemDialog.value = false
+  itemToRemove.value = null
 }
 
 async function moveItem(itemId: number, direction: -1 | 1) {
@@ -75,17 +102,31 @@ async function moveItem(itemId: number, direction: -1 | 1) {
   await playlists.reorderItems(playlist.value.id, currentIds)
 }
 
-function startDragging(itemId: number) {
+function startDragging(itemId: number, event: DragEvent) {
   draggedItemId.value = itemId
+  event.dataTransfer?.setData('text/plain', String(itemId))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
 
 function stopDragging() {
   draggedItemId.value = null
+  dropTargetItemId.value = null
+}
+
+function markDropTarget(itemId: number) {
+  if (draggedItemId.value !== null && draggedItemId.value !== itemId) {
+    dropTargetItemId.value = itemId
+  }
+}
+
+function clearDropTarget(itemId: number) {
+  if (dropTargetItemId.value === itemId) dropTargetItemId.value = null
 }
 
 async function dropItem(targetItemId: number) {
   const sourceItemId = draggedItemId.value
   draggedItemId.value = null
+  dropTargetItemId.value = null
 
   if (!playlist.value || sourceItemId === null || sourceItemId === targetItemId) return
 
@@ -109,6 +150,9 @@ watch(playlistId, (id) => {
 
 watch(() => playlist.value?.id, () => {
   selectedItemIds.value = []
+  removeSelectedDialog.value = false
+  removeItemDialog.value = false
+  itemToRemove.value = null
 })
 
 watch(itemIds, (ids) => {
@@ -174,7 +218,7 @@ watch(itemIds, (ids) => {
           :disabled="!selectedCount || playlists.saving"
           :loading="playlists.saving && selectedCount > 0"
           variant="tonal"
-          @click="removeSelectedItems"
+          @click="confirmRemoveSelectedItems"
         >
           {{ t('playlists.removeSelected') }}
         </v-btn>
@@ -188,11 +232,14 @@ watch(itemIds, (ids) => {
           :class="{
             'current-track': player.currentTrack?.id === item.track.id,
             'is-dragging': draggedItemId === item.id,
+            'is-drop-target': dropTargetItemId === item.id && draggedItemId !== item.id,
           }"
           draggable="true"
           @dragend="stopDragging"
+          @dragenter="markDropTarget(item.id)"
+          @dragleave="clearDropTarget(item.id)"
           @dragover.prevent
-          @dragstart="startDragging(item.id)"
+          @dragstart="startDragging(item.id, $event)"
           @drop="dropItem(item.id)"
         >
           <template #prepend>
@@ -284,7 +331,7 @@ watch(itemIds, (ids) => {
                 :disabled="playlists.saving"
                 icon="mdi-delete-outline"
                 variant="text"
-                @click="void playlists.removeItem(playlist.id, item.id)"
+                @click="confirmRemoveItem(item)"
               />
             </div>
           </template>
@@ -301,6 +348,42 @@ watch(itemIds, (ids) => {
   </template>
 
   <EmptyCatalogState v-else :title="t('playlists.notFoundTitle')" :description="t('playlists.notFoundDescription')" icon="mdi-playlist-remove" />
+
+  <v-dialog v-model="removeSelectedDialog" max-width="520">
+    <v-card rounded="xl">
+      <v-card-title>{{ t('playlists.removeSelectedTitle') }}</v-card-title>
+      <v-card-text>
+        {{ t('playlists.removeSelectedWarning', { count: selectedCount }) }}
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="removeSelectedDialog = false">
+          {{ t('settings.cancel') }}
+        </v-btn>
+        <v-btn color="error" variant="flat" :loading="playlists.saving" @click="removeSelectedItems">
+          {{ t('settings.remove') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="removeItemDialog" max-width="520">
+    <v-card rounded="xl">
+      <v-card-title>{{ t('playlists.removeTrackTitle') }}</v-card-title>
+      <v-card-text>
+        {{ t('playlists.removeTrackWarning', { title: itemToRemove?.track.title ?? '' }) }}
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="removeItemDialog = false">
+          {{ t('settings.cancel') }}
+        </v-btn>
+        <v-btn color="error" variant="flat" :loading="playlists.saving" @click="removeSingleItem">
+          {{ t('settings.remove') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style scoped>
@@ -326,6 +409,12 @@ watch(itemIds, (ids) => {
 
 .playlist-item.is-dragging {
   opacity: 0.55;
+}
+
+.playlist-item.is-drop-target {
+  background: rgba(var(--v-theme-primary), 0.06);
+  outline: 2px solid rgba(var(--v-theme-primary), 0.45);
+  outline-offset: -4px;
 }
 
 .playlist-drag-handle {
