@@ -16,8 +16,12 @@ const playlistDescription = ref('')
 const playlistFolderId = ref<number | null>(null)
 const folderDialog = ref(false)
 const playlistDialog = ref(false)
+const deleteFolderDialog = ref(false)
+const deletePlaylistDialog = ref(false)
 const folderToEdit = ref<PlaylistFolder | null>(null)
 const playlistToEdit = ref<PlaylistSummary | null>(null)
+const folderToDelete = ref<PlaylistFolder | null>(null)
+const playlistToDelete = ref<PlaylistSummary | null>(null)
 const editFolderName = ref('')
 const editPlaylistName = ref('')
 const editPlaylistDescription = ref('')
@@ -83,6 +87,32 @@ async function savePlaylist() {
   playlistDialog.value = false
 }
 
+function confirmDeleteFolder(folder: PlaylistFolder) {
+  folderToDelete.value = folder
+  deleteFolderDialog.value = true
+}
+
+async function deleteFolder() {
+  if (!folderToDelete.value) return
+
+  await playlists.deleteFolder(folderToDelete.value.id)
+  deleteFolderDialog.value = false
+  folderToDelete.value = null
+}
+
+function confirmDeletePlaylist(playlist: PlaylistSummary) {
+  playlistToDelete.value = playlist
+  deletePlaylistDialog.value = true
+}
+
+async function deletePlaylist() {
+  if (!playlistToDelete.value) return
+
+  await playlists.deletePlaylist(playlistToDelete.value.id)
+  deletePlaylistDialog.value = false
+  playlistToDelete.value = null
+}
+
 onMounted(() => {
   void playlists.loadAll()
 })
@@ -146,7 +176,7 @@ onMounted(() => {
                   :disabled="playlists.saving"
                   icon="mdi-delete-outline"
                   variant="text"
-                  @click="void playlists.deleteFolder(folder.id)"
+                  @click="confirmDeleteFolder(folder)"
                 />
               </div>
             </template>
@@ -243,7 +273,7 @@ onMounted(() => {
                   :disabled="playlists.saving"
                   icon="mdi-delete-outline"
                   variant="text"
-                  @click.prevent.stop="void playlists.deletePlaylist(playlist.id)"
+                  @click.prevent.stop="confirmDeletePlaylist(playlist)"
                 />
               </div>
             </template>
@@ -317,6 +347,36 @@ onMounted(() => {
         <v-btn @click="playlistDialog = false">{{ t('settings.cancel') }}</v-btn>
         <v-btn color="primary" :disabled="!canSavePlaylist" :loading="playlists.saving" variant="flat" @click="savePlaylist">
           {{ t('settings.saveChanges') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="deleteFolderDialog" max-width="520">
+    <v-card :title="t('playlists.deleteFolderTitle')" prepend-icon="mdi-alert-outline">
+      <v-card-text>
+        {{ t('playlists.deleteFolderWarning', { name: folderToDelete?.name ?? '' }) }}
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn @click="deleteFolderDialog = false">{{ t('settings.cancel') }}</v-btn>
+        <v-btn color="error" :loading="playlists.saving" variant="flat" @click="deleteFolder">
+          {{ t('settings.remove') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="deletePlaylistDialog" max-width="520">
+    <v-card :title="t('playlists.deletePlaylistTitle')" prepend-icon="mdi-alert-outline">
+      <v-card-text>
+        {{ t('playlists.deletePlaylistWarning', { name: playlistToDelete?.name ?? '' }) }}
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn @click="deletePlaylistDialog = false">{{ t('settings.cancel') }}</v-btn>
+        <v-btn color="error" :loading="playlists.saving" variant="flat" @click="deletePlaylist">
+          {{ t('settings.remove') }}
         </v-btn>
       </v-card-actions>
     </v-card>

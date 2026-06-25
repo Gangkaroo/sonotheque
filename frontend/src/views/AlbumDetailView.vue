@@ -153,7 +153,7 @@ watch(() => player.currentTrack?.album?.id, (id) => {
               </v-chip>
             </div>
           </v-card-text>
-          <v-card-actions>
+          <v-card-actions class="album-actions">
             <v-btn color="primary" variant="flat" prepend-icon="mdi-play" :disabled="!tracks.length" @click="playAlbum">
               {{ t('albums.playAlbum') }}
             </v-btn>
@@ -256,6 +256,17 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 
 .album-cover-placeholder {
   aspect-ratio: 1;
+}
+
+.album-actions {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .album-actions :deep(.v-btn) {
+    flex: 1 1 auto;
+  }
 }
 
 .album-artwork-overlay {

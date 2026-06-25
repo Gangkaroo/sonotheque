@@ -242,12 +242,20 @@ onUnmounted(() => {
       {{ t('player.playRandomTrack') }}
     </v-btn>
   </div>
-  <div class="d-flex flex-column flex-sm-row ga-3 mb-4">
-    <v-text-field v-model="search" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('albums.search')" />
+  <div class="album-filter-row d-flex flex-column flex-sm-row ga-3 mb-4">
+    <v-text-field
+      v-model="search"
+      clearable
+      density="compact"
+      hide-details
+      prepend-inner-icon="mdi-magnify"
+      :label="t('albums.search')"
+    />
     <v-autocomplete
       v-model="year"
       class="album-year-filter"
       clearable
+      density="compact"
       hide-details
       :items="releaseYears"
       prepend-inner-icon="mdi-calendar"
@@ -308,6 +316,17 @@ onUnmounted(() => {
 <style scoped>
 .album-year-filter {
   flex: 0 0 12rem;
+}
+
+@media (max-width: 599px) {
+  .album-filter-row {
+    gap: 8px !important;
+  }
+
+  .album-year-filter {
+    flex-basis: auto;
+    width: 100%;
+  }
 }
 
 .album-card-media {
