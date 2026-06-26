@@ -30,13 +30,12 @@ Build a local-first web application that scans configurable music folders, store
 - PostgreSQL in Docker for local development
 - PHP running natively on Windows initially, so the scanner can access dynamically configured local folders
 
-## Proposed Repository Structure
+## Repository Structure
 
 ```text
 music-library/
 |-- backend/          Laravel and API Platform
 |-- frontend/         Vue application
-|-- infrastructure/   Docker and supporting configuration
 |-- docs/             Architecture and project documentation
 `-- compose.yaml
 ```
@@ -64,16 +63,18 @@ The first usable release will provide:
 - Continuous album and track playback with optional random next-item selection
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
+- Custom playlists, playlist folders, ordered playlist items, and queue-to-playlist actions
 - English and German translations
 - Localhost access by default and optional LAN access
 
 The following features are deferred until after the MVP:
 
-- Editing or writing audio tags
+- Editing or writing ID3/audio tags
 - User accounts and permissions
-- Persisted custom playlists, playlist folders, favorite tracks, and favorite albums
 - Automatic metadata lookup from external services
 - Audio transcoding
+- Playlist import/export
+- Listening-statistics tag import/export and Last.fm integration
 - Duplicate-file management
 - Mobile applications
 
@@ -176,11 +177,9 @@ The queue UI should be designed as a stepping stone toward playlists:
 - Preserve the distinction between "play now" and "add to queue".
 - Keep the queue data shape close to future playlist item data: ordered track references plus display metadata.
 
-### Future user collection entities
+### User Collection Entities
 
-Playlists and favorites are intentionally deferred until after the first milestone, but the queue and playback UI should leave room for them.
-
-Planned persisted entities:
+Playlists and favorites are persisted globally for the local installation. There are no user accounts yet, so these records are not owned by a specific user. If user management is introduced later, these tables can gain an owner column without changing the core catalog entities.
 
 - `playlist_folders`: optional folder hierarchy for organizing playlists.
 - `playlists`: user-created named track collections, optionally assigned to a folder.
@@ -188,7 +187,74 @@ Planned persisted entities:
 - `favorite_tracks`: track-level favorites.
 - `favorite_albums`: album-level favorites.
 
-Early local-only builds have no user accounts, so favorites and playlists can initially be global to the local installation. If user management is introduced later, these tables can gain an owner column without changing the core catalog entities. Favorites should reference catalog entities rather than duplicate metadata, so rescans keep favorites attached as long as the track or album identity remains stable.
+Favorites and playlist items reference catalog entities rather than duplicating metadata, so rescans keep user selections attached as long as the track or album identity remains stable.
+
+### Editable Metadata
+
+Tag editing is planned as a separate post-MVP capability because it writes back
+to music files and therefore needs stronger safety guarantees than catalog
+browsing.
+
+The UI should distinguish album-level metadata from track-level metadata:
+
+- Album-level fields: album title, album artist, original release year/date,
+  cover artwork, album genres, and shared release metadata.
+- Track-level fields: track title, track number, disc number, track artist,
+  track genres, and other values that can differ per file.
+
+The database can continue to store scanned metadata as normalized catalog data,
+but tag edits should be tracked as explicit edit operations before they are
+written to files. A future implementation should add an audit table such as
+`metadata_edit_jobs` or `tag_write_jobs` that stores the target files, requested
+changes, status, error details, and timestamps.
+
+Important safety rules:
+
+- Preview the exact file-level changes before writing.
+- Write one file at a time and report partial failures.
+- Create optional backups before modifying audio files.
+- Preserve unknown or unsupported tag frames where the selected tag-writing
+  library allows it.
+- Re-read the file after writing and update the catalog from the actual file
+  contents rather than trusting the submitted form values.
+- Keep embedded artwork replacement separate from text tag editing because it
+  has larger file-size and format risks.
+
+### Listening Statistics
+
+Listening statistics should be database-first and always active. The app should
+record plays that happen inside the browser even when tag reading/writing and
+external integrations are disabled.
+
+Planned data model:
+
+- `track_play_events`: append-only play history with track ID, media file ID,
+  played-at timestamp, playback source, duration listened, and whether the play
+  counted toward statistics.
+- `track_play_statistics`: per-track aggregate with play count, first played,
+  last played, and optional external/source metadata.
+- Optional import/export metadata for tag-based playcount fields, including
+  source name, last imported timestamp, last exported timestamp, and conflict
+  status.
+
+The app should support importing play statistics from file tags used by tools
+such as foobar2000/foo_playcount where the tag format can be identified. Import
+and export of listening statistics to file tags should be settings-controlled
+and disabled by default. Database tracking should remain enabled regardless of
+those settings.
+
+Writing listening statistics back to file tags should reuse the future
+metadata-editing write path: preview changes, optionally back up files, write in
+queued jobs, re-read after writing, and report partial failures.
+
+Last.fm support belongs in this same area but should be treated as an optional
+integration:
+
+- Store Last.fm credentials/tokens locally and never require them for playback.
+- Scrobble eligible app plays after the configured threshold.
+- Import recent/history data only when explicitly requested.
+- Keep Last.fm state separate from local play statistics so network failures do
+  not block local tracking.
 
 ## Implementation Phases
 
@@ -202,7 +268,7 @@ Completed:
 - getID3 metadata extraction and normalized artist, album, track, and genre records
 - Folder-cover discovery, embedded-artwork fallback, artwork caching, and thumbnail generation
 - Vue/Vuetify application shell with responsive navigation, Pinia, routing, and English/German translations
-- Library-root list, create, and remove workflow with canonical path and safe relative cover-path validation
+- Library-root list, create, edit, and remove workflow with canonical path, subfolder checks, and safe relative cover-path validation
 - Scan start/cancel API, queued dispatch, progress/history API, and periodically refreshed Settings UI controls
 - Structured scan diagnostics for invalid layouts, unreadable entries, malformed files, missing files, and unavailable roots
 - Safe handling for suspicious empty rescans so an unavailable drive does not mark the existing catalog missing
@@ -226,13 +292,17 @@ Completed:
 - Add-to-playlist actions from tracks, albums, queue entries, and the player
 - Playlist detail pages with ordered track lists, play/queue actions, removal confirmations, and reorder controls
 - Creating a new playlist from the current playback queue
+- Runtime guide for Docker PostgreSQL, Laravel, queue worker, Vite, scanning, troubleshooting, and lightweight backup
+- Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
 
 In progress or still required for the first milestone:
 
-- Queue worker startup documentation and local runtime integration
-- Runtime documentation for local startup, queue worker, Docker database, scanning, and troubleshooting
+- Local runtime integration or helper scripts for starting Docker, Laravel, the queue worker, and Vite together
+- Frontend admin-token entry/storage so protected Settings operations can be used intentionally from LAN devices
+- CORS and trusted-host hardening before binding services to the LAN interface
+- Broader end-to-end and packaging coverage
 
-The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration and scan-management workflows were brought forward so a real scan can be exercised end to end. Catalog browsing is now connected to paginated, purpose-built API endpoints. The next vertical slice is secure audio streaming and browser playback.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. The app is now past the first playable browsing milestone; the next work should make local operation, startup, and recovery boringly repeatable.
 
 ### 1. Project Foundation
 
@@ -288,7 +358,7 @@ The implementation order changed slightly from the original phase list. The scan
 - Implement an audio streaming endpoint with HTTP range support. (Complete)
 - Validate file access against enabled library roots. (Complete)
 - Add persistent player controls. (Complete)
-- Add playback queue management using Pinia. (Current-page queue complete)
+- Add playback queue management using Pinia. (Complete)
 - Show and manage the visible current queue. (Complete)
 - Add "queue album" and "queue track" actions beside "play now" actions. (Complete)
 - Add random album and random track actions. (Complete)
@@ -296,13 +366,13 @@ The implementation order changed slightly from the original phase list. The scan
 - Continue by album when album playback reaches the end, and switch visible album detail pages accordingly. (Complete)
 - Continue by track when track-list playback reaches the end. (Complete)
 - Make player metadata navigable: track title opens track detail, album opens album detail, artist opens filtered albums, and "Now playing" jumps to the current track. (Complete)
-- Handle unavailable files and unsupported browser codecs clearly.
+- Handle unavailable files and unsupported browser codecs clearly. (Basic error feedback complete; detailed codec guidance pending)
 - Decide and implement the track-title navigation model for track-centric playback. (Complete)
 - Consider FFmpeg-based transcoding only after the MVP.
 
 ### 5a. Playlists and Favorites
 
-This phase is planned after the first milestone. It should build on the queue model rather than replace it.
+This phase was pulled forward after the queue model became stable. It builds on the queue rather than replacing it.
 
 - Add favorite buttons to track detail, album detail, track lists, album lists, and player affordances. (Complete)
 - Add favorite track and favorite album browse sections. (Complete)
@@ -314,6 +384,53 @@ This phase is planned after the first milestone. It should build on the queue mo
 - Add "add to playlist" actions from tracks, albums, queue entries, and the player. (Complete)
 - Allow creating a playlist from the current queue. (Complete)
 - Consider importing/exporting playlists only after the core local workflow is stable.
+
+### 5b. Metadata Editing
+
+This phase is deferred until the browsing, playback, scanning, and backup paths
+are stable.
+
+- Choose and wrap a tag-writing library behind a small backend adapter.
+- Define editable field mappings for MP3/ID3, FLAC/Vorbis comments, MP4/M4A,
+  Ogg/Opus, and WAV where possible.
+- Add track edit forms for per-track fields such as title, track number, disc
+  number, artist, and genre.
+- Add album edit forms for shared fields such as album title, album artist,
+  release year/date, album genres, and cover artwork.
+- Support bulk album edits that can update all tracks in an album while allowing
+  per-track exceptions for title, track number, and disc number.
+- Add a preview/confirmation step that shows every affected file and tag field
+  before writing.
+- Add optional file backup before write operations.
+- Add queued tag-write jobs with progress, errors, and rollback guidance.
+- Re-scan or re-read changed files after writing so the database reflects the
+  actual file contents.
+- Add tests with small representative files for the supported audio/tag formats.
+
+### 5c. Listening History And Scrobbling
+
+Database listening history should be active before optional tag export or
+Last.fm integration.
+
+- Add play-event and play-statistics tables.
+- Define a "counted play" rule, for example after a minimum duration or playback
+  percentage, so short previews do not inflate statistics.
+- Record app plays from the player when the counted-play threshold is reached.
+- Display play count, first played, and last played on track detail pages and in
+  useful list contexts.
+- Add album/artist aggregate listening stats derived from track stats.
+- Add scanner import support for known playcount tags, including foobar2000 /
+  foo_playcount-compatible fields where available.
+- Add settings for listening-stat tag import and tag export. Both should be
+  disabled by default.
+- Add optional queued export of play count, first played, and last played back
+  to file tags for interoperability with other players.
+- Add conflict handling when DB statistics and file-tag statistics disagree.
+- Add Last.fm settings, authentication/token storage, and explicit connect /
+  disconnect workflow.
+- Add Last.fm scrobbling for eligible app plays.
+- Consider Last.fm history import only after local statistics and scrobbling are
+  stable.
 
 ### 6. Settings and Scan Management
 
@@ -329,37 +446,40 @@ This phase is planned after the first milestone. It should build on the queue mo
 
 ### 7. Local and LAN Security
 
-- Bind services to `127.0.0.1` by default.
-- Require an explicit configuration change for LAN access.
-- Prevent path traversal and symbolic-link escapes.
-- Reject absolute or escaping album-cover paths such as paths containing unresolved `..` segments.
-- Restrict folder browsing to configured drives or parent directories.
+- Bind services to `127.0.0.1` by default. (Complete for current dev startup)
+- Require an explicit configuration change for LAN settings access. (Backend middleware complete; frontend token entry pending)
+- Prevent path traversal and symbolic-link escapes. (Complete for streaming/scanning guard paths)
+- Reject absolute or escaping album-cover paths such as paths containing unresolved `..` segments. (Complete)
+- Restrict folder browsing to configured drives or parent directories. (Basic server-side browser complete; policy can be tightened before LAN exposure)
 - Configure CORS and trusted hosts narrowly.
 - Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost.
 
 ### 8. Testing and Packaging
 
-- Unit-test path validation, metadata mapping, and incremental scan decisions.
-- Test folder-based cover discovery, embedded-artwork fallback, and thumbnail generation.
-- Feature-test API filters, scan operations, and range streaming.
-- Use small MP3, FLAC, Ogg, and malformed-file fixtures.
-- Add frontend store and component tests.
+- Unit-test path validation, metadata mapping, and incremental scan decisions. (Partially complete)
+- Test folder-based cover discovery, embedded-artwork fallback, and thumbnail generation. (Complete at feature-test level)
+- Feature-test API filters, scan operations, favorites, playlists, dashboard metrics, artwork, and range streaming. (Complete)
+- Use small MP3, FLAC, Ogg, and malformed-file fixtures. (Partially complete)
+- Add frontend store and component tests. (Store tests complete for catalog, roots, scans, preferences, player, favorites, and playlists)
 - Add end-to-end coverage for configuration, scanning, browsing, and playback.
 - Document installation, startup, backup, and recovery procedures.
 
 ## Recommended Next Step
 
-The next best slice is **runtime documentation and local startup integration**.
+The next best slice is **local startup integration**.
 
-The main music-library workflow now spans scanning, browsing, playback, favorites, queues, and playlists. Before adding more product surface, the project needs a dependable local operating guide so the app can be restarted, scanned, and debugged without rediscovering the command sequence each time.
+Runtime documentation now captures the manual command sequence. The next useful
+step is reducing that sequence to one repeatable developer command or script
+that starts Docker PostgreSQL, Laravel, the queue worker, and Vite with logs in
+predictable locations.
 
 Recommended scope:
 
-1. Document the Docker PostgreSQL startup path and expected environment variables.
-2. Document Laravel API startup, queue worker startup, and scan-worker troubleshooting.
-3. Document Vue dev-server startup and local/LAN access expectations.
-4. Add a concise "daily development" section with the commands used most often.
-5. Capture backup/recovery notes for PostgreSQL and cached artwork at a lightweight level.
+1. Add Windows-friendly startup and shutdown scripts.
+2. Use the explicit PHP 8.5 path when available, with a clear fallback/error.
+3. Write logs to `runtime-logs/`.
+4. Add simple health checks for `5173`, `8000`, and `5433`.
+5. Document the scripts in the runtime guide.
 
 ## First Milestone Definition
 
@@ -384,3 +504,5 @@ The first milestone is complete when:
 - Make scans incremental from the first implementation rather than adding that behavior later.
 - Model the initial library layout as `library root / artist / album`, with the cover path configured relative to the album folder.
 - Prefer the configured folder cover over embedded artwork and generate thumbnails during scanning rather than resizing images on every request.
+- Treat tag editing as a file-writing workflow, not just a database update.
+- Keep app listening statistics in the database as the source of truth; importing or exporting statistics through file tags is optional and disabled by default.

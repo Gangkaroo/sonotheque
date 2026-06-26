@@ -4,6 +4,16 @@ return [
     'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '256M'),
     'scan_stale_after_minutes' => (int) env('SCAN_STALE_AFTER_MINUTES', 15),
 
+    'lan' => [
+        'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),
+        'admin_token' => env('MUSIC_LIBRARY_ADMIN_TOKEN'),
+        'protected_paths' => [
+            'api/folders*',
+            'api/library_roots*',
+            'api/scan_runs*',
+        ],
+    ],
+
     'audio_extensions' => [
         'aac',
         'aif',
