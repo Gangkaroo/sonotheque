@@ -223,11 +223,13 @@ Completed:
 - Favorite track and favorite album persistence, buttons, and browse sections
 - Playlist folder, playlist, and ordered playlist-item persistence APIs
 - Playlists navigation page with folder and playlist creation/deletion
+- Add-to-playlist actions from tracks, albums, queue entries, and the player
+- Playlist detail pages with ordered track lists, play/queue actions, removal confirmations, and reorder controls
+- Creating a new playlist from the current playback queue
 
 In progress or still required for the first milestone:
 
 - Queue worker startup documentation and local runtime integration
-- Add-to-playlist actions from tracks, albums, queue entries, and the player
 - Runtime documentation for local startup, queue worker, Docker database, scanning, and troubleshooting
 
 The implementation order changed slightly from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and the manual library-root configuration and scan-management workflows were brought forward so a real scan can be exercised end to end. Catalog browsing is now connected to paginated, purpose-built API endpoints. The next vertical slice is secure audio streaming and browser playback.
@@ -306,11 +308,11 @@ This phase is planned after the first milestone. It should build on the queue mo
 - Add favorite track and favorite album browse sections. (Complete)
 - Add a playlist navigation section. (Complete)
 - Add playlist folders for organizing custom playlists. (Foundation complete)
-- Add playlist create, rename, move-to-folder, delete, and reorder workflows.
+- Add playlist create, rename, move-to-folder, delete, and reorder workflows. (Complete)
 - Add playlist create and delete workflows. (Foundation complete)
 - Add ordered playlist item API for adding, removing, and reordering tracks. (Complete)
-- Add "add to playlist" actions from tracks, albums, queue entries, and the player.
-- Allow creating a playlist from the current queue.
+- Add "add to playlist" actions from tracks, albums, queue entries, and the player. (Complete)
+- Allow creating a playlist from the current queue. (Complete)
 - Consider importing/exporting playlists only after the core local workflow is stable.
 
 ### 6. Settings and Scan Management
@@ -347,25 +349,18 @@ This phase is planned after the first milestone. It should build on the queue mo
 
 ## Recommended Next Step
 
-The next best slice is **add-to-playlist actions**.
+The next best slice is **runtime documentation and local startup integration**.
 
-Playlist and folder persistence now exists, along with a first Playlists page. The next useful step is connecting catalog and player actions to those playlists.
+The main music-library workflow now spans scanning, browsing, playback, favorites, queues, and playlists. Before adding more product surface, the project needs a dependable local operating guide so the app can be restarted, scanned, and debugged without rediscovering the command sequence each time.
 
 Recommended scope:
 
-1. Add a reusable "add to playlist" dialog fed by the playlists store.
-2. Add track-to-playlist actions from track detail and track list rows.
-3. Add album-to-playlist action from album detail that appends all current album tracks in order.
-4. Add queue-entry-to-playlist and current-track-to-playlist actions in the player.
-5. Add playlist detail pages with ordered track lists, play/queue actions, remove item, and reorder controls.
-6. Add "create playlist from queue" after playlist detail and item management are stable.
+1. Document the Docker PostgreSQL startup path and expected environment variables.
+2. Document Laravel API startup, queue worker startup, and scan-worker troubleshooting.
+3. Document Vue dev-server startup and local/LAN access expectations.
+4. Add a concise "daily development" section with the commands used most often.
+5. Capture backup/recovery notes for PostgreSQL and cached artwork at a lightweight level.
 
-Design constraints:
-
-- Playlist items should reference `tracks` and store an explicit position.
-- Adding an album to a playlist should initially add the current album track order as a snapshot of track references.
-- Playlist folders can stay local-installation global records until user management exists.
-- Queue actions and playlist actions should share helper logic wherever practical.
 ## First Milestone Definition
 
 The first milestone is complete when:

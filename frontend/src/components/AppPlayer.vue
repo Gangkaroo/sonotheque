@@ -2,17 +2,28 @@
 import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
+const playlists = usePlaylistsStore()
 const audio = ref<HTMLAudioElement | null>(null)
 const queueDrawer = ref(false)
 const playerCollapsed = ref(false)
 const draggedQueueIndex = ref<number | null>(null)
+const addToPlaylistDialog = ref(false)
+const playlistTracks = ref<typeof player.queue>([])
+const createQueuePlaylistDialog = ref(false)
+const queuePlaylistName = ref('')
+const queuePlaylistDescription = ref('')
+const queuePlaylistFolderId = ref<number | null>(null)
+const queuePlaylistSuccess = ref('')
+const queuePlaylistSuccessVisible = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const restoredTrackId = ref<number | null>(null)
@@ -70,6 +81,11 @@ const queueItems = computed(() => player.queue.map((track, index) => ({ track, i
 const nowPlayingQueueItem = computed(() => queueItems.value.find((item) => item.index === player.currentIndex) ?? null)
 const upcomingQueueItems = computed(() => queueItems.value.filter((item) => item.index > player.currentIndex))
 const previousQueueItems = computed(() => queueItems.value.filter((item) => item.index < player.currentIndex).reverse())
+const playlistFolderOptions = computed(() => [
+  { title: t('playlists.noFolder'), value: null },
+  ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
+])
+const canCreateQueuePlaylist = computed(() => queuePlaylistName.value.trim().length > 0 && player.queue.length > 0 && !playlists.saving)
 
 watch(
   () => player.currentTrack?.id,
@@ -105,6 +121,15 @@ watch(
   },
   { immediate: true },
 )
+
+watch(createQueuePlaylistDialog, (open) => {
+  if (!open) return
+
+  queuePlaylistName.value = ''
+  queuePlaylistDescription.value = ''
+  queuePlaylistFolderId.value = null
+  void playlists.loadAll()
+})
 
 async function playAudio(showError = true) {
   try {
@@ -244,6 +269,31 @@ function dropQueueItem(targetIndex: number) {
   if (sourceIndex === null) return
 
   player.moveQueuedTrack(sourceIndex, targetIndex)
+}
+
+function openAddToPlaylist(tracks: typeof player.queue) {
+  playlistTracks.value = [...tracks]
+  addToPlaylistDialog.value = true
+}
+
+function openCurrentTrackPlaylistDialog() {
+  if (!player.currentTrack) return
+
+  openAddToPlaylist([player.currentTrack])
+}
+
+async function createPlaylistFromQueue() {
+  if (!canCreateQueuePlaylist.value) return
+
+  const playlist = await playlists.createPlaylist({
+    name: queuePlaylistName.value.trim(),
+    description: queuePlaylistDescription.value.trim() || null,
+    folderId: queuePlaylistFolderId.value,
+  })
+  await playlists.addTracks(playlist.id, player.queue.map((track) => track.id))
+  queuePlaylistSuccess.value = t('playlists.createdFromQueue', { name: playlist.name })
+  queuePlaylistSuccessVisible.value = true
+  createQueuePlaylistDialog.value = false
 }
 
 function restorePlaybackPosition() {
@@ -462,6 +512,14 @@ onMounted(async () => {
           />
         </v-badge>
         <TooltipIconButton
+          :text="t('playlists.addTrackToPlaylist')"
+          :aria-label="t('playlists.addTrackToPlaylist')"
+          :disabled="!player.currentTrack"
+          icon="mdi-playlist-plus"
+          variant="text"
+          @click="openCurrentTrackPlaylistDialog"
+        />
+        <TooltipIconButton
           :text="player.currentTrack && favorites.isTrackFavorite(player.currentTrack.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
           :aria-label="player.currentTrack && favorites.isTrackFavorite(player.currentTrack.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
           :color="player.currentTrack && favorites.isTrackFavorite(player.currentTrack.id) ? 'primary' : undefined"
@@ -568,6 +626,14 @@ onMounted(async () => {
       </div>
       <div class="d-flex align-center ga-1">
         <TooltipIconButton
+          :text="t('playlists.createFromQueue')"
+          :aria-label="t('playlists.createFromQueue')"
+          :disabled="!player.queue.length"
+          icon="mdi-playlist-plus"
+          variant="text"
+          @click="createQueuePlaylistDialog = true"
+        />
+        <TooltipIconButton
           :text="t('player.clearQueue')"
           :aria-label="t('player.clearQueue')"
           :disabled="!player.queue.length"
@@ -655,6 +721,14 @@ onMounted(async () => {
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(nowPlayingQueueItem.track.durationMs) }}</span>
               <TooltipIconButton
+                :text="t('playlists.addTrackToPlaylist')"
+                :aria-label="t('playlists.addTrackToPlaylist')"
+                icon="mdi-playlist-plus"
+                size="small"
+                variant="text"
+                @click.stop="openAddToPlaylist([nowPlayingQueueItem.track])"
+              />
+              <TooltipIconButton
                 :text="t('player.removeFromQueue')"
                 :aria-label="t('player.removeFromQueue')"
                 icon="mdi-close"
@@ -729,6 +803,14 @@ onMounted(async () => {
           <template #append>
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(track.durationMs) }}</span>
+              <TooltipIconButton
+                :text="t('playlists.addTrackToPlaylist')"
+                :aria-label="t('playlists.addTrackToPlaylist')"
+                icon="mdi-playlist-plus"
+                size="small"
+                variant="text"
+                @click.stop="openAddToPlaylist([track])"
+              />
               <TooltipIconButton
                 :text="t('player.removeFromQueue')"
                 :aria-label="t('player.removeFromQueue')"
@@ -805,6 +887,14 @@ onMounted(async () => {
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(track.durationMs) }}</span>
               <TooltipIconButton
+                :text="t('playlists.addTrackToPlaylist')"
+                :aria-label="t('playlists.addTrackToPlaylist')"
+                icon="mdi-playlist-plus"
+                size="small"
+                variant="text"
+                @click.stop="openAddToPlaylist([track])"
+              />
+              <TooltipIconButton
                 :text="t('player.removeFromQueue')"
                 :aria-label="t('player.removeFromQueue')"
                 icon="mdi-close"
@@ -821,6 +911,64 @@ onMounted(async () => {
       {{ t('player.queueEmpty') }}
     </div>
   </v-navigation-drawer>
+
+  <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+
+  <v-dialog v-model="createQueuePlaylistDialog" max-width="560">
+    <v-card rounded="xl" prepend-icon="mdi-playlist-plus" :title="t('playlists.createFromQueueTitle')">
+      <v-card-text>
+        <v-alert v-if="playlists.error" class="mb-4" type="error" variant="tonal">
+          {{ playlists.error }}
+        </v-alert>
+        <v-row dense>
+          <v-col cols="12">
+            <v-text-field
+              v-model="queuePlaylistName"
+              autofocus
+              :disabled="playlists.saving"
+              :label="t('playlists.playlistName')"
+              variant="outlined"
+              @keydown.enter.prevent="createPlaylistFromQueue"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-select
+              v-model="queuePlaylistFolderId"
+              :disabled="playlists.saving"
+              :items="playlistFolderOptions"
+              :label="t('playlists.folder')"
+              variant="outlined"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-textarea
+              v-model="queuePlaylistDescription"
+              :disabled="playlists.saving"
+              :label="t('playlists.descriptionField')"
+              rows="3"
+              variant="outlined"
+            />
+          </v-col>
+        </v-row>
+        <div class="text-caption text-medium-emphasis">
+          {{ t('playlists.createFromQueueDescription', { count: player.queue.length }) }}
+        </div>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="createQueuePlaylistDialog = false">
+          {{ t('settings.cancel') }}
+        </v-btn>
+        <v-btn color="primary" :disabled="!canCreateQueuePlaylist" :loading="playlists.saving" variant="flat" @click="createPlaylistFromQueue">
+          {{ t('playlists.createFromQueue') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="queuePlaylistSuccessVisible" color="primary" timeout="2500">
+    {{ queuePlaylistSuccess }}
+  </v-snackbar>
 </template>
 
 <style scoped>
