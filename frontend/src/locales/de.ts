@@ -59,6 +59,9 @@ export default {
     queueAlbum: 'Einreihen',
     trackList: 'Titel',
     noTracksTitle: 'Keine Titel für dieses Album gefunden',
+    totalTrackPlays: 'Titel-Wiedergaben',
+    playedTracks: 'Gespielte Titel',
+    playedTracksCount: '{played}/{total} Titel',
   },
   genres: {
     title: 'Genres',

@@ -59,6 +59,9 @@ export default {
     queueAlbum: 'Queue',
     trackList: 'Tracks',
     noTracksTitle: 'No tracks found for this album',
+    totalTrackPlays: 'Track plays',
+    playedTracks: 'Played tracks',
+    playedTracksCount: '{played}/{total} tracks',
   },
   genres: {
     title: 'Genres',

@@ -39,6 +39,37 @@ const albumDetails = computed(() => {
 
   return t('albums.details', { year: album.value.originalReleaseYear, count: album.value.trackCount })
 })
+const albumPlaybackStats = computed(() => {
+  const totalTrackPlays = tracks.value.reduce((total, track) => total + track.playStatistics.playCount, 0)
+  if (!totalTrackPlays) return []
+
+  const playedTracks = tracks.value.filter((track) => track.playStatistics.playCount > 0).length
+  const lastPlayedAt = tracks.value
+    .map((track) => track.playStatistics.lastPlayedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null
+
+  return [
+    {
+      key: 'totalTrackPlays',
+      label: t('albums.totalTrackPlays'),
+      value: t('tracks.playCountTooltip', { count: totalTrackPlays }),
+      icon: 'mdi-headphones-box',
+    },
+    {
+      key: 'playedTracks',
+      label: t('albums.playedTracks'),
+      value: t('albums.playedTracksCount', { played: playedTracks, total: tracks.value.length }),
+      icon: 'mdi-music-note-outline',
+    },
+    {
+      key: 'lastPlayedAt',
+      label: t('tracks.lastPlayedAt'),
+      value: formatDate(lastPlayedAt),
+      icon: 'mdi-calendar-clock',
+    },
+  ]
+})
 
 function duration(milliseconds?: number) {
   if (!milliseconds) return '-'
@@ -179,6 +210,15 @@ watch(() => player.currentTrack?.album?.id, (id) => {
                 {{ genre.name }}
               </v-chip>
             </div>
+            <div v-if="albumPlaybackStats.length" class="album-stat-grid mt-4">
+              <div v-for="stat in albumPlaybackStats" :key="stat.key" class="album-stat-tile">
+                <v-icon color="primary" :icon="stat.icon" size="small" />
+                <div>
+                  <div class="text-caption text-medium-emphasis">{{ stat.label }}</div>
+                  <div class="text-body-2 font-weight-medium">{{ stat.value }}</div>
+                </div>
+              </div>
+            </div>
           </v-card-text>
           <v-card-actions class="album-actions">
             <v-btn color="primary" variant="flat" prepend-icon="mdi-play" :disabled="!tracks.length" @click="playAlbum">
@@ -302,6 +342,22 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 .album-actions {
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.album-stat-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+
+.album-stat-tile {
+  align-items: center;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 14px;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
 }
 
 @media (max-width: 480px) {
