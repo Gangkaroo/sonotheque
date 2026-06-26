@@ -23,6 +23,7 @@ const navigation = computed(() => [
   { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
   { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
   { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
+  { title: t('navigation.history'), icon: 'mdi-history', to: '/history' },
 ])
 const nowPlayingRoute = computed(() => {
   const track = player.currentTrack

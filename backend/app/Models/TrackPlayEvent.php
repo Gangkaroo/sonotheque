@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'counted',
     'source',
     'context',
+    'session_key',
 ])]
 class TrackPlayEvent extends Model
 {

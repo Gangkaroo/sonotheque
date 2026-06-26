@@ -125,13 +125,15 @@ describe('catalog store', () => {
       albums: 34,
       tracks: 567,
       genres: 8,
+      playedAlbums: 21,
+      playedTracks: 123,
     }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const store = useCatalogStore()
     await store.loadMetrics()
 
-    expect(store.metrics).toEqual({ artists: 12, albums: 34, tracks: 567, genres: 8 })
+    expect(store.metrics).toEqual({ artists: 12, albums: 34, tracks: 567, genres: 8, playedAlbums: 21, playedTracks: 123 })
     expect(store.metricsHaveCatalog).toBe(true)
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith('/api/dashboard-metrics', expect.any(Object))

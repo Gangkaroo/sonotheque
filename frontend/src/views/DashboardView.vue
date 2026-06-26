@@ -11,10 +11,12 @@ const { t } = useI18n()
 const catalog = useCatalogStore()
 const player = usePlayerStore()
 const metrics = computed(() => [
-  { key: 'artists', value: catalog.metrics.artists, icon: 'mdi-account-music-outline', to: '/artists' },
-  { key: 'genres', value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
-  { key: 'albums', value: catalog.metrics.albums, icon: 'mdi-album', to: '/albums' },
-  { key: 'tracks', value: catalog.metrics.tracks, icon: 'mdi-music-note-outline', to: '/tracks' },
+  { key: 'artists', title: t('navigation.artists'), value: catalog.metrics.artists, icon: 'mdi-account-music-outline', to: '/artists' },
+  { key: 'genres', title: t('navigation.genres'), value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
+  { key: 'albums', title: t('navigation.albums'), value: catalog.metrics.albums, icon: 'mdi-album', to: '/albums' },
+  { key: 'tracks', title: t('navigation.tracks'), value: catalog.metrics.tracks, icon: 'mdi-music-note-outline', to: '/tracks' },
+  { key: 'playedAlbums', title: t('dashboard.playedAlbums'), value: catalog.metrics.playedAlbums, icon: 'mdi-headphones-box', to: '/history' },
+  { key: 'playedTracks', title: t('dashboard.playedTracks'), value: catalog.metrics.playedTracks, icon: 'mdi-headphones', to: '/history' },
 ])
 
 onMounted(() => catalog.loadMetrics(true))
@@ -28,7 +30,7 @@ onMounted(() => catalog.loadMetrics(true))
   />
 
   <v-row class="mb-6">
-    <v-col v-for="metric in metrics" :key="metric.key" cols="12" sm="6" lg="3">
+    <v-col v-for="metric in metrics" :key="metric.key" cols="12" sm="6" lg="4" xl="2">
       <v-card
         border
         rounded="xl"
@@ -38,7 +40,7 @@ onMounted(() => catalog.loadMetrics(true))
       >
         <div class="d-flex align-center justify-space-between ga-4">
           <div>
-            <div class="text-overline text-medium-emphasis">{{ t(`navigation.${metric.key}`) }}</div>
+            <div class="text-overline text-medium-emphasis">{{ metric.title }}</div>
             <v-skeleton-loader v-if="catalog.metricsLoading" class="mt-2" type="heading" />
             <div v-else class="text-h3 font-weight-bold mt-2">{{ metric.value }}</div>
           </div>

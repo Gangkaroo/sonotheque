@@ -19,14 +19,31 @@ class TrackPlayStatisticsController extends Controller
             'durationMs' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'playedAt' => ['sometimes', 'nullable', 'date'],
             'context' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sessionKey' => ['sometimes', 'nullable', 'string', 'max:128'],
         ]);
 
         $listenedMs = (int) $validated['listenedMs'];
         $durationMs = $track->duration_ms ?? ($validated['durationMs'] ?? null);
         $playedAt = isset($validated['playedAt']) ? Carbon::parse($validated['playedAt']) : now();
         $counted = $this->isCountedPlay($listenedMs, $durationMs);
+        $sessionKey = $validated['sessionKey'] ?? null;
 
-        $statistics = DB::transaction(function () use ($track, $validated, $listenedMs, $durationMs, $playedAt, $counted): ?TrackPlayStatistic {
+        $result = DB::transaction(function () use ($track, $validated, $listenedMs, $durationMs, $playedAt, $counted, $sessionKey): array {
+            if ($counted && $sessionKey) {
+                $existingEvent = TrackPlayEvent::query()
+                    ->where('source', 'app')
+                    ->where('session_key', $sessionKey)
+                    ->where('counted', true)
+                    ->first();
+
+                if ($existingEvent) {
+                    return [
+                        'duplicate' => true,
+                        'statistics' => $track->playStatistic()->first(),
+                    ];
+                }
+            }
+
             TrackPlayEvent::create([
                 'track_id' => $track->id,
                 'media_file_id' => $track->media_file_id,
@@ -36,10 +53,14 @@ class TrackPlayStatisticsController extends Controller
                 'counted' => $counted,
                 'source' => 'app',
                 'context' => $validated['context'] ?? null,
+                'session_key' => $counted ? $sessionKey : null,
             ]);
 
             if (! $counted) {
-                return $track->playStatistic()->first();
+                return [
+                    'duplicate' => false,
+                    'statistics' => $track->playStatistic()->first(),
+                ];
             }
 
             $statistics = TrackPlayStatistic::firstOrNew(['track_id' => $track->id]);
@@ -52,13 +73,17 @@ class TrackPlayStatisticsController extends Controller
             }
             $statistics->save();
 
-            return $statistics;
+            return [
+                'duplicate' => false,
+                'statistics' => $statistics,
+            ];
         });
 
         return response()->json([
             'counted' => $counted,
-            'statistics' => $this->statisticsPayload($statistics),
-        ], $counted ? 201 : 202);
+            'duplicate' => $result['duplicate'],
+            'statistics' => $this->statisticsPayload($result['statistics']),
+        ], $counted ? ($result['duplicate'] ? 200 : 201) : 202);
     }
 
     private function isCountedPlay(int $listenedMs, ?int $durationMs): bool

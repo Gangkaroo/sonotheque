@@ -5,12 +5,14 @@ import { useI18n } from 'vue-i18n'
 import { apiRequest } from '@/api/client'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useCatalogStore, type TrackPlayStatistics } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
 const COUNTED_PLAY_THRESHOLD_SECONDS = 15
+const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
@@ -84,12 +86,17 @@ const queueItems = computed(() => player.queue.map((track, index) => ({ track, i
 const nowPlayingQueueItem = computed(() => queueItems.value.find((item) => item.index === player.currentIndex) ?? null)
 const upcomingQueueItems = computed(() => queueItems.value.filter((item) => item.index > player.currentIndex))
 const previousQueueItems = computed(() => queueItems.value.filter((item) => item.index < player.currentIndex).reverse())
-const currentPlayKey = computed(() => player.currentTrack ? `${player.currentTrack.id}:${player.currentIndex}` : null)
+const currentPlayKey = computed(() => player.currentTrack ? `${player.currentTrack.id}:${player.playbackSessionKey}` : null)
 const playlistFolderOptions = computed(() => [
   { title: t('playlists.noFolder'), value: null },
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
 ])
 const canCreateQueuePlaylist = computed(() => queuePlaylistName.value.trim().length > 0 && player.queue.length > 0 && !playlists.saving)
+
+interface TrackPlayResponse {
+  counted: boolean
+  statistics: TrackPlayStatistics
+}
 
 watch(
   () => currentPlayKey.value,
@@ -281,19 +288,32 @@ function dropQueueItem(targetIndex: number) {
 
 function maybeRecordCountedPlay() {
   const playKey = currentPlayKey.value
-  if (!playKey || reportedPlayKey.value === playKey || !player.currentTrack || !player.isPlaying || !duration.value) return
+  if (
+    !playKey
+    || reportedPlayKey.value === playKey
+    || player.countedPlaySessionKey === player.playbackSessionKey
+    || !player.currentTrack
+    || !player.isPlaying
+    || !duration.value
+  ) return
 
   const requiredSeconds = duration.value <= COUNTED_PLAY_THRESHOLD_SECONDS ? 0 : COUNTED_PLAY_THRESHOLD_SECONDS
   if (currentTime.value < requiredSeconds) return
 
   reportedPlayKey.value = playKey
-  void apiRequest(`/tracks/${player.currentTrack.id}/plays`, {
+  const trackId = player.currentTrack.id
+  const sessionKey = player.playbackSessionKey
+  void apiRequest<TrackPlayResponse>(`/tracks/${trackId}/plays`, {
     method: 'POST',
     body: JSON.stringify({
       listenedMs: Math.max(0, Math.round(currentTime.value * 1000)),
       durationMs: Math.max(0, Math.round(duration.value * 1000)),
       context: player.playbackContext,
+      sessionKey,
     }),
+  }).then((result) => {
+    player.markCurrentPlayCounted(sessionKey)
+    catalog.updateTrackPlayStatistics(trackId, result.statistics)
   })
 }
 

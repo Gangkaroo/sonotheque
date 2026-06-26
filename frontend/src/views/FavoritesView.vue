@@ -31,8 +31,12 @@ function albumDetails(album: Album) {
 }
 
 function toggleTrack(track: Track) {
-  if (player.currentTrack?.id === track.id && player.isPlaying) {
-    player.pause()
+  if (player.currentTrack?.id === track.id) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
     return
   }
 
@@ -110,7 +114,12 @@ onMounted(() => {
       <v-window-item value="tracks">
         <v-skeleton-loader v-if="favorites.tracksLoading" type="list-item-three-line@6" />
         <v-list v-else-if="favorites.tracks.items.length" lines="three">
-          <v-list-item v-for="track in favorites.tracks.items" :key="track.id">
+          <v-list-item
+            v-for="track in favorites.tracks.items"
+            :key="track.id"
+            class="track-list-item"
+            :class="{ 'current-track': player.currentTrack?.id === track.id }"
+          >
             <v-list-item-title class="font-weight-bold">
               <RouterLink class="favorite-link" :to="{ name: 'track-detail', params: { id: track.id } }">
                 {{ track.title }}
@@ -178,5 +187,21 @@ onMounted(() => {
 
 .favorite-link:hover {
   text-decoration: underline;
+}
+
+.current-track {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.track-list-item {
+  transition: background-color 120ms ease;
+}
+
+.track-list-item:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.track-list-item.current-track:hover {
+  background: rgba(var(--v-theme-primary), 0.12);
 }
 </style>

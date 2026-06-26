@@ -80,6 +80,8 @@ export interface CatalogMetrics {
   albums: number
   tracks: number
   genres: number
+  playedAlbums: number
+  playedTracks: number
 }
 
 export interface CatalogPage<T> {
@@ -134,7 +136,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   const tracksError = ref<string | null>(null)
   const trackDetailError = ref<string | null>(null)
   const genresError = ref<string | null>(null)
-  const metrics = ref<CatalogMetrics>({ artists: 0, albums: 0, tracks: 0, genres: 0 })
+  const metrics = ref<CatalogMetrics>({ artists: 0, albums: 0, tracks: 0, genres: 0, playedAlbums: 0, playedTracks: 0 })
   const metricsLoading = ref(false)
   const metricsLoaded = ref(false)
   const metricsError = ref<string | null>(null)
@@ -255,6 +257,28 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  function updateTrackPlayStatistics(trackId: number, statistics: TrackPlayStatistics) {
+    const updateTrack = <T extends Track>(track: T): T => track.id === trackId
+      ? { ...track, playStatistics: statistics }
+      : track
+
+    tracks.value = {
+      ...tracks.value,
+      items: tracks.value.items.map(updateTrack),
+    }
+
+    if (albumDetail.value) {
+      albumDetail.value = {
+        ...albumDetail.value,
+        tracks: albumDetail.value.tracks.map(updateTrack),
+      }
+    }
+
+    if (trackDetail.value?.id === trackId) {
+      trackDetail.value = updateTrack(trackDetail.value)
+    }
+  }
+
   return {
     artists,
     albums,
@@ -286,6 +310,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadTracks,
     loadTrack,
     loadGenres,
+    updateTrackPlayStatistics,
   }
 })
 

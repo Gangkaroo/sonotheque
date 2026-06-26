@@ -22,9 +22,11 @@ class TrackPlayStatisticsApiTest extends TestCase
             'listenedMs' => 15_000,
             'durationMs' => 120_000,
             'context' => 'track-list',
+            'sessionKey' => 'play-session-1',
         ])
             ->assertCreated()
             ->assertJsonPath('counted', true)
+            ->assertJsonPath('duplicate', false)
             ->assertJsonPath('statistics.playCount', 1);
 
         $this->assertDatabaseHas('track_play_statistics', [
@@ -39,7 +41,37 @@ class TrackPlayStatisticsApiTest extends TestCase
             'counted' => true,
             'source' => 'app',
             'context' => 'track-list',
+            'session_key' => 'play-session-1',
         ]);
+    }
+
+    public function test_it_does_not_count_the_same_playback_session_twice(): void
+    {
+        $track = $this->createTrack(durationMs: 120_000);
+
+        $payload = [
+            'listenedMs' => 15_000,
+            'durationMs' => 120_000,
+            'sessionKey' => 'same-playback-session',
+        ];
+
+        $this->postJson("/api/tracks/{$track->id}/plays", $payload)
+            ->assertCreated()
+            ->assertJsonPath('counted', true)
+            ->assertJsonPath('duplicate', false)
+            ->assertJsonPath('statistics.playCount', 1);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", $payload)
+            ->assertOk()
+            ->assertJsonPath('counted', true)
+            ->assertJsonPath('duplicate', true)
+            ->assertJsonPath('statistics.playCount', 1);
+
+        $this->assertDatabaseHas('track_play_statistics', [
+            'track_id' => $track->id,
+            'play_count' => 1,
+        ]);
+        $this->assertDatabaseCount('track_play_events', 1);
     }
 
     public function test_it_keeps_short_preview_events_without_incrementing_statistics(): void

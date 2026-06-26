@@ -46,8 +46,12 @@ function queuePlaylist() {
 }
 
 function toggleTrack(track: Track) {
-  if (player.currentTrack?.id === track.id && player.isPlaying) {
-    player.pause()
+  if (player.currentTrack?.id === track.id) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
     return
   }
 

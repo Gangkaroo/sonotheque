@@ -19,6 +19,8 @@ interface PersistedPlayerState {
   randomPlay?: boolean
   playbackContext?: PlaybackContext
   playbackPosition?: number
+  playbackSessionKey?: string | null
+  countedPlaySessionKey?: string | null
 }
 
 export const usePlayerStore = defineStore('player', () => {
@@ -34,6 +36,8 @@ export const usePlayerStore = defineStore('player', () => {
   const randomPlay = ref(persistedState.randomPlay ?? false)
   const playbackContext = ref<PlaybackContext>(persistedState.playbackContext ?? null)
   const playbackPosition = ref(normalizePlaybackPosition(persistedState.playbackPosition))
+  const playbackSessionKey = ref(persistedState.playbackSessionKey ?? createPlaybackSessionKey())
+  const countedPlaySessionKey = ref(persistedState.countedPlaySessionKey ?? null)
   const loadingNext = ref(false)
 
   const currentTrack = computed(() => {
@@ -53,6 +57,7 @@ export const usePlayerStore = defineStore('player', () => {
     error.value = null
     playbackContext.value = context
     playbackPosition.value = 0
+    startNewPlaybackSession()
   }
 
   function playAlbum(album: AlbumDetail) {
@@ -93,6 +98,7 @@ export const usePlayerStore = defineStore('player', () => {
     playbackState.value = 'loading'
     error.value = null
     playbackPosition.value = 0
+    startNewPlaybackSession()
   }
 
   function removeQueuedTrack(index: number) {
@@ -119,6 +125,7 @@ export const usePlayerStore = defineStore('player', () => {
     error.value = null
     isPlaying.value = wasPlaying
     playbackState.value = wasPlaying ? 'loading' : 'paused'
+    startNewPlaybackSession()
   }
 
   function moveQueuedTrack(index: number, targetIndex: number) {
@@ -172,6 +179,7 @@ export const usePlayerStore = defineStore('player', () => {
     playbackState.value = 'loading'
     error.value = null
     playbackPosition.value = 0
+    startNewPlaybackSession()
   }
 
   async function next() {
@@ -191,6 +199,7 @@ export const usePlayerStore = defineStore('player', () => {
       playbackState.value = 'loading'
       error.value = null
       playbackPosition.value = 0
+      startNewPlaybackSession()
       return
     }
 
@@ -228,6 +237,8 @@ export const usePlayerStore = defineStore('player', () => {
     error.value = null
     playbackContext.value = null
     playbackPosition.value = 0
+    playbackSessionKey.value = createPlaybackSessionKey()
+    countedPlaySessionKey.value = null
   }
 
   function setError(message: string) {
@@ -266,6 +277,15 @@ export const usePlayerStore = defineStore('player', () => {
     }
 
     playbackState.value = state
+  }
+
+  function markCurrentPlayCounted(sessionKey: string) {
+    if (sessionKey === playbackSessionKey.value) countedPlaySessionKey.value = sessionKey
+  }
+
+  function startNewPlaybackSession() {
+    playbackSessionKey.value = createPlaybackSessionKey()
+    countedPlaySessionKey.value = null
   }
 
   async function loadNextAlbum(random: boolean) {
@@ -312,6 +332,8 @@ export const usePlayerStore = defineStore('player', () => {
       randomPlay: randomPlay.value,
       playbackContext: playbackContext.value,
       playbackPosition: playbackPosition.value,
+      playbackSessionKey: playbackSessionKey.value,
+      countedPlaySessionKey: countedPlaySessionKey.value,
     }),
     persistState,
     { deep: true, flush: 'sync' },
@@ -329,6 +351,8 @@ export const usePlayerStore = defineStore('player', () => {
     randomPlay,
     playbackContext,
     playbackPosition,
+    playbackSessionKey,
+    countedPlaySessionKey,
     loadingNext,
     hasPrevious,
     hasNext,
@@ -354,6 +378,7 @@ export const usePlayerStore = defineStore('player', () => {
     setRandomPlay,
     setPlaybackPosition,
     setPlaybackState,
+    markCurrentPlayCounted,
   }
 })
 
@@ -379,6 +404,8 @@ function readPersistedState(): PersistedPlayerState {
         ? parsedState.playbackContext
         : null,
       playbackPosition: parsedState.playbackPosition,
+      playbackSessionKey: typeof parsedState.playbackSessionKey === 'string' ? parsedState.playbackSessionKey : null,
+      countedPlaySessionKey: typeof parsedState.countedPlaySessionKey === 'string' ? parsedState.countedPlaySessionKey : null,
     }
   } catch {
     return {}
@@ -396,6 +423,8 @@ function persistState(state: PersistedPlayerState) {
       randomPlay: state.randomPlay ?? false,
       playbackContext: state.playbackContext ?? null,
       playbackPosition: normalizePlaybackPosition(state.playbackPosition),
+      playbackSessionKey: state.playbackSessionKey ?? null,
+      countedPlaySessionKey: state.countedPlaySessionKey ?? null,
     }))
   } catch {
     // Persistence is a convenience. Playback should keep working when storage is unavailable.
@@ -412,4 +441,10 @@ function clampVolume(value: number) {
 
 function normalizePlaybackPosition(value: number | undefined) {
   return Number.isFinite(value) && value !== undefined && value > 0 ? value : 0
+}
+
+function createPlaybackSessionKey() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

@@ -8,13 +8,16 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import { useStatisticsStore } from '@/stores/statistics'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const route = useRoute()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
+const statistics = useStatisticsStore()
 const addToPlaylistDialog = ref(false)
+const recentPlaysPage = ref(1)
 
 const trackId = computed(() => Number(route.params.id))
 const backAlbumId = computed(() => {
@@ -32,6 +35,41 @@ const track = computed(() => catalog.trackDetail)
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
 const artistNames = computed(() => track.value?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
+const trackDetailRows = computed(() => {
+  if (!track.value) return []
+
+  return [
+    { label: t('tracks.artists'), value: artistNames.value },
+    { label: t('tracks.album'), value: track.value.album?.title ?? t('catalog.unknownAlbum') },
+    { label: t('tracks.duration'), value: duration(track.value.durationMs) },
+    { label: t('tracks.trackNumber'), value: trackNumber() },
+    { label: t('tracks.year'), value: track.value.year ? String(track.value.year) : null },
+  ].filter((row) => row.value)
+})
+const playbackStatTiles = computed(() => {
+  if (!track.value) return []
+
+  return [
+    {
+      key: 'playCount',
+      title: t('tracks.playCount'),
+      value: String(track.value.playStatistics.playCount),
+      icon: 'mdi-headphones',
+    },
+    {
+      key: 'firstPlayedAt',
+      title: t('tracks.firstPlayedAt'),
+      value: formatDate(track.value.playStatistics.firstPlayedAt) ?? '-',
+      icon: 'mdi-calendar-start',
+    },
+    {
+      key: 'lastPlayedAt',
+      title: t('tracks.lastPlayedAt'),
+      value: formatDate(track.value.playStatistics.lastPlayedAt) ?? '-',
+      icon: 'mdi-calendar-clock',
+    },
+  ]
+})
 const technicalRows = computed(() => {
   const mediaFile = track.value?.mediaFile
   if (!mediaFile) return []
@@ -86,7 +124,9 @@ function formatDate(value?: string | null) {
   if (!value) return null
   const date = new Date(value)
 
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function playTrack() {
@@ -104,16 +144,31 @@ function queueTrack() {
 function toggleTrack() {
   if (!track.value) return
 
-  if (isCurrentTrack.value && player.isPlaying) {
-    player.pause()
+  if (isCurrentTrack.value) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
     return
   }
 
   playTrack()
 }
 
+function loadRecentPlays(page = recentPlaysPage.value) {
+  if (!Number.isInteger(trackId.value) || trackId.value <= 0) return
+
+  recentPlaysPage.value = page
+  void statistics.loadTrackRecentPlays(trackId.value, page)
+}
+
 watch(trackId, (id) => {
-  if (Number.isInteger(id) && id > 0) void catalog.loadTrack(id)
+  if (!Number.isInteger(id) || id <= 0) return
+
+  recentPlaysPage.value = 1
+  void catalog.loadTrack(id)
+  loadRecentPlays(1)
 }, { immediate: true })
 </script>
 
@@ -167,20 +222,20 @@ watch(trackId, (id) => {
           {{ t('tracks.queueTrack') }}
         </v-btn>
         <v-btn
-          :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
-          :prepend-icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
-          variant="text"
-          @click="void favorites.toggleTrack(track.id)"
-        >
-          {{ favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack') }}
-        </v-btn>
-        <v-btn
           color="primary"
           prepend-icon="mdi-playlist-music"
-          variant="text"
+          variant="tonal"
           @click="addToPlaylistDialog = true"
         >
           {{ t('playlists.addTrackToPlaylist') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :prepend-icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
+          variant="tonal"
+          @click="void favorites.toggleTrack(track.id)"
+        >
+          {{ favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -189,40 +244,72 @@ watch(trackId, (id) => {
       <v-col cols="12" md="5">
         <v-card border rounded="xl" height="100%">
           <v-card-title>{{ t('tracks.detailTitle') }}</v-card-title>
-          <v-list lines="two">
-            <v-list-item :title="t('tracks.artists')" :subtitle="artistNames" />
-            <v-list-item
-              :title="t('tracks.album')"
-              :subtitle="track.album?.title ?? t('catalog.unknownAlbum')"
-            />
-            <v-list-item :title="t('tracks.duration')" :subtitle="duration(track.durationMs)" />
-            <v-list-item :title="t('tracks.trackNumber')" :subtitle="trackNumber()" />
-            <v-list-item v-if="track.year" :title="t('tracks.year')" :subtitle="String(track.year)" />
-            <v-list-item :title="t('tracks.playCount')" :subtitle="String(track.playStatistics.playCount)" />
-            <v-list-item
-              v-if="track.playStatistics.firstPlayedAt"
-              :title="t('tracks.firstPlayedAt')"
-              :subtitle="formatDate(track.playStatistics.firstPlayedAt) ?? ''"
-            />
-            <v-list-item
-              v-if="track.playStatistics.lastPlayedAt"
-              :title="t('tracks.lastPlayedAt')"
-              :subtitle="formatDate(track.playStatistics.lastPlayedAt) ?? ''"
-            />
-          </v-list>
+          <v-card-text>
+            <div class="detail-grid">
+              <div v-for="row in trackDetailRows" :key="row.label" class="detail-field">
+                <div class="text-caption text-medium-emphasis">{{ row.label }}</div>
+                <div class="text-body-2 font-weight-medium detail-value">{{ row.value }}</div>
+              </div>
+            </div>
+          </v-card-text>
         </v-card>
       </v-col>
 
       <v-col cols="12" md="7">
         <v-card border rounded="xl" height="100%">
-          <v-card-title>{{ t('tracks.technicalDetails') }}</v-card-title>
-          <v-list v-if="technicalRows.length" lines="two">
-            <v-list-item v-for="row in technicalRows" :key="row.label" :title="row.label">
-              <template #subtitle>
-                <span class="technical-value">{{ row.value }}</span>
-              </template>
-            </v-list-item>
+          <v-card-title>{{ t('tracks.playbackStatistics') }}</v-card-title>
+          <v-card-text>
+            <v-row dense>
+              <v-col v-for="stat in playbackStatTiles" :key="stat.key" cols="12" sm="4">
+                <div class="stat-tile">
+                  <v-icon color="primary" :icon="stat.icon" />
+                  <div>
+                    <div class="text-caption text-medium-emphasis">{{ stat.title }}</div>
+                    <div class="text-body-2 font-weight-bold">{{ stat.value }}</div>
+                  </div>
+                </div>
+              </v-col>
+            </v-row>
+          </v-card-text>
+          <v-divider />
+          <v-card-title class="text-subtitle-1">{{ t('tracks.recentPlays') }}</v-card-title>
+          <v-skeleton-loader v-if="statistics.trackRecentPlaysLoading" type="list-item-two-line@3" />
+          <v-alert v-else-if="statistics.trackRecentPlaysError" class="mx-4 mb-4" type="error" variant="tonal">
+            {{ statistics.trackRecentPlaysError }}
+          </v-alert>
+          <v-list v-else-if="statistics.trackRecentPlays.items.length" density="comfortable">
+            <v-list-item
+              v-for="play in statistics.trackRecentPlays.items"
+              :key="play.id"
+              prepend-icon="mdi-clock-outline"
+              :title="formatDate(play.playedAt) ?? '-'"
+            />
           </v-list>
+          <v-card-text v-else class="text-medium-emphasis">
+            {{ t('tracks.noRecentPlays') }}
+          </v-card-text>
+          <v-card-actions v-if="statistics.trackRecentPlays.lastPage > 1">
+            <v-pagination
+              v-model="recentPlaysPage"
+              density="comfortable"
+              :length="statistics.trackRecentPlays.lastPage"
+              @update:model-value="loadRecentPlays"
+            />
+          </v-card-actions>
+        </v-card>
+      </v-col>
+
+      <v-col cols="12">
+        <v-card border rounded="xl" height="100%">
+          <v-card-title>{{ t('tracks.technicalDetails') }}</v-card-title>
+          <v-card-text v-if="technicalRows.length">
+            <div class="detail-grid technical-grid">
+              <div v-for="row in technicalRows" :key="row.label" class="detail-field">
+                <div class="text-caption text-medium-emphasis">{{ row.label }}</div>
+                <div class="text-body-2 font-weight-medium detail-value">{{ row.value }}</div>
+              </div>
+            </div>
+          </v-card-text>
           <v-card-text v-else class="text-medium-emphasis">
             {{ t('tracks.noTechnicalMetadata') }}
           </v-card-text>
@@ -240,7 +327,32 @@ watch(trackId, (id) => {
 </template>
 
 <style scoped>
-.technical-value {
+.detail-grid {
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+
+.technical-grid {
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.detail-field {
+  min-width: 0;
+}
+
+.detail-value {
   overflow-wrap: anywhere;
 }
+
+.stat-tile {
+  align-items: center;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  height: 100%;
+  padding: 12px;
+}
+
 </style>

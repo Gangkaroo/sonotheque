@@ -8,6 +8,7 @@ use App\Models\Genre;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -44,11 +45,17 @@ class DashboardMetricsApiTest extends TestCase
             'modified_at' => now(),
             'last_seen_at' => now(),
         ]);
-        Track::create([
+        $track = Track::create([
             'album_id' => $album->id,
             'media_file_id' => $mediaFile->id,
             'title' => 'Track',
             'sort_title' => 'Track',
+        ]);
+        TrackPlayStatistic::create([
+            'track_id' => $track->id,
+            'play_count' => 2,
+            'first_played_at' => now(),
+            'last_played_at' => now(),
         ]);
         Genre::create(['name' => 'Rock']);
 
@@ -59,6 +66,8 @@ class DashboardMetricsApiTest extends TestCase
                 'albums' => 1,
                 'tracks' => 1,
                 'genres' => 1,
+                'playedAlbums' => 1,
+                'playedTracks' => 1,
             ]);
     }
 }

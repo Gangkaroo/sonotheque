@@ -11,7 +11,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
@@ -50,7 +50,9 @@ function formatDate(value?: string | null) {
   if (!value) return '-'
   const date = new Date(value)
 
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function playCountTooltip(track: Track) {
@@ -58,7 +60,7 @@ function playCountTooltip(track: Track) {
     t('tracks.playCountTooltip', { count: track.playStatistics.playCount }),
     t('tracks.firstPlayedAtTooltip', { value: formatDate(track.playStatistics.firstPlayedAt) }),
     t('tracks.lastPlayedAtTooltip', { value: formatDate(track.playStatistics.lastPlayedAt) }),
-  ].join('\n')
+  ]
 }
 
 function trackNumber(track: Track) {
@@ -100,8 +102,12 @@ function openArtwork() {
 }
 
 function toggleTrack(track: Track) {
-  if (player.currentTrack?.id === track.id && player.isPlaying) {
-    player.pause()
+  if (player.currentTrack?.id === track.id) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
     return
   }
 
@@ -163,7 +169,13 @@ watch(() => player.currentTrack?.album?.id, (id) => {
           <v-card-text class="text-medium-emphasis">
             {{ albumDetails }}
             <div v-if="albumGenres.length" class="d-flex flex-wrap ga-2 mt-4">
-              <v-chip v-for="genre in albumGenres" :key="genre.id" size="small" variant="tonal">
+              <v-chip
+                v-for="genre in albumGenres"
+                :key="genre.id"
+                :to="{ name: 'albums', query: { genre: genre.id, genreName: genre.name } }"
+                size="small"
+                variant="tonal"
+              >
                 {{ genre.name }}
               </v-chip>
             </div>
@@ -175,13 +187,13 @@ watch(() => player.currentTrack?.album?.id, (id) => {
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :disabled="!tracks.length" @click="queueAlbum">
               {{ t('albums.queueAlbum') }}
             </v-btn>
-            <v-btn color="primary" variant="text" prepend-icon="mdi-playlist-music" :disabled="!tracks.length" @click="addAlbumToPlaylist">
+            <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-music" :disabled="!tracks.length" @click="addAlbumToPlaylist">
               {{ t('playlists.addAlbumToPlaylist') }}
             </v-btn>
             <v-btn
-              :color="favorites.isAlbumFavorite(album.id) ? 'primary' : undefined"
+              color="primary"
               :prepend-icon="favorites.isAlbumFavorite(album.id) ? 'mdi-heart' : 'mdi-heart-outline'"
-              variant="text"
+              variant="tonal"
               @click="void favorites.toggleAlbum(album.id)"
             >
               {{ favorites.isAlbumFavorite(album.id) ? t('favorites.removeAlbum') : t('favorites.addAlbum') }}
@@ -191,11 +203,11 @@ watch(() => player.currentTrack?.album?.id, (id) => {
       </v-col>
     </v-row>
 
-    <h2 class="text-h5 font-weight-bold mb-4">{{ t('albums.trackList') }}</h2>
     <v-list v-if="tracks.length" border rounded="xl" lines="two">
       <v-list-item
         v-for="track in tracks"
         :key="track.id"
+        class="track-list-item"
         :class="{ 'current-track': isCurrentTrack(track) }"
       >
         <template #prepend>
@@ -218,20 +230,24 @@ watch(() => player.currentTrack?.album?.id, (id) => {
           {{ track.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist') }}
         </v-list-item-subtitle>
         <template #append>
-          <div class="d-flex align-center ga-2">
+          <div class="track-actions">
             <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
-            <v-tooltip :text="playCountTooltip(track)" location="top">
+            <v-tooltip location="top">
               <template #activator="{ props }">
                 <span v-bind="props" class="play-count text-caption text-medium-emphasis">
-                  <v-icon icon="mdi-headphones" size="x-small" />
+                  <v-icon class="play-count-icon" icon="mdi-headphones" size="x-small" />
                   {{ track.playStatistics.playCount }}
                 </span>
               </template>
+              <div class="play-count-tooltip">
+                <div v-for="(line, index) in playCountTooltip(track)" :key="index">{{ line }}</div>
+              </div>
             </v-tooltip>
             <TooltipIconButton
               :text="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :aria-label="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :color="isCurrentTrack(track) ? 'primary' : undefined"
+              density="comfortable"
               :icon="isCurrentTrack(track) && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
               variant="text"
               @click="toggleTrack(track)"
@@ -239,6 +255,7 @@ watch(() => player.currentTrack?.album?.id, (id) => {
             <TooltipIconButton
               :text="t('playlists.addTrackToPlaylist')"
               :aria-label="t('playlists.addTrackToPlaylist')"
+              density="comfortable"
               icon="mdi-playlist-music"
               variant="text"
               @click="addTrackToPlaylist(track)"
@@ -247,6 +264,7 @@ watch(() => player.currentTrack?.album?.id, (id) => {
               :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :color="favorites.isTrackFavorite(track.id) ? 'primary' : undefined"
+              density="comfortable"
               :icon="favorites.isTrackFavorite(track.id) ? 'mdi-heart' : 'mdi-heart-outline'"
               variant="text"
               @click="void favorites.toggleTrack(track.id)"
@@ -309,6 +327,18 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   background: rgba(var(--v-theme-primary), 0.08);
 }
 
+.track-list-item {
+  transition: background-color 120ms ease;
+}
+
+.track-list-item:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.track-list-item.current-track:hover {
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+
 .track-number {
   display: inline-flex;
   justify-content: end;
@@ -331,5 +361,32 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   display: inline-flex;
   gap: 0.2rem;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.play-count-icon {
+  align-self: center;
+  transform: translateY(1px);
+}
+
+.play-count-tooltip {
+  line-height: 1.5;
+}
+
+.track-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.track-actions :deep(.v-btn) {
+  min-width: 34px;
+  padding-inline: 0;
+}
+
+@media (max-width: 480px) {
+  .play-count {
+    display: none;
+  }
 }
 </style>
