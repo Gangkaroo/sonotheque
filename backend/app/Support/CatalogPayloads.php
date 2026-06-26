@@ -101,6 +101,7 @@ class CatalogPayloads
             'artists:id,name',
             'genres:id,name',
             'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error',
+            'playStatistic:track_id,play_count,first_played_at,last_played_at',
         ]);
 
         $mediaFile = $track->mediaFile;
@@ -126,6 +127,19 @@ class CatalogPayloads
                 'status' => $mediaFile->status?->value,
                 'scanError' => $mediaFile->scan_error,
             ] : null,
+            'playStatistics' => $this->playStatisticsPayload($track),
+        ];
+    }
+
+    /** @return array{playCount: int, firstPlayedAt: ?string, lastPlayedAt: ?string} */
+    private function playStatisticsPayload(Track $track): array
+    {
+        $statistics = $track->relationLoaded('playStatistic') ? $track->playStatistic : null;
+
+        return [
+            'playCount' => $statistics?->play_count ?? 0,
+            'firstPlayedAt' => $statistics?->first_played_at?->toJSON(),
+            'lastPlayedAt' => $statistics?->last_played_at?->toJSON(),
         ];
     }
 }

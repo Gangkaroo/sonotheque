@@ -294,6 +294,7 @@ Completed:
 - Creating a new playlist from the current playback queue
 - Runtime guide for Docker PostgreSQL, Laravel, queue worker, Vite, scanning, troubleshooting, and lightweight backup
 - Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
+- Database-backed play events and track play statistics with a counted-play threshold
 
 In progress or still required for the first milestone:
 
@@ -412,12 +413,14 @@ are stable.
 Database listening history should be active before optional tag export or
 Last.fm integration.
 
-- Add play-event and play-statistics tables.
+- Add play-event and play-statistics tables. (Complete)
 - Define a "counted play" rule, for example after a minimum duration or playback
-  percentage, so short previews do not inflate statistics.
+  percentage, so short previews do not inflate statistics. (Complete with a
+  default 15-second threshold; shorter tracks count immediately)
 - Record app plays from the player when the counted-play threshold is reached.
+  (Complete)
 - Display play count, first played, and last played on track detail pages and in
-  useful list contexts.
+  useful list contexts. (Track detail complete; broader list contexts pending)
 - Add album/artist aggregate listening stats derived from track stats.
 - Add scanner import support for known playcount tags, including foobar2000 /
   foo_playcount-compatible fields where available.

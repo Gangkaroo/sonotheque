@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'album_id',
@@ -106,6 +108,18 @@ class Track extends Model
     public function genres(): BelongsToMany
     {
         return $this->belongsToMany(Genre::class)->withTimestamps();
+    }
+
+    /** @return HasOne<TrackPlayStatistic, $this> */
+    public function playStatistic(): HasOne
+    {
+        return $this->hasOne(TrackPlayStatistic::class);
+    }
+
+    /** @return HasMany<TrackPlayEvent, $this> */
+    public function playEvents(): HasMany
+    {
+        return $this->hasMany(TrackPlayEvent::class);
     }
 
     protected function casts(): array

@@ -198,6 +198,17 @@ watch(trackId, (id) => {
             <v-list-item :title="t('tracks.duration')" :subtitle="duration(track.durationMs)" />
             <v-list-item :title="t('tracks.trackNumber')" :subtitle="trackNumber()" />
             <v-list-item v-if="track.year" :title="t('tracks.year')" :subtitle="String(track.year)" />
+            <v-list-item :title="t('tracks.playCount')" :subtitle="String(track.playStatistics.playCount)" />
+            <v-list-item
+              v-if="track.playStatistics.firstPlayedAt"
+              :title="t('tracks.firstPlayedAt')"
+              :subtitle="formatDate(track.playStatistics.firstPlayedAt) ?? ''"
+            />
+            <v-list-item
+              v-if="track.playStatistics.lastPlayedAt"
+              :title="t('tracks.lastPlayedAt')"
+              :subtitle="formatDate(track.playStatistics.lastPlayedAt) ?? ''"
+            />
           </v-list>
         </v-card>
       </v-col>

@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\FavoritesController;
 use App\Http\Controllers\FolderBrowserController;
 use App\Http\Controllers\PlaylistsController;
+use App\Http\Controllers\TrackPlayStatisticsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/catalog/artists', [CatalogBrowseController::class, 'artists']);
@@ -22,6 +23,7 @@ Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
 Route::get('/artwork/{artwork}/thumbnail', ArtworkThumbnailController::class);
 Route::get('/artwork/{artwork}/original', [ArtworkThumbnailController::class, 'original']);
 Route::get('/tracks/{track}/stream', AudioStreamController::class);
+Route::post('/tracks/{track}/plays', [TrackPlayStatisticsController::class, 'store']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);
 Route::get('/favorites', [FavoritesController::class, 'ids']);

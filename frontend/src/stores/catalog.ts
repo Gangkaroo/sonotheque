@@ -44,8 +44,15 @@ export interface Track {
   artists: NamedCatalogItem[]
 }
 
+export interface TrackPlayStatistics {
+  playCount: number
+  firstPlayedAt?: string | null
+  lastPlayedAt?: string | null
+}
+
 export interface TrackDetail extends Track {
   genres: NamedCatalogItem[]
+  playStatistics: TrackPlayStatistics
   mediaFile: {
     id: number
     relativePath: string

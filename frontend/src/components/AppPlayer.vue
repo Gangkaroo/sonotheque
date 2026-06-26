@@ -2,6 +2,7 @@
 import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { apiRequest } from '@/api/client'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -9,6 +10,7 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
+const COUNTED_PLAY_THRESHOLD_SECONDS = 15
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
@@ -32,6 +34,7 @@ const isRestoringPlayback = ref(false)
 const isRestoringPosition = ref(false)
 const isSeeking = ref(false)
 const showSeekLoading = ref(false)
+const reportedPlayKey = ref<string | null>(null)
 let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
 const volumeSlider = computed({
@@ -81,6 +84,7 @@ const queueItems = computed(() => player.queue.map((track, index) => ({ track, i
 const nowPlayingQueueItem = computed(() => queueItems.value.find((item) => item.index === player.currentIndex) ?? null)
 const upcomingQueueItems = computed(() => queueItems.value.filter((item) => item.index > player.currentIndex))
 const previousQueueItems = computed(() => queueItems.value.filter((item) => item.index < player.currentIndex).reverse())
+const currentPlayKey = computed(() => player.currentTrack ? `${player.currentTrack.id}:${player.currentIndex}` : null)
 const playlistFolderOptions = computed(() => [
   { title: t('playlists.noFolder'), value: null },
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
@@ -88,9 +92,10 @@ const playlistFolderOptions = computed(() => [
 const canCreateQueuePlaylist = computed(() => queuePlaylistName.value.trim().length > 0 && player.queue.length > 0 && !playlists.saving)
 
 watch(
-  () => player.currentTrack?.id,
+  () => currentPlayKey.value,
   async () => {
     restoredTrackId.value = null
+    reportedPlayKey.value = null
     currentTime.value = player.playbackPosition
     duration.value = 0
     isRestoringPosition.value = player.playbackPosition > 0
@@ -154,6 +159,7 @@ function togglePlayback() {
 
 function updateProgress() {
   syncAudioProgress(!isRestoringPosition.value)
+  maybeRecordCountedPlay()
 }
 
 function updateDuration() {
@@ -187,6 +193,7 @@ function onEnded() {
 function onLoadedMetadata() {
   syncAudioProgress(false)
   restorePlaybackPosition()
+  maybeRecordCountedPlay()
   if (resumeAfterMetadata.value && player.isPlaying) {
     resumeAfterMetadata.value = false
     const showResumeError = !isRestoringPlayback.value
@@ -220,6 +227,7 @@ function onPause() {
 function onPlaying() {
   endSeekFeedback()
   player.setPlaybackState('playing')
+  maybeRecordCountedPlay()
 }
 
 function onSeeking() {
@@ -269,6 +277,24 @@ function dropQueueItem(targetIndex: number) {
   if (sourceIndex === null) return
 
   player.moveQueuedTrack(sourceIndex, targetIndex)
+}
+
+function maybeRecordCountedPlay() {
+  const playKey = currentPlayKey.value
+  if (!playKey || reportedPlayKey.value === playKey || !player.currentTrack || !player.isPlaying || !duration.value) return
+
+  const requiredSeconds = duration.value <= COUNTED_PLAY_THRESHOLD_SECONDS ? 0 : COUNTED_PLAY_THRESHOLD_SECONDS
+  if (currentTime.value < requiredSeconds) return
+
+  reportedPlayKey.value = playKey
+  void apiRequest(`/tracks/${player.currentTrack.id}/plays`, {
+    method: 'POST',
+    body: JSON.stringify({
+      listenedMs: Math.max(0, Math.round(currentTime.value * 1000)),
+      durationMs: Math.max(0, Math.round(duration.value * 1000)),
+      context: player.playbackContext,
+    }),
+  })
 }
 
 function openAddToPlaylist(tracks: typeof player.queue) {
