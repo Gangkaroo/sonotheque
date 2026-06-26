@@ -46,6 +46,21 @@ function duration(milliseconds?: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function playCountTooltip(track: Track) {
+  return [
+    t('tracks.playCountTooltip', { count: track.playStatistics.playCount }),
+    t('tracks.firstPlayedAtTooltip', { value: formatDate(track.playStatistics.firstPlayedAt) }),
+    t('tracks.lastPlayedAtTooltip', { value: formatDate(track.playStatistics.lastPlayedAt) }),
+  ].join('\n')
+}
+
 function trackNumber(track: Track) {
   const parts = [track.discNumber, track.trackNumber].filter((part) => part !== undefined && part !== null)
   return parts.length ? parts.join('.') : '-'
@@ -205,6 +220,14 @@ watch(() => player.currentTrack?.album?.id, (id) => {
         <template #append>
           <div class="d-flex align-center ga-2">
             <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
+            <v-tooltip :text="playCountTooltip(track)" location="top">
+              <template #activator="{ props }">
+                <span v-bind="props" class="play-count text-caption text-medium-emphasis">
+                  <v-icon icon="mdi-headphones" size="x-small" />
+                  {{ track.playStatistics.playCount }}
+                </span>
+              </template>
+            </v-tooltip>
             <TooltipIconButton
               :text="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :aria-label="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
@@ -301,5 +324,12 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 
 .track-detail-link:hover {
   text-decoration: underline;
+}
+
+.play-count {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.2rem;
+  font-variant-numeric: tabular-nums;
 }
 </style>

@@ -42,17 +42,11 @@ export interface Track {
   year?: number | null
   album: { id: number, title: string, originalReleaseYear?: number | null } | null
   artists: NamedCatalogItem[]
-}
-
-export interface TrackPlayStatistics {
-  playCount: number
-  firstPlayedAt?: string | null
-  lastPlayedAt?: string | null
+  playStatistics: TrackPlayStatistics
 }
 
 export interface TrackDetail extends Track {
   genres: NamedCatalogItem[]
-  playStatistics: TrackPlayStatistics
   mediaFile: {
     id: number
     relativePath: string
@@ -67,6 +61,12 @@ export interface TrackDetail extends Track {
     status?: string | null
     scanError?: string | null
   } | null
+}
+
+export interface TrackPlayStatistics {
+  playCount: number
+  firstPlayedAt?: string | null
+  lastPlayedAt?: string | null
 }
 
 export interface Genre {

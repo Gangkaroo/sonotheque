@@ -65,7 +65,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('items.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('items.0.album.title', 'Album')
-            ->assertJsonPath('items.0.artists.0.name', 'Artist');
+            ->assertJsonPath('items.0.artists.0.name', 'Artist')
+            ->assertJsonPath('items.0.playStatistics.playCount', 0);
 
         $this->getJson('/api/catalog/tracks?search=Artist')
             ->assertOk()
@@ -114,7 +115,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('tracks.0.id', $track->id)
             ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('tracks.0.album.title', 'Album')
-            ->assertJsonPath('tracks.0.artists.0.name', 'Artist');
+            ->assertJsonPath('tracks.0.artists.0.name', 'Artist')
+            ->assertJsonPath('tracks.0.playStatistics.playCount', 0);
     }
 
     public function test_track_detail_returns_catalog_and_media_file_metadata(): void
