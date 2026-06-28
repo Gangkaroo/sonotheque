@@ -303,8 +303,17 @@ onUnmounted(() => {
           <v-card-title>{{ album.title }}</v-card-title>
           <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
         </v-card-item>
-        <v-card-text class="pt-0 text-medium-emphasis">
-          {{ albumDetails(album) }}
+        <v-card-text class="album-card-details pt-0 text-medium-emphasis">
+          <span>{{ albumDetails(album) }}</span>
+          <TooltipIconButton
+            :text="t('albums.playAlbum')"
+            :aria-label="t('albums.playAlbum')"
+            density="compact"
+            icon="mdi-play"
+            size="small"
+            variant="text"
+            @click.prevent.stop="void player.playAlbumById(album.id)"
+          />
         </v-card-text>
       </v-card>
     </v-col>
@@ -337,5 +346,12 @@ onUnmounted(() => {
   position: absolute;
   right: 12px;
   top: 12px;
+}
+
+.album-card-details {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
 }
 </style>

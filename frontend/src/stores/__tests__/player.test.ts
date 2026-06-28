@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Track } from '@/stores/catalog'
+import type { AlbumDetail, Track } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
 
 const tracks: Track[] = [
@@ -46,6 +46,27 @@ describe('player store', () => {
     player.previous()
     expect(player.currentTrack?.title).toBe('First')
     expect(player.playbackState).toBe('loading')
+  })
+
+  it('loads and plays an album by id', async () => {
+    const album: AlbumDetail = {
+      id: 10,
+      title: 'Album',
+      primaryArtist: { id: 100, name: 'Artist' },
+      trackCount: tracks.length,
+      genres: [],
+      tracks,
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(album), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const player = usePlayerStore()
+
+    await player.playAlbumById(album.id)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums/10', expect.any(Object))
+    expect(player.queue).toHaveLength(2)
+    expect(player.currentTrack?.title).toBe('First')
+    expect(player.playbackContext).toBe('album')
   })
 
   it('loads a random next track when continuous random track-list playback is enabled', async () => {

@@ -67,6 +67,15 @@ export const usePlayerStore = defineStore('player', () => {
     playTrack(firstTrack, album.tracks, 'album')
   }
 
+  async function playAlbumById(albumId: number) {
+    try {
+      const album = await apiRequest<AlbumDetail>(`/catalog/albums/${albumId}`)
+      playAlbum(album)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+
   function queueTracks(tracks: PlayableTrack[], context: PlaybackContext = null) {
     if (!tracks.length) return
 
@@ -358,6 +367,7 @@ export const usePlayerStore = defineStore('player', () => {
     hasNext,
     playTrack,
     playAlbum,
+    playAlbumById,
     queueTracks,
     queueTrack,
     queueAlbum,
