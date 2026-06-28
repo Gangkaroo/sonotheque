@@ -33,11 +33,21 @@ class CatalogBrowseApiTest extends TestCase
             'original_release_year' => 1999,
         ]);
         $this->createTrackForAlbum($album->libraryRoot, $secondAlbum);
+        TrackPlayStatistic::create([
+            'track_id' => $track->id,
+            'play_count' => 3,
+            'first_played_at' => '2026-06-01 12:00:00+00',
+            'last_played_at' => '2026-06-02 12:00:00+00',
+        ]);
 
         $this->getJson('/api/catalog/artists?initial=A&search=Artist')
             ->assertOk()
             ->assertJsonPath('items.0.id', $artist->id)
             ->assertJsonPath('items.0.albumCount', 2)
+            ->assertJsonPath('items.0.trackCount', 1)
+            ->assertJsonPath('items.0.playStatistics.playCount', 3)
+            ->assertJsonPath('items.0.playStatistics.playedTrackCount', 1)
+            ->assertJsonPath('items.0.playStatistics.lastPlayedAt', '2026-06-02T12:00:00.000000Z')
             ->assertJsonPath('total', 1);
 
         $this->getJson('/api/catalog/albums?search=Artist')
@@ -67,7 +77,7 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('items.0.album.title', 'Album')
             ->assertJsonPath('items.0.artists.0.name', 'Artist')
-            ->assertJsonPath('items.0.playStatistics.playCount', 0);
+            ->assertJsonPath('items.0.playStatistics.playCount', 3);
 
         $this->getJson('/api/catalog/tracks?search=Artist')
             ->assertOk()

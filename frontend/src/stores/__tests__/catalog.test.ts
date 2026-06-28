@@ -11,7 +11,14 @@ describe('catalog store', () => {
 
   it('loads one filtered artist page', async () => {
     const page = {
-      items: [{ id: 7, name: 'Artist', browseInitial: 'A', albumCount: 3 }],
+      items: [{
+        id: 7,
+        name: 'Artist',
+        browseInitial: 'A',
+        albumCount: 3,
+        trackCount: 24,
+        playStatistics: { playCount: 42, playedTrackCount: 8, lastPlayedAt: '2026-06-02T12:00:00Z' },
+      }],
       total: 1,
       page: 1,
       perPage: 50,
@@ -24,6 +31,7 @@ describe('catalog store', () => {
     await store.loadArtists({ page: 1, search: 'art', initial: 'A' })
 
     expect(store.artists.items[0]?.albumCount).toBe(3)
+    expect(store.artists.items[0]?.playStatistics.playCount).toBe(42)
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/artists?page=1&search=art&initial=A', expect.any(Object))
   })
 

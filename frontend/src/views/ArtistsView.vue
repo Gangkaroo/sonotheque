@@ -7,7 +7,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore } from '@/stores/catalog'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const catalog = useCatalogStore()
 const initial = ref<string | null>(null)
 const search = ref('')
@@ -21,6 +21,26 @@ function load() {
 function selectInitial(value: string | null) {
   page.value = 1
   initial.value = value
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function playCountTooltip(artist: typeof catalog.artists.items[number]) {
+  return [
+    t('tracks.playCountTooltip', { count: artist.playStatistics.playCount }),
+    t('artists.playedTracksTooltip', {
+      played: artist.playStatistics.playedTrackCount,
+      total: artist.trackCount,
+    }),
+    t('tracks.lastPlayedAtTooltip', { value: formatDate(artist.playStatistics.lastPlayedAt) }),
+  ]
 }
 
 watch([page, initial], load, { immediate: true })
@@ -60,6 +80,17 @@ onUnmounted(() => {
       <v-list-item-subtitle>{{ t('artists.albumCount', { count: artist.albumCount }) }}</v-list-item-subtitle>
       <template #append>
         <div class="d-flex align-center ga-1">
+          <v-tooltip location="top">
+            <template #activator="{ props }">
+              <span v-bind="props" class="artist-play-count text-caption text-medium-emphasis">
+                <v-icon class="play-count-icon" icon="mdi-headphones" size="x-small" />
+                {{ artist.playStatistics.playCount }}
+              </span>
+            </template>
+            <div class="play-count-tooltip">
+              <div v-for="(line, index) in playCountTooltip(artist)" :key="index">{{ line }}</div>
+            </div>
+          </v-tooltip>
           <TooltipIconButton
             :text="t('artists.viewAlbums', { name: artist.name })"
             :aria-label="t('artists.viewAlbums', { name: artist.name })"
@@ -84,3 +115,29 @@ onUnmounted(() => {
   <EmptyCatalogState v-else :title="t('artists.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-account-music-outline" />
   <v-pagination v-if="catalog.artists.lastPage > 1" v-model="page" class="mt-6" :length="catalog.artists.lastPage" />
 </template>
+
+<style scoped>
+.artist-play-count {
+  align-items: center;
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+  gap: 0.2rem;
+  line-height: 1;
+  margin-inline-end: 0.25rem;
+}
+
+.play-count-icon {
+  align-self: center;
+  transform: translateY(1px);
+}
+
+.play-count-tooltip {
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .artist-play-count {
+    display: none;
+  }
+}
+</style>

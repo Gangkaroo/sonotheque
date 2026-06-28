@@ -6,10 +6,12 @@ use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\Track;
+use App\Models\TrackPlayStatistic;
 use App\Support\CatalogPayloads;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class CatalogBrowseController extends Controller
 {
@@ -25,7 +27,22 @@ class CatalogBrowseController extends Controller
 
         $artists = Artist::query()
             ->select(['id', 'name', 'sort_name', 'browse_initial'])
-            ->withCount('albums')
+            ->addSelect([
+                'play_count' => TrackPlayStatistic::query()
+                    ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id'),
+                'played_track_count' => TrackPlayStatistic::query()
+                    ->selectRaw('count(*)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id')
+                    ->where('track_play_statistics.play_count', '>', 0),
+                'last_played_at' => TrackPlayStatistic::query()
+                    ->selectRaw('max(track_play_statistics.last_played_at)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id'),
+            ])
+            ->withCount(['albums', 'tracks'])
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('browse_initial', $initial))
             ->orderByRaw('coalesce(sort_name, name)')
@@ -37,6 +54,12 @@ class CatalogBrowseController extends Controller
             'name' => $artist->name,
             'browseInitial' => $artist->browse_initial,
             'albumCount' => $artist->albums_count,
+            'trackCount' => $artist->tracks_count,
+            'playStatistics' => [
+                'playCount' => (int) $artist->play_count,
+                'playedTrackCount' => (int) $artist->played_track_count,
+                'lastPlayedAt' => $artist->last_played_at ? Carbon::parse($artist->last_played_at)->toJSON() : null,
+            ],
         ]));
     }
 

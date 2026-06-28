@@ -8,6 +8,12 @@ export interface Artist {
   name: string
   browseInitial: string
   albumCount: number
+  trackCount: number
+  playStatistics: {
+    playCount: number
+    playedTrackCount: number
+    lastPlayedAt?: string | null
+  }
 }
 
 interface NamedCatalogItem {

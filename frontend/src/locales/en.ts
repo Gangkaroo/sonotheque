@@ -40,6 +40,7 @@ export default {
     search: 'Search artists',
     all: 'All',
     albumCount: '{count} albums',
+    playedTracksTooltip: '{played} of {total} tracks played',
     viewAlbums: 'Show albums by {name}',
     viewTracks: 'Show tracks by {name}',
   },
