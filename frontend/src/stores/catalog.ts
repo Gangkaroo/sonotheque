@@ -98,6 +98,7 @@ interface CatalogQuery {
   initial?: string | null
   year?: number | string | null
   genre?: number | string | null
+  playStatus?: string | null
 }
 
 function emptyPage<T>(): CatalogPage<T> {
@@ -114,6 +115,7 @@ function queryPath(path: string, query: CatalogQuery): string {
   if (query.genre !== undefined && query.genre !== null && String(query.genre).trim() !== '') {
     parameters.set('genre', String(query.genre).trim())
   }
+  if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
   return `${path}?${parameters}`
 }
 

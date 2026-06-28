@@ -79,6 +79,7 @@ export default {
     description: 'Search and sort every playable track in the catalog.',
     emptyTitle: 'No tracks found',
     search: 'Search tracks',
+    neverPlayed: 'Never played',
     back: 'Back to tracks',
     backToAlbum: 'Back to album',
     detailTitle: 'Track details',

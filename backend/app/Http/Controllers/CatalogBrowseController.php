@@ -148,12 +148,19 @@ class CatalogBrowseController extends Controller
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
             'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'playStatus' => ['sometimes', 'nullable', 'string', 'in:never'],
         ]);
 
         $tracks = Track::query()
             ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
             ->with(['album:id,title,original_release_year', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
+            ->when(($filters['playStatus'] ?? null) === 'never', function (Builder $query): void {
+                $query->where(function (Builder $query): void {
+                    $query->whereDoesntHave('playStatistic')
+                        ->orWhereHas('playStatistic', fn (Builder $statisticsQuery) => $statisticsQuery->where('play_count', 0));
+                });
+            })
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $pattern = '%'.$this->escapeLike($search).'%';
                 $query->where(function (Builder $query) use ($pattern): void {

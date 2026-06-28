@@ -12,6 +12,7 @@ use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -150,6 +151,31 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('mediaFile.bitrate', 320000)
             ->assertJsonPath('mediaFile.sampleRate', 44100)
             ->assertJsonPath('mediaFile.channels', 2);
+    }
+
+    public function test_tracks_can_be_filtered_to_never_played(): void
+    {
+        [, $album, $playedTrack] = $this->createCatalog();
+        $neverPlayedAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $album->primary_artist_id,
+            'title' => 'Never Played Album',
+            'sort_title' => 'Never Played Album',
+            'relative_path' => 'Artist/Never Played Album',
+            'relative_path_hash' => hash('sha256', 'artist/never played album'),
+        ]);
+        $neverPlayedTrack = $this->createTrackForAlbum($album->libraryRoot, $neverPlayedAlbum);
+        TrackPlayStatistic::create([
+            'track_id' => $playedTrack->id,
+            'play_count' => 1,
+            'first_played_at' => now(),
+            'last_played_at' => now(),
+        ]);
+
+        $this->getJson('/api/catalog/tracks?playStatus=never')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $neverPlayedTrack->id);
     }
 
     public function test_albums_are_sorted_by_primary_artist_and_can_filter_by_artist_initial(): void

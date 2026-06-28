@@ -16,6 +16,7 @@ interface TrackFilters {
   search: string
   genre: number | null
   genreName: string
+  playStatus: 'all' | 'never'
 }
 
 const { locale, t } = useI18n()
@@ -29,6 +30,7 @@ const restoredFilters = initialFilters()
 const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
+const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
 const page = ref(1)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
@@ -40,6 +42,7 @@ function currentFilters(): TrackFilters {
     search: querySearch(search.value),
     genre: genre.value,
     genreName: genreName.value,
+    playStatus: playStatus.value,
   }
 }
 
@@ -48,6 +51,7 @@ function defaultFilters(): TrackFilters {
     search: '',
     genre: null,
     genreName: '',
+    playStatus: 'all',
   }
 }
 
@@ -66,11 +70,12 @@ function filtersFromQuery(): TrackFilters | null {
     search: querySearch(route.query.search),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    playStatus: queryPlayStatus(route.query.playStatus),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'genre', 'genreName'].some((key) => route.query[key] !== undefined)
+  return ['search', 'genre', 'genreName', 'playStatus'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): TrackFilters | null {
@@ -84,6 +89,7 @@ function filtersFromStorage(): TrackFilters | null {
       search: typeof parsed.search === 'string' ? parsed.search : '',
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      playStatus: queryPlayStatus(parsed.playStatus),
     }
   } catch {
     return null
@@ -107,6 +113,7 @@ function applyFilters(filters: TrackFilters) {
   search.value = filters.search
   genre.value = filters.genre
   genreName.value = filters.genreName
+  playStatus.value = filters.playStatus
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -118,6 +125,7 @@ function filterQuery(filters: TrackFilters) {
   if (filters.search.trim()) query.search = filters.search.trim()
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.playStatus === 'never') query.playStatus = filters.playStatus
 
   return query
 }
@@ -127,6 +135,7 @@ function normalizedFilterQuery(query: typeof route.query) {
     search: querySearch(query.search),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    playStatus: queryPlayStatus(query.playStatus),
   })
 }
 
@@ -138,6 +147,10 @@ function queryNumber(value: unknown) {
   const parsed = typeof value === 'string' ? Number(value) : NaN
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function queryPlayStatus(value: unknown): 'all' | 'never' {
+  return value === 'never' ? 'never' : 'all'
 }
 
 function clearGenreFilter() {
@@ -170,7 +183,12 @@ function playCountTooltip(track: Track) {
 }
 
 function load() {
-  void catalog.loadTracks({ page: page.value, search: querySearch(search.value), genre: genre.value })
+  void catalog.loadTracks({
+    page: page.value,
+    search: querySearch(search.value),
+    genre: genre.value,
+    playStatus: playStatus.value === 'never' ? playStatus.value : null,
+  })
 }
 
 function toggleTrack(track: Track) {
@@ -206,14 +224,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([genre, genreName], () => {
+watch([genre, genreName, playStatus], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, genre], load, { immediate: true })
+watch([page, genre, playStatus], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -245,7 +263,19 @@ onUnmounted(() => {
       {{ t('player.playRandomTrack') }}
     </v-btn>
   </div>
-  <v-text-field v-model="search" class="mb-6" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('tracks.search')" />
+  <div class="track-filter-row d-flex flex-column flex-sm-row ga-3 mb-6">
+    <v-text-field v-model="search" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('tracks.search')" />
+    <v-switch
+      v-model="playStatus"
+      class="never-played-filter"
+      color="primary"
+      density="compact"
+      false-value="all"
+      hide-details
+      :label="t('tracks.neverPlayed')"
+      true-value="never"
+    />
+  </div>
   <div v-if="genre" class="mb-6">
     <v-chip closable color="primary" variant="tonal" @click:close="clearGenreFilter">
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
@@ -345,6 +375,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.never-played-filter {
+  flex: 0 0 auto;
+  min-width: 11rem;
+}
+
 .track-meta-link {
   color: inherit;
   text-decoration: none;

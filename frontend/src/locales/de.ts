@@ -79,6 +79,7 @@ export default {
     description: 'Durchsuche und sortiere alle abspielbaren Titel im Katalog.',
     emptyTitle: 'Keine Titel gefunden',
     search: 'Titel suchen',
+    neverPlayed: 'Nie gespielt',
     back: 'Zurück zu Titeln',
     backToAlbum: 'Zurück zum Album',
     detailTitle: 'Titeldetails',
