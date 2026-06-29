@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Jobs\ApplyTrackMetadataEdit;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
+use App\Models\MetadataBackup;
 use App\Models\MetadataEditJob;
 use App\Models\Track;
 use App\Music\Metadata\TrackMetadataEditing;
@@ -21,16 +23,21 @@ class ApplyTrackMetadataEditJobTest extends TestCase
 
     private string $musicPath;
 
+    private string $backupPath;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->musicPath = storage_path('framework/testing/metadata-edit-'.bin2hex(random_bytes(6)));
+        $this->backupPath = $this->musicPath.'-backups';
         mkdir($this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album', 0777, true);
+        mkdir($this->backupPath, 0777, true);
     }
 
     protected function tearDown(): void
     {
         $this->deleteDirectory($this->musicPath);
+        $this->deleteDirectory($this->backupPath);
         parent::tearDown();
     }
 
@@ -41,6 +48,11 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $track = $this->createTrack();
         $path = $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'track.mp3';
         file_put_contents($path, 'audio');
+        ApplicationSetting::current()->update([
+            'metadata_backups_enabled' => true,
+            'metadata_backup_path' => $this->backupPath,
+            'metadata_backup_retention_days' => 30,
+        ]);
         $editing = $this->app->make(TrackMetadataEditing::class);
         $values = [
             'title' => 'Changed title',
@@ -75,6 +87,11 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $this->assertSame(['verified' => true], $track->fresh()->metadata);
         $this->assertSame('written', file_get_contents($path));
         $this->assertSame(7, $track->fresh()->mediaFile->file_size);
+        $backup = MetadataBackup::firstOrFail();
+        $this->assertSame('audio', file_get_contents($backup->backup_root.DIRECTORY_SEPARATOR.$backup->backup_relative_path));
+        $this->getJson("/api/metadata-edits/{$edit->id}")
+            ->assertOk()
+            ->assertJsonPath('backup.id', $backup->id);
     }
 
     private function createTrack(): Track

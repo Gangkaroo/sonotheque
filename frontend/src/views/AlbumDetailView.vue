@@ -70,6 +70,15 @@ interface AlbumMetadataJobItem {
   file?: string | null
   trackTitle?: string | null
   error?: string | null
+  backup?: MetadataBackup | null
+}
+
+interface MetadataBackup {
+  id: number
+  path: string
+  expiresAt: string | null
+  restoredAt: string | null
+  deletedAt: string | null
 }
 
 interface AlbumMetadataJob {
@@ -591,8 +600,12 @@ onUnmounted(() => {
               :key="item.id"
               prepend-icon="mdi-alert-circle-outline"
               :title="item.trackTitle ?? item.file ?? String(item.trackId)"
-              :subtitle="item.error ?? t('albums.metadataEditFailed')"
-            />
+            >
+              <v-list-item-subtitle>{{ item.error ?? t('albums.metadataEditFailed') }}</v-list-item-subtitle>
+              <v-list-item-subtitle v-if="item.backup">
+                {{ t('settings.metadataBackupRecovery', { id: item.backup.id, path: item.backup.path }) }}
+              </v-list-item-subtitle>
+            </v-list-item>
           </v-list>
         </template>
       </v-card-text>

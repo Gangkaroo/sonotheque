@@ -7,6 +7,7 @@ import { apiRequest } from '@/api/client'
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
   initialPath: { type: String, default: '' },
+  title: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue', 'select'])
 const { t } = useI18n()
@@ -56,7 +57,7 @@ function selectCurrent() {
 
 <template>
   <v-dialog :model-value="modelValue" max-width="760" @update:model-value="emit('update:modelValue', $event)">
-    <v-card :title="t('settings.folderBrowserTitle')" prepend-icon="mdi-folder-search-outline">
+    <v-card :title="title || t('settings.folderBrowserTitle')" prepend-icon="mdi-folder-search-outline">
       <v-card-text>
         <v-alert v-if="error" class="mb-4" type="error" variant="tonal">{{ error }}</v-alert>
 

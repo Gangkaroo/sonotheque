@@ -4,10 +4,12 @@ namespace Tests\Feature;
 
 use App\Jobs\ApplyAlbumMetadataEdit;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\Library;
 use App\Models\MediaFile;
+use App\Models\MetadataBackup;
 use App\Models\Track;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
@@ -22,16 +24,21 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
 
     private string $musicPath;
 
+    private string $backupPath;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->musicPath = storage_path('framework/testing/album-metadata-edit-'.bin2hex(random_bytes(6)));
+        $this->backupPath = $this->musicPath.'-backups';
         mkdir($this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album', 0777, true);
+        mkdir($this->backupPath, 0777, true);
     }
 
     protected function tearDown(): void
     {
         $this->deleteDirectory($this->musicPath);
+        $this->deleteDirectory($this->backupPath);
         parent::tearDown();
     }
 
@@ -40,6 +47,11 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         Queue::fake();
         $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter);
         $album = $this->createAlbum();
+        ApplicationSetting::current()->update([
+            'metadata_backups_enabled' => true,
+            'metadata_backup_path' => $this->backupPath,
+            'metadata_backup_retention_days' => 30,
+        ]);
         $editing = $this->app->make(AlbumMetadataEditing::class);
         $values = [
             'albumTitle' => 'Changed album',
@@ -66,6 +78,10 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertEqualsCanonicalizing(['Doom', 'Metal'], $album->tracks->first()->genres()->pluck('name')->all());
         $this->assertSame(['Track 1', 'Track 2'], $album->tracks()->orderBy('track_number')->pluck('title')->all());
         $this->assertSame([1, 2], $album->tracks()->orderBy('track_number')->pluck('track_number')->all());
+        $this->assertSame(2, MetadataBackup::count());
+        $this->assertSame(['audio', 'audio'], MetadataBackup::all()->map(
+            fn (MetadataBackup $backup) => file_get_contents($backup->backup_root.DIRECTORY_SEPARATOR.$backup->backup_relative_path),
+        )->all());
     }
 
     public function test_a_partial_failure_keeps_the_shared_album_catalog_unchanged(): void

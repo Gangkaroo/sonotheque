@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'metadata_edit_job_id',
@@ -36,6 +37,12 @@ class MetadataEditItem extends Model
     public function mediaFile(): BelongsTo
     {
         return $this->belongsTo(MediaFile::class);
+    }
+
+    /** @return HasOne<MetadataBackup, $this> */
+    public function backup(): HasOne
+    {
+        return $this->hasOne(MetadataBackup::class);
     }
 
     protected function casts(): array

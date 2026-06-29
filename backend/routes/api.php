@@ -7,6 +7,7 @@ use App\Http\Controllers\CatalogBrowseController;
 use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\FavoritesController;
 use App\Http\Controllers\FolderBrowserController;
+use App\Http\Controllers\MetadataBackupSettingsController;
 use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistsController;
@@ -39,6 +40,8 @@ Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::clas
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
 Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
+Route::get('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'show']);
+Route::patch('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'update']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);
 Route::get('/favorites', [FavoritesController::class, 'ids']);

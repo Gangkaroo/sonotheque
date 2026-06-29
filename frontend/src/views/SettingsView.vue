@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { useMetadataBackupSettingsStore } from '@/stores/metadataBackupSettings'
 import { usePlaybackStatisticsSettingsStore } from '@/stores/playbackStatisticsSettings'
 import { useScanRunsStore } from '@/stores/scanRuns'
 
@@ -15,6 +16,7 @@ import { useScanRunsStore } from '@/stores/scanRuns'
 
 const { t, locale } = useI18n()
 const libraryRoots = useLibraryRootsStore()
+const metadataBackupSettings = useMetadataBackupSettingsStore()
 const playbackStatisticsSettings = usePlaybackStatisticsSettingsStore()
 const scanRuns = useScanRunsStore()
 const rootRows = computed(() => libraryRoots.roots.map((root) => ({
@@ -23,18 +25,27 @@ const rootRows = computed(() => libraryRoots.roots.map((root) => ({
 })))
 const rootDialog = ref(false)
 const folderBrowserDialog = ref(false)
+const backupFolderBrowserDialog = ref(false)
 const deleteDialog = ref(false)
 const scanDetailsDialog = ref(false)
 const rootToDelete = ref(/** @type {LibraryRoot | null} */ (null))
 const rootToEdit = ref(/** @type {LibraryRoot | null} */ (null))
 const selectedScan = ref(/** @type {ScanRun | null} */ (null))
 const form = reactive({ name: '', path: '', coverImagePath: 'cover.jpg' })
+const backupForm = reactive({ enabled: false, path: '', retentionDays: 30 })
+const backupSaved = ref(false)
 const fieldErrors = reactive(/** @type {Record<string, string[]>} */ ({}))
 const submitError = ref(/** @type {string | null} */ (null))
 let pollTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null)
 
 onMounted(async () => {
-  await Promise.all([libraryRoots.load(), playbackStatisticsSettings.load(), scanRuns.load()])
+  await Promise.all([
+    libraryRoots.load(),
+    playbackStatisticsSettings.load(),
+    metadataBackupSettings.load(),
+    scanRuns.load(),
+  ])
+  Object.assign(backupForm, metadataBackupSettings.settings)
   schedulePolling()
 })
 
@@ -206,6 +217,21 @@ async function setSynchronizePlayStatistics(enabled) {
 
   await playbackStatisticsSettings.setSynchronizeWithFileTags(enabled)
 }
+
+/** @param {string} path */
+function selectBackupFolder(path) {
+  backupForm.path = path
+}
+
+async function saveBackupSettings() {
+  try {
+    await metadataBackupSettings.save({ ...backupForm })
+    Object.assign(backupForm, metadataBackupSettings.settings)
+    backupSaved.value = true
+  } catch {
+    // The store exposes the API error in the settings card.
+  }
+}
 </script>
 
 <template>
@@ -336,6 +362,67 @@ async function setSynchronizePlayStatistics(enabled) {
   </v-card>
 
   <v-card border rounded="xl" class="mt-6">
+    <v-card-item class="pa-6 pb-2" prepend-icon="mdi-backup-restore">
+      <v-card-title>{{ t('settings.metadataBackups') }}</v-card-title>
+      <v-card-subtitle>{{ t('settings.metadataBackupsDescription') }}</v-card-subtitle>
+    </v-card-item>
+    <v-card-text class="pa-6 pt-4">
+      <v-alert v-if="metadataBackupSettings.error" class="mb-4" type="error" variant="tonal">
+        {{ metadataBackupSettings.error }}
+      </v-alert>
+      <v-skeleton-loader v-if="metadataBackupSettings.loading" type="list-item-two-line" />
+      <template v-else>
+        <v-switch
+          v-model="backupForm.enabled"
+          color="primary"
+          :label="t('settings.enableMetadataBackups')"
+          :hint="t('settings.enableMetadataBackupsHint')"
+          persistent-hint
+        />
+        <div class="d-flex align-start ga-2 mt-3 backup-path-row">
+          <v-text-field
+            v-model="backupForm.path"
+            :label="t('settings.metadataBackupPath')"
+            :hint="t('settings.metadataBackupPathHint')"
+            persistent-hint
+          />
+          <v-btn
+            class="mt-1"
+            prepend-icon="mdi-folder-open-outline"
+            variant="tonal"
+            @click="backupFolderBrowserDialog = true"
+          >
+            {{ t('settings.browseFolders') }}
+          </v-btn>
+        </div>
+        <v-text-field
+          v-model.number="backupForm.retentionDays"
+          class="backup-retention-field mt-3"
+          inputmode="numeric"
+          :label="t('settings.metadataBackupRetention')"
+          :hint="t('settings.metadataBackupRetentionHint')"
+          min="1"
+          max="3650"
+          persistent-hint
+          type="number"
+        />
+        <div class="d-flex justify-end mt-4">
+          <v-btn
+            color="primary"
+            :disabled="!backupForm.path.trim()"
+            :loading="metadataBackupSettings.saving"
+            prepend-icon="mdi-content-save-outline"
+            variant="flat"
+            @click="saveBackupSettings"
+          >
+            {{ t('settings.saveBackupSettings') }}
+          </v-btn>
+        </div>
+      </template>
+    </v-card-text>
+  </v-card>
+
+  <v-card border rounded="xl" class="mt-6">
     <v-card-item class="pa-6 pb-2">
       <v-card-title>{{ t('settings.recentScans') }}</v-card-title>
       <v-card-subtitle>{{ t('settings.recentScansDescription') }}</v-card-subtitle>
@@ -457,6 +544,13 @@ async function setSynchronizePlayStatistics(enabled) {
     @select="selectFolder"
   />
 
+  <FolderBrowserDialog
+    v-model="backupFolderBrowserDialog"
+    :initial-path="backupForm.path"
+    :title="t('settings.metadataBackupFolderBrowserTitle')"
+    @select="selectBackupFolder"
+  />
+
   <v-dialog v-model="scanDetailsDialog" max-width="760" scrollable>
     <v-card>
       <v-card-item prepend-icon="mdi-alert-circle-outline">
@@ -507,6 +601,10 @@ async function setSynchronizePlayStatistics(enabled) {
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-snackbar v-model="backupSaved" color="success" timeout="3000">
+    {{ t('settings.metadataBackupSettingsSaved') }}
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -527,5 +625,21 @@ async function setSynchronizePlayStatistics(enabled) {
 
 .scan-counts > span:not(:last-child) {
   margin-inline-end: 0.35rem;
+}
+
+.backup-retention-field {
+  max-width: 18rem;
+}
+
+@media (max-width: 600px) {
+  .backup-path-row {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .backup-path-row .v-btn {
+    align-self: flex-start;
+    margin-top: 0 !important;
+  }
 }
 </style>

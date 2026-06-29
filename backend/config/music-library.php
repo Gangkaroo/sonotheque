@@ -6,6 +6,11 @@ return [
     'counted_play_threshold_seconds' => (int) env('PLAY_STATISTICS_COUNTED_PLAY_THRESHOLD_SECONDS', 15),
     'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
 
+    'metadata_backups' => [
+        'default_path' => env('METADATA_BACKUP_PATH', storage_path('app/metadata-backups')),
+        'default_retention_days' => (int) env('METADATA_BACKUP_RETENTION_DAYS', 30),
+    ],
+
     'lan' => [
         'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),
         'admin_token' => env('MUSIC_LIBRARY_ADMIN_TOKEN'),

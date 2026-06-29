@@ -7,6 +7,7 @@ use App\Models\Genre;
 use App\Models\MetadataEditItem;
 use App\Models\MetadataEditJob;
 use App\Music\Metadata\AlbumMetadataEditing;
+use App\Music\Metadata\MetadataBackupManager;
 use App\Music\Metadata\TrackMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
 use App\Music\Scanning\ArtistName;
@@ -33,6 +34,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         TrackMetadataWriter $writer,
         LibraryPathGuard $pathGuard,
         ArtistName $artistName,
+        MetadataBackupManager $backups,
     ): void {
         $edit = MetadataEditJob::with(['album.tracks', 'items.track.mediaFile.libraryRoot'])
             ->findOrFail($this->metadataEditJobId);
@@ -53,7 +55,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
 
         $edit->update(['status' => 'running', 'started_at' => $edit->started_at ?? now(), 'error' => null]);
         foreach ($edit->items->where('status', 'pending') as $item) {
-            $this->processItem($item, $trackEditing, $writer, $pathGuard);
+            $this->processItem($edit, $item, $trackEditing, $writer, $pathGuard, $backups);
             $this->refreshProgress($edit);
         }
 
@@ -71,10 +73,12 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
     }
 
     private function processItem(
+        MetadataEditJob $edit,
         MetadataEditItem $item,
         TrackMetadataEditing $trackEditing,
         TrackMetadataWriter $writer,
         LibraryPathGuard $pathGuard,
+        MetadataBackupManager $backups,
     ): void {
         $item->update(['status' => 'running', 'started_at' => now(), 'error' => null]);
 
@@ -92,6 +96,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 throw new RuntimeException('The audio file no longer exists.');
             }
 
+            $backups->create($edit, $mediaFile, $path, $item);
             $metadata = $writer->write($path, $item->requested_changes);
             clearstatcache(true, $path);
             $modifiedAt = filemtime($path);

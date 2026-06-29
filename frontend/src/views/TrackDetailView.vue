@@ -70,6 +70,15 @@ interface MetadataEditJob {
   trackId: number
   status: 'pending' | 'running' | 'completed' | 'failed'
   error?: string | null
+  backup?: MetadataBackup | null
+}
+
+interface MetadataBackup {
+  id: number
+  path: string
+  expiresAt: string | null
+  restoredAt: string | null
+  deletedAt: string | null
 }
 
 const trackId = computed(() => Number(route.params.id))
@@ -596,6 +605,9 @@ onUnmounted(() => {
               <div class="text-body-2 text-medium-emphasis">{{ t('tracks.metadataQueuedHint') }}</div>
             </div>
           </div>
+          <v-alert v-if="metadataJob.backup" class="mt-4" type="info" variant="tonal">
+            {{ t('settings.metadataBackupRecovery', { id: metadataJob.backup.id, path: metadataJob.backup.path }) }}
+          </v-alert>
         </template>
       </v-card-text>
       <v-card-actions>

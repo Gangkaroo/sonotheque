@@ -78,6 +78,8 @@ class LanProtectionMiddlewareTest extends TestCase
             ['POST', '/api/albums/1/metadata/preview'],
             ['POST', '/api/albums/1/metadata-edits'],
             ['GET', '/api/metadata-edits/1'],
+            ['GET', '/api/settings/metadata-backups'],
+            ['PATCH', '/api/settings/metadata-backups'],
         ] as [$method, $uri]) {
             $this->call(
                 $method,

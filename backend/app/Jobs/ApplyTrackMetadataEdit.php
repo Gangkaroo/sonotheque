@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Artist;
 use App\Models\MetadataEditJob;
+use App\Music\Metadata\MetadataBackupManager;
 use App\Music\Metadata\TrackMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
 use App\Music\Scanning\ArtistName;
@@ -35,6 +36,7 @@ class ApplyTrackMetadataEdit implements ShouldQueue
         TrackMetadataWriter $writer,
         LibraryPathGuard $pathGuard,
         ArtistName $artistName,
+        MetadataBackupManager $backups,
     ): void {
         $edit = MetadataEditJob::with(['track.mediaFile.libraryRoot'])->findOrFail($this->metadataEditJobId);
         if ($edit->status === 'completed') {
@@ -58,6 +60,7 @@ class ApplyTrackMetadataEdit implements ShouldQueue
                 throw new RuntimeException('The audio file no longer exists.');
             }
 
+            $backups->create($edit, $mediaFile, $path);
             $metadata = $writer->write($path, $edit->requested_changes);
             clearstatcache(true, $path);
             $modifiedAt = filemtime($path);

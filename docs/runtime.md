@@ -203,6 +203,35 @@ titles, track numbers, and existing disc numbers remain unchanged; a file with
 no disc number receives disc 1 when a total is added. The shared album catalog
 record and genre relationships update only after every file succeeds.
 
+### Metadata Backups
+
+Durable metadata backups are disabled by default. They can be enabled in
+Settings with a writable folder outside every configured music library root and
+a retention period from 1 to 3650 days. When enabled, a checksum-verified copy
+must be recorded before a queued track or album metadata edit can write its
+source file. A backup failure prevents that file from being edited.
+
+Backups retain the library root and source-relative path, use unique job-based
+directories without overwriting an earlier copy, and expose their record ID and
+path in metadata-edit failure details. Expired backup files are removed when a
+new backup is created or explicitly with:
+
+```powershell
+php artisan music:metadata-backups:cleanup
+```
+
+Audit records remain in PostgreSQL after retention cleanup. Restore a retained
+backup by its record ID:
+
+```powershell
+php artisan music:metadata-backups:restore 123
+```
+
+The restore command verifies path containment and the stored SHA-256 checksum,
+asks before replacing the current file, and uses a temporary rollback copy.
+Use `--force` only for non-interactive operation. Run a library rescan after a
+restore so normalized catalog metadata matches the restored tags.
+
 ## Runtime Logs
 
 If services are started as background processes, write logs to `runtime-logs/`.

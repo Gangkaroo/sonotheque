@@ -435,7 +435,8 @@ File writes remain queued and require a preview and explicit confirmation.
   sequential MP3 batches; track-specific fields are preserved)
 - Add a preview/confirmation step that shows every affected file and tag field
   before writing. (Complete for individual MP3 tracks and album batches)
-- Add optional file backup before write operations.
+- Add optional file backup before write operations. (Complete for track and
+  album MP3 edits with configurable retention and explicit restore tooling)
 - Add queued tag-write jobs with progress, errors, and rollback guidance.
   (Queued job status, per-file progress, and partial-error reporting complete
   for individual tracks and album batches; durable backup/rollback guidance
@@ -512,23 +513,15 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The next best slice is a **durable metadata backup policy**.
+The durable metadata backup policy is complete: it is disabled by default,
+uses a configurable location and retention period, preserves source-relative
+paths in unique copies, records checksums and edit ownership, exposes recovery
+details, and provides cleanup and path-checked restore commands.
 
-Individual and album-wide MP3 editing now share fingerprinted previews,
-sequential queued execution, temporary rollback copies, read-after-write
-verification, progress, and per-file failures. Before adding artwork editing or
-more file formats, users should be able to retain recoverable originals for a
-configurable period.
-
-Recommended scope:
-
-1. Add a disabled-by-default backup setting with a configurable location and
-   retention period.
-2. Store backups by library root and relative path without overwriting an
-   existing recovery copy.
-3. Record backup paths in metadata edit items and expose them in failure details.
-4. Add cleanup and explicit restore commands with path-safety checks.
-5. Only then broaden editing to artwork and additional audio formats.
+Artwork editing and additional audio formats are intentionally deferred. The
+next planning pass can instead focus on smaller metadata workflow refinements,
+such as track-level genre editing and a browsable backup audit, after the
+current backup behavior has been exercised with representative library files.
 
 ## First Milestone Definition
 
