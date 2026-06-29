@@ -59,33 +59,60 @@ npm install
 
 ## Daily Startup
 
-Start PostgreSQL:
+From the repository root, start the complete local stack with:
+
+```powershell
+.\scripts\start.ps1
+```
+
+This is always a manual action. The scripts do not register a Windows startup
+task, service, or scheduled job.
+
+Check the current state at any time:
+
+```powershell
+.\scripts\status.ps1
+```
+
+Stop the local stack:
+
+```powershell
+.\scripts\stop.ps1
+```
+
+Keep PostgreSQL running while stopping the managed PHP and Node processes:
+
+```powershell
+.\scripts\stop.ps1 -KeepDatabase
+```
+
+The scripts start native processes in hidden windows and record their process
+identity under `runtime-logs/`. Shutdown only terminates native processes whose
+recorded identity still matches. Services that were started manually are shown
+as `external` and are left untouched. The named PostgreSQL Compose service is
+stopped by default unless `-KeepDatabase` is used.
+
+If the local PowerShell execution policy blocks repository scripts, invoke them
+without changing the system-wide policy:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+For manual diagnostics, the equivalent commands remain:
 
 ```powershell
 docker compose up -d postgres
-docker inspect --format "{{.State.Health.Status}}" music-library-postgres
-```
-
-Start the backend API in one terminal:
-
-```powershell
 cd backend
 & $php85 artisan serve --host=127.0.0.1 --port=8000
+& $php85 artisan queue:listen --tries=1 --timeout=1800 --memory=512
+cd ..\frontend
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Start the queue worker in a second terminal:
-
-```powershell
-cd backend
-& $php85 artisan queue:work --tries=1 --timeout=1800
-```
-
-Start the frontend in a third terminal:
-
-```powershell
-cd frontend
-npm run dev -- --host 127.0.0.1
-```
+`queue:listen` supervises a fresh worker process for each scan. This prevents a
+large completed scan from leaving the application without a queue listener when
+Laravel retires a child worker after crossing its memory threshold.
 
 Open the app at:
 
@@ -153,6 +180,10 @@ Useful files:
 - `runtime-logs/frontend-vite.out.log`
 - `runtime-logs/frontend-vite.err.log`
 
+The `*.process.json` files in the same directory are ownership records used by
+the shutdown script. They are runtime state, not configuration, and should not
+be edited manually.
+
 ## Verification
 
 Backend checks:
@@ -188,10 +219,11 @@ If the frontend loads but data does not appear, check the backend:
 Invoke-WebRequest -Uri http://127.0.0.1:8000/api/dashboard-metrics -UseBasicParsing
 ```
 
-If scans stay queued, check that the queue worker is running. Then inspect
-pending jobs:
+If scans stay queued, run the status command and check that the queue listener
+is running. Then inspect failed jobs:
 
 ```powershell
+.\scripts\status.ps1
 cd backend
 & $php85 artisan queue:failed
 ```

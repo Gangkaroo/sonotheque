@@ -303,13 +303,16 @@ Completed:
 - Add-to-playlist actions from tracks, albums, queue entries, and the player
 - Playlist detail pages with ordered track lists, play/queue actions, removal confirmations, and reorder controls
 - Creating a new playlist from the current playback queue
-- Runtime guide for Docker PostgreSQL, Laravel, queue worker, Vite, scanning, troubleshooting, and lightweight backup
+- Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
+  Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
+  troubleshooting, and lightweight backup
 - Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
 
 In progress or still required for the first milestone:
 
-- Local runtime integration or helper scripts for starting Docker, Laravel, the queue worker, and Vite together
+- Local runtime integration for starting, stopping, and checking Docker,
+  Laravel, the queue listener, and Vite together. (Complete)
 - Frontend admin-token entry/storage so protected Settings operations can be used intentionally from LAN devices
 - CORS and trusted-host hardening before binding services to the LAN interface
 - Broader end-to-end and packaging coverage
@@ -486,20 +489,19 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The next best slice is **local startup integration**.
+The next best slice is the **metadata-editing safety foundation**.
 
-Runtime documentation now captures the manual command sequence. The next useful
-step is reducing that sequence to one repeatable developer command or script
-that starts Docker PostgreSQL, Laravel, the queue worker, and Vite with logs in
-predictable locations.
+Startup and shutdown are now repeatable manual operations. Before exposing tag
+editing in the UI, define and test the backend write boundary that both metadata
+editing and future listening-statistics export will use.
 
 Recommended scope:
 
-1. Add Windows-friendly startup and shutdown scripts.
-2. Use the explicit PHP 8.5 path when available, with a clear fallback/error.
-3. Write logs to `runtime-logs/`.
-4. Add simple health checks for `5173`, `8000`, and `5433`.
-5. Document the scripts in the runtime guide.
+1. Select a tag-writing library and wrap it behind a format-neutral adapter.
+2. Define supported fields and formats without enabling writes by default.
+3. Add representative fixture files and read-after-write tests.
+4. Design preview, backup, queued execution, and failure reporting contracts.
+5. Implement the first narrow edit only after those safeguards are covered.
 
 ## First Milestone Definition
 

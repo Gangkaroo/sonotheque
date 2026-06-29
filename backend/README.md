@@ -23,12 +23,19 @@ php artisan migrate
 PostgreSQL is expected to run from the repository root via Docker Compose. The
 default development connection is `127.0.0.1:5433`.
 
-Run the API and queue worker in separate terminals. Prefer the PHP 8.5 binary if
-an older PHP appears first on `PATH`:
+For daily use, start the complete stack from the repository root:
+
+```powershell
+.\scripts\start.ps1
+.\scripts\status.ps1
+```
+
+For manual diagnostics, run the API and queue listener in separate terminals.
+Prefer the PHP 8.5 binary if an older PHP appears first on `PATH`:
 
 ```powershell
 php artisan serve --host=127.0.0.1 --port=8000
-php artisan queue:work --tries=1 --timeout=1800
+php artisan queue:listen --tries=1 --timeout=1800 --memory=512
 ```
 
 Queue a scan for a configured library-root ID:
