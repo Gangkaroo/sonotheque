@@ -4,6 +4,7 @@ return [
     'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '256M'),
     'scan_stale_after_minutes' => (int) env('SCAN_STALE_AFTER_MINUTES', 15),
     'counted_play_threshold_seconds' => (int) env('PLAY_STATISTICS_COUNTED_PLAY_THRESHOLD_SECONDS', 15),
+    'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
 
     'lan' => [
         'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),

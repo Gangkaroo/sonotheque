@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SynchronizeTrackPlaybackStatistics;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class TrackPlayStatisticsApiTest extends TestCase
@@ -105,6 +108,45 @@ class TrackPlayStatisticsApiTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('counted', true)
             ->assertJsonPath('statistics.playCount', 1);
+    }
+
+    public function test_it_queues_file_synchronization_for_a_counted_play_when_enabled(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update([
+            'import_play_statistics_from_tags' => true,
+            'export_play_statistics_to_tags' => true,
+        ]);
+        $track = $this->createTrack(durationMs: 120_000);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 15_000,
+            'durationMs' => 120_000,
+            'sessionKey' => 'synchronized-play',
+        ])->assertCreated();
+
+        Queue::assertPushed(SynchronizeTrackPlaybackStatistics::class, fn ($job): bool => $job->trackId === $track->id);
+
+        Queue::fake();
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 15_000,
+            'durationMs' => 120_000,
+            'sessionKey' => 'synchronized-play',
+        ])->assertOk()->assertJsonPath('duplicate', true);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_it_does_not_queue_file_synchronization_when_disabled(): void
+    {
+        Queue::fake();
+        $track = $this->createTrack(durationMs: 120_000);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 15_000,
+            'durationMs' => 120_000,
+        ])->assertCreated();
+
+        Queue::assertNothingPushed();
     }
 
     public function test_track_detail_includes_play_statistics(): void

@@ -16,22 +16,23 @@ class PlaybackStatisticsSettingsController extends Controller
     public function update(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'importFromFileTags' => ['required', 'boolean'],
+            'synchronizeWithFileTags' => ['required', 'boolean'],
         ]);
         $settings = ApplicationSetting::current();
         $settings->update([
-            'import_play_statistics_from_tags' => $validated['importFromFileTags'],
+            'import_play_statistics_from_tags' => $validated['synchronizeWithFileTags'],
+            'export_play_statistics_to_tags' => $validated['synchronizeWithFileTags'],
         ]);
 
         return response()->json($this->payload($settings));
     }
 
-    /** @return array{importFromFileTags: bool, exportToFileTags: bool} */
+    /** @return array{synchronizeWithFileTags: bool, supportedExportFormats: list<string>} */
     private function payload(ApplicationSetting $settings): array
     {
         return [
-            'importFromFileTags' => $settings->import_play_statistics_from_tags,
-            'exportToFileTags' => $settings->export_play_statistics_to_tags,
+            'synchronizeWithFileTags' => $settings->synchronizesPlaybackStatisticsWithTags(),
+            'supportedExportFormats' => ['mp3'],
         ];
     }
 }

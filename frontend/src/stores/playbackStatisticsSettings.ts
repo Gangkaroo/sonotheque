@@ -4,14 +4,14 @@ import { ref } from 'vue'
 import { apiRequest } from '@/api/client'
 
 export interface PlaybackStatisticsSettings {
-  importFromFileTags: boolean
-  exportToFileTags: boolean
+  synchronizeWithFileTags: boolean
+  supportedExportFormats: string[]
 }
 
 export const usePlaybackStatisticsSettingsStore = defineStore('playbackStatisticsSettings', () => {
   const settings = ref<PlaybackStatisticsSettings>({
-    importFromFileTags: false,
-    exportToFileTags: false,
+    synchronizeWithFileTags: false,
+    supportedExportFormats: ['mp3'],
   })
   const loading = ref(false)
   const saving = ref(false)
@@ -29,13 +29,13 @@ export const usePlaybackStatisticsSettingsStore = defineStore('playbackStatistic
     }
   }
 
-  async function setImportFromFileTags(enabled: boolean) {
+  async function setSynchronizeWithFileTags(enabled: boolean) {
     saving.value = true
     error.value = null
     try {
       settings.value = await apiRequest<PlaybackStatisticsSettings>('/settings/playback-statistics', {
         method: 'PATCH',
-        body: JSON.stringify({ importFromFileTags: enabled }),
+        body: JSON.stringify({ synchronizeWithFileTags: enabled }),
       })
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -45,7 +45,7 @@ export const usePlaybackStatisticsSettingsStore = defineStore('playbackStatistic
     }
   }
 
-  return { settings, loading, saving, error, load, setImportFromFileTags }
+  return { settings, loading, saving, error, load, setSynchronizeWithFileTags }
 })
 
 function errorMessage(cause: unknown) {

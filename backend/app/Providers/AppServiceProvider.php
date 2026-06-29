@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Music\Artwork\AlbumArtworkManager;
+use App\Music\PlaybackStatistics\Mp3PlaybackStatisticsTagWriter;
+use App\Music\PlaybackStatistics\PlaybackStatisticsTagWriter;
 use App\Music\Scanning\AudioFileDiscoverer;
 use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\GetId3MetadataReader;
@@ -16,6 +18,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(AudioMetadataReader::class, GetId3MetadataReader::class);
+        $this->app->bind(PlaybackStatisticsTagWriter::class, Mp3PlaybackStatisticsTagWriter::class);
 
         $this->app->when(AudioFileDiscoverer::class)
             ->needs('$extensions')

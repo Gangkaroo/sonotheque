@@ -19,6 +19,11 @@ class ApplicationSetting extends Model
         ]);
     }
 
+    public function synchronizesPlaybackStatisticsWithTags(): bool
+    {
+        return $this->import_play_statistics_from_tags && $this->export_play_statistics_to_tags;
+    }
+
     protected function casts(): array
     {
         return [

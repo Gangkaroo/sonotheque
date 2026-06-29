@@ -239,9 +239,9 @@ Planned data model:
 
 The app should support importing play statistics from file tags used by tools
 such as foobar2000/foo_playcount where the tag format can be identified. Import
-and export of listening statistics to file tags should be settings-controlled
-and disabled by default. Database tracking should remain enabled regardless of
-those settings.
+and export of listening statistics to file tags are controlled by one
+disabled-by-default synchronization setting. Database tracking remains enabled
+regardless of that setting.
 
 The first import implementation recognizes foobar2000/foo_playcount fields
 such as `PLAY_COUNT`, `FIRST_PLAYED_TIMESTAMP`, and `LAST_PLAYED_TIMESTAMP`, as
@@ -253,6 +253,16 @@ retained, and the latest last-played value is retained. The exact imported
 values remain in `track_play_statistics.source_metadata` for later conflict
 handling. Unchanged files are imported from cached raw metadata, so enabling
 the setting does not force a full metadata re-read.
+
+Counted app plays enqueue a coalesced write-back job after a short delay. The
+first export implementation supports MP3 ID3v2.3 and ID3v2.4 tags without using
+getID3's unsafe generic merge mode: only the `PLAY_COUNT`,
+`FIRST_PLAYED_TIMESTAMP`, and `LAST_PLAYED_TIMESTAMP` TXXX frames are replaced,
+while unrelated frames and audio bytes are preserved. Values are verified on a
+temporary file before it replaces the original, and the scanner fingerprint is
+updated afterward. Unsupported formats remain database-only and record that
+result in source metadata. M4A and other formats require a preservation-tested
+writer before export can be enabled for them.
 
 Writing listening statistics back to file tags should reuse the future
 metadata-editing write path: preview changes, optionally back up files, write in
@@ -441,11 +451,11 @@ Last.fm integration.
 - Add scanner import support for known playcount tags, including foobar2000 /
   foo_playcount-compatible fields where available. (Complete for aggregate
   count, first played, and last played fields)
-- Add settings for listening-stat tag import and tag export. (Import setting
-  complete and disabled by default; export setting remains disabled and is not
-  exposed until writing is implemented)
+- Add settings for listening-stat tag import and tag export. (Complete as one
+  disabled-by-default synchronization setting)
 - Add optional queued export of play count, first played, and last played back
-  to file tags for interoperability with other players.
+  to file tags for interoperability with other players. (Complete for MP3;
+  additional formats remain pending)
 - Add conflict handling when DB statistics and file-tag statistics disagree.
   (Non-destructive merge and source preservation complete; interactive conflict
   review remains pending)

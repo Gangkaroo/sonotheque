@@ -201,10 +201,10 @@ async function removeRoot() {
 }
 
 /** @param {boolean | null} enabled */
-async function setImportPlayStatistics(enabled) {
+async function setSynchronizePlayStatistics(enabled) {
   if (enabled === null) return
 
-  await playbackStatisticsSettings.setImportFromFileTags(enabled)
+  await playbackStatisticsSettings.setSynchronizeWithFileTags(enabled)
 }
 </script>
 
@@ -325,12 +325,12 @@ async function setImportPlayStatistics(enabled) {
         v-else
         color="primary"
         :disabled="playbackStatisticsSettings.saving"
-        :hint="t('settings.importPlayStatisticsHint')"
-        :label="t('settings.importPlayStatistics')"
+        :hint="t('settings.synchronizePlayStatisticsHint')"
+        :label="t('settings.synchronizePlayStatistics')"
         :loading="playbackStatisticsSettings.saving"
-        :model-value="playbackStatisticsSettings.settings.importFromFileTags"
+        :model-value="playbackStatisticsSettings.settings.synchronizeWithFileTags"
         persistent-hint
-        @update:model-value="setImportPlayStatistics"
+        @update:model-value="setSynchronizePlayStatistics"
       />
     </v-card-text>
   </v-card>

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SynchronizeTrackPlaybackStatistics;
+use App\Models\ApplicationSetting;
 use App\Models\Track;
 use App\Models\TrackPlayEvent;
 use App\Models\TrackPlayStatistic;
@@ -78,6 +80,14 @@ class TrackPlayStatisticsController extends Controller
                 'statistics' => $statistics,
             ];
         });
+
+        if ($counted
+            && ! $result['duplicate']
+            && ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags()) {
+            SynchronizeTrackPlaybackStatistics::dispatch($track->id)
+                ->delay(now()->addSeconds(max(0, (int) config('music-library.play_statistics_sync_delay_seconds', 30))))
+                ->afterCommit();
+        }
 
         return response()->json([
             'counted' => $counted,

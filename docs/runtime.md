@@ -166,6 +166,19 @@ Cover paths are configured per library root and resolved relative to each album
 folder. The configured folder cover is preferred. Embedded artwork is used as a
 fallback.
 
+## Playback Statistics Synchronization
+
+Listening-statistics synchronization is disabled by default in Settings. When
+enabled, scans import `PLAY_COUNT`, `FIRST_PLAYED_TIMESTAMP`, and
+`LAST_PLAYED_TIMESTAMP`. A newly counted app play queues a coalesced write-back
+job after a short delay.
+
+Export currently supports MP3 files with ordinary ID3v2.3 or ID3v2.4 tags.
+Unrelated ID3 frames and audio bytes are preserved and the written values are
+verified before replacing the original file. Unsupported formats and unusual
+ID3 layouts remain database-only; playback itself is never blocked by export.
+The queue listener must be running for write-back jobs to execute.
+
 ## Runtime Logs
 
 If services are started as background processes, write logs to `runtime-logs/`.
