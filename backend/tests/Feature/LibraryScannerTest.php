@@ -8,6 +8,7 @@ use App\Enums\ScanStatus;
 use App\Enums\ScanTrigger;
 use App\Jobs\ScanLibraryRoot;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Artwork;
 use App\Models\Genre;
@@ -16,6 +17,7 @@ use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\ScanRun;
 use App\Models\Track;
+use App\Models\TrackPlayStatistic;
 use App\Music\Artwork\EmbeddedArtwork;
 use App\Music\Scanning\AudioMetadata;
 use App\Music\Scanning\AudioMetadataReader;
@@ -120,6 +122,56 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(0, $secondScan->fresh()->files_updated);
         $this->assertSame(1, $secondScan->fresh()->files_processed);
         $this->assertSame(1, $this->metadataReader->calls);
+    }
+
+    public function test_scanner_imports_tag_statistics_from_cached_metadata_once_enabled(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $this->metadataReader = new FakeAudioMetadataReader(new AudioMetadata(
+            title: 'Human Behaviour',
+            album: 'Debut',
+            albumArtist: 'BjÃ¶rk',
+            artists: ['BjÃ¶rk'],
+            rawMetadata: [
+                'comments' => [
+                    'PLAY_COUNT' => ['7'],
+                    'FIRST_PLAYED_TIMESTAMP' => ['2020-01-02 03:04:05'],
+                    'LAST_PLAYED_TIMESTAMP' => ['2021-02-03 04:05:06'],
+                ],
+            ],
+        ));
+        $this->app->instance(AudioMetadataReader::class, $this->metadataReader);
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        $track = Track::firstOrFail();
+        TrackPlayStatistic::create([
+            'track_id' => $track->id,
+            'play_count' => 10,
+            'first_played_at' => '2020-06-01 00:00:00+00',
+            'last_played_at' => '2020-07-01 00:00:00+00',
+        ]);
+        ApplicationSetting::current()->update(['import_play_statistics_from_tags' => true]);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $importScan = $this->createScan($root);
+        $scanner->scan($importScan);
+        $statistics = $track->playStatistic()->firstOrFail();
+
+        $this->assertSame(1, $this->metadataReader->calls);
+        $this->assertSame(10, $statistics->play_count);
+        $this->assertSame('2020-01-02T03:04:05.000000Z', $statistics->first_played_at->toJSON());
+        $this->assertSame('2021-02-03T04:05:06.000000Z', $statistics->last_played_at->toJSON());
+        $this->assertSame(7, $statistics->source_metadata['file_tags']['play_count']);
+        $this->assertSame(1, $importScan->fresh()->summary['playStatisticsImported']);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $repeatScan = $this->createScan($root);
+        $scanner->scan($repeatScan);
+
+        $this->assertSame(1, $this->metadataReader->calls);
+        $this->assertArrayNotHasKey('playStatisticsImported', $repeatScan->fresh()->summary);
     }
 
     public function test_incremental_scan_batches_progress_and_cancellation_queries(): void

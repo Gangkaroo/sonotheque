@@ -28,7 +28,7 @@ export interface ScanRun {
   startedAt: string | null
   finishedAt: string | null
   cancelRequestedAt: string | null
-  summary: { phase?: string; error?: string; issues?: ScanIssue[] } | null
+  summary: { phase?: string; error?: string; playStatisticsImported?: number; issues?: ScanIssue[] } | null
   createdAt: string
 }
 

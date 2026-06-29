@@ -5,12 +5,16 @@ namespace App\Music\Scanning;
 use App\Enums\MediaFileStatus;
 use App\Enums\ScanStatus;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\MediaFile;
 use App\Models\ScanRun;
 use App\Models\Track;
 use App\Music\Artwork\AlbumArtworkManager;
+use App\Music\PlaybackStatistics\ImportedPlayStatistics;
+use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
+use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -39,7 +43,7 @@ class LibraryScanner
     /** @var array<string, Artist> */
     private array $artistCache = [];
 
-    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int}> */
+    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
     private array $existingFiles = [];
 
     /** @var array<string, Genre> */
@@ -48,11 +52,20 @@ class LibraryScanner
     /** @var list<int> */
     private array $unchangedFileIds = [];
 
+    private bool $importPlayStatisticsFromTags = false;
+
+    private int $playStatisticsImported = 0;
+
+    /** @var array<int, array{trackId: int, statistics: ImportedPlayStatistics}> */
+    private array $pendingPlayStatisticsImports = [];
+
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
         private readonly AudioMetadataReader $metadataReader,
         private readonly ArtistName $artistName,
         private readonly AlbumArtworkManager $artworkManager,
+        private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
+        private readonly PlaybackStatisticsImporter $playStatisticsImporter,
     ) {}
 
     public function scan(ScanRun $scanRun): void
@@ -115,6 +128,7 @@ class LibraryScanner
                 if ($progress['files_processed'] % self::CANCELLATION_CHECK_INTERVAL === 0
                     && $this->cancellationRequested($scanRun)) {
                     $this->flushUnchangedFiles($startedAt);
+                    $this->flushPlayStatisticsImports();
                     $this->cancelScan($scanRun, $progress, $issues);
 
                     return;
@@ -167,6 +181,7 @@ class LibraryScanner
             }
 
             $this->flushUnchangedFiles($startedAt);
+            $this->flushPlayStatisticsImports();
 
             foreach ($diagnostics->issues() as $issue) {
                 $this->addIssue(
@@ -233,6 +248,7 @@ class LibraryScanner
             ]));
         } catch (Throwable $exception) {
             $this->flushUnchangedFiles($startedAt);
+            $this->flushPlayStatisticsImports();
             $this->addIssue($issues, 'scan_failed', 'error', $exception->getMessage());
             $progress['error_count']++;
             $scanRun->update(array_merge($progress, [
@@ -260,6 +276,11 @@ class LibraryScanner
             if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
                 $this->unchangedFileIds[] = $existing['id'];
                 $warnings = $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
+                $trackId = $existing['track_id'] ?? null;
+                $imported = $existing['play_statistics'] ?? null;
+                if ($trackId !== null && $imported !== null) {
+                    $warnings = array_merge($warnings, $this->importPlayStatistics(Track::find($trackId), $imported));
+                }
 
                 return ['created' => false, 'changed' => false, 'warnings' => $warnings];
             }
@@ -350,6 +371,7 @@ class LibraryScanner
 
                 return [
                     'album' => $album,
+                    'track' => $track,
                     'created' => $existing === null,
                 ];
             });
@@ -360,12 +382,17 @@ class LibraryScanner
         }
 
         $this->albumIdCache[$processed['album']->id] = $processed['album'];
+        $importWarnings = $this->importPlayStatistics(
+            $processed['track'],
+            $this->playStatisticsTagReader->read($metadata->rawMetadata),
+        );
 
         return [
             'created' => $processed['created'],
             'changed' => true,
             'warnings' => array_merge(
                 $metadata->warnings,
+                $importWarnings,
                 $this->syncArtwork(
                     $processed['album'],
                     $scanRun,
@@ -499,6 +526,7 @@ class LibraryScanner
         CarbonImmutable $seenAt,
     ): void {
         $this->flushUnchangedFiles($seenAt);
+        $this->flushPlayStatisticsImports();
         $scanRun->update(array_merge($progress, [
             'summary' => $this->summary('scanning', $issues),
         ]));
@@ -532,13 +560,34 @@ class LibraryScanner
         $this->artistCache = [];
         $this->genreCache = [];
         $this->unchangedFileIds = [];
-        $this->existingFiles = $scanRun->libraryRoot
-            ->mediaFiles()
-            ->get(['id', 'album_id', 'relative_path_hash', 'status', 'file_size', 'modified_at'])
-            ->mapWithKeys(fn (MediaFile $mediaFile): array => [
-                $mediaFile->relative_path_hash => $this->compactFileState($mediaFile),
-            ])
-            ->all();
+        $this->playStatisticsImported = 0;
+        $this->pendingPlayStatisticsImports = [];
+        $this->importPlayStatisticsFromTags = ApplicationSetting::current()->import_play_statistics_from_tags;
+        $this->existingFiles = [];
+        $query = $scanRun->libraryRoot->mediaFiles()
+            ->select([
+                'media_files.id',
+                'media_files.album_id',
+                'media_files.relative_path_hash',
+                'media_files.status',
+                'media_files.file_size',
+                'media_files.modified_at',
+            ]);
+
+        if ($this->importPlayStatisticsFromTags) {
+            $query->leftJoin('tracks', 'tracks.media_file_id', '=', 'media_files.id')
+                ->addSelect(['media_files.raw_metadata', 'tracks.id as track_id']);
+        }
+
+        foreach ($query->lazyById(250, 'media_files.id', 'id') as $mediaFile) {
+            $state = $this->compactFileState($mediaFile);
+            if ($this->importPlayStatisticsFromTags) {
+                $state['track_id'] = $mediaFile->track_id === null ? null : (int) $mediaFile->track_id;
+                $state['play_statistics'] = $this->playStatisticsTagReader->read($mediaFile->raw_metadata ?? []);
+            }
+
+            $this->existingFiles[$mediaFile->relative_path_hash] = $state;
+        }
     }
 
     /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int} */
@@ -551,6 +600,35 @@ class LibraryScanner
             'file_size' => $mediaFile->file_size,
             'modified_at' => $mediaFile->modified_at->getTimestamp(),
         ];
+    }
+
+    /** @return list<string> */
+    private function importPlayStatistics(?Track $track, ImportedPlayStatistics $imported): array
+    {
+        if (! $this->importPlayStatisticsFromTags) {
+            return [];
+        }
+
+        if ($track !== null && $imported->hasValues()) {
+            $this->pendingPlayStatisticsImports[$track->id] = [
+                'trackId' => $track->id,
+                'statistics' => $imported,
+            ];
+        }
+
+        return $imported->warnings;
+    }
+
+    private function flushPlayStatisticsImports(): void
+    {
+        if ($this->pendingPlayStatisticsImports === []) {
+            return;
+        }
+
+        $this->playStatisticsImported += $this->playStatisticsImporter->mergeMany(
+            array_values($this->pendingPlayStatisticsImports),
+        );
+        $this->pendingPlayStatisticsImports = [];
     }
 
     private function findAlbumById(?int $albumId): ?Album
@@ -623,6 +701,7 @@ class LibraryScanner
         return array_filter([
             'phase' => $phase,
             'error' => $error,
+            'playStatisticsImported' => $this->playStatisticsImported ?: null,
             'issues' => $issues,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
     }

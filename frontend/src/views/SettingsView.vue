@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { usePlaybackStatisticsSettingsStore } from '@/stores/playbackStatisticsSettings'
 import { useScanRunsStore } from '@/stores/scanRuns'
 
 /** @typedef {import('@/stores/libraryRoots').LibraryRoot} LibraryRoot */
@@ -14,6 +15,7 @@ import { useScanRunsStore } from '@/stores/scanRuns'
 
 const { t, locale } = useI18n()
 const libraryRoots = useLibraryRootsStore()
+const playbackStatisticsSettings = usePlaybackStatisticsSettingsStore()
 const scanRuns = useScanRunsStore()
 const rootRows = computed(() => libraryRoots.roots.map((root) => ({
   root,
@@ -32,7 +34,7 @@ const submitError = ref(/** @type {string | null} */ (null))
 let pollTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null)
 
 onMounted(async () => {
-  await Promise.all([libraryRoots.load(), scanRuns.load()])
+  await Promise.all([libraryRoots.load(), playbackStatisticsSettings.load(), scanRuns.load()])
   schedulePolling()
 })
 
@@ -197,6 +199,13 @@ async function removeRoot() {
   deleteDialog.value = false
   rootToDelete.value = null
 }
+
+/** @param {boolean | null} enabled */
+async function setImportPlayStatistics(enabled) {
+  if (enabled === null) return
+
+  await playbackStatisticsSettings.setImportFromFileTags(enabled)
+}
 </script>
 
 <template>
@@ -303,6 +312,30 @@ async function removeRoot() {
   </v-card>
 
   <v-card border rounded="xl" class="mt-6">
+    <v-card-item class="pa-6 pb-2" prepend-icon="mdi-headphones">
+      <v-card-title>{{ t('settings.listeningStatistics') }}</v-card-title>
+      <v-card-subtitle>{{ t('settings.listeningStatisticsDescription') }}</v-card-subtitle>
+    </v-card-item>
+    <v-card-text class="pa-6 pt-4">
+      <v-alert v-if="playbackStatisticsSettings.error" class="mb-4" type="error" variant="tonal">
+        {{ playbackStatisticsSettings.error }}
+      </v-alert>
+      <v-skeleton-loader v-if="playbackStatisticsSettings.loading" type="list-item-two-line" />
+      <v-switch
+        v-else
+        color="primary"
+        :disabled="playbackStatisticsSettings.saving"
+        :hint="t('settings.importPlayStatisticsHint')"
+        :label="t('settings.importPlayStatistics')"
+        :loading="playbackStatisticsSettings.saving"
+        :model-value="playbackStatisticsSettings.settings.importFromFileTags"
+        persistent-hint
+        @update:model-value="setImportPlayStatistics"
+      />
+    </v-card-text>
+  </v-card>
+
+  <v-card border rounded="xl" class="mt-6">
     <v-card-item class="pa-6 pb-2">
       <v-card-title>{{ t('settings.recentScans') }}</v-card-title>
       <v-card-subtitle>{{ t('settings.recentScansDescription') }}</v-card-subtitle>
@@ -340,6 +373,9 @@ async function removeRoot() {
           </v-list-item-subtitle>
           <v-list-item-subtitle v-if="scan.summary?.error" class="text-error">
             {{ scan.summary.error }}
+          </v-list-item-subtitle>
+          <v-list-item-subtitle v-if="scan.summary?.playStatisticsImported">
+            {{ t('settings.playStatisticsImported', { count: scan.summary.playStatisticsImported }) }}
           </v-list-item-subtitle>
           <template v-if="scan.summary?.issues?.length" #append>
             <v-btn

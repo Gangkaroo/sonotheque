@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\FavoritesController;
 use App\Http\Controllers\FolderBrowserController;
 use App\Http\Controllers\PlaybackStatisticsController;
+use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistsController;
 use App\Http\Controllers\TrackPlayStatisticsController;
 use Illuminate\Support\Facades\Route;
@@ -29,6 +30,8 @@ Route::get('/statistics/recent-plays', [PlaybackStatisticsController::class, 're
 Route::get('/statistics/most-played-tracks', [PlaybackStatisticsController::class, 'mostPlayedTracks']);
 Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::class, 'mostPlayedAlbums']);
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
+Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
+Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);
 Route::get('/favorites', [FavoritesController::class, 'ids']);

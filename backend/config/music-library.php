@@ -12,6 +12,7 @@ return [
             'api/folders*',
             'api/library_roots*',
             'api/scan_runs*',
+            'api/settings*',
         ],
     ],
 

@@ -234,14 +234,25 @@ Planned data model:
 - `track_play_statistics`: per-track aggregate with play count, first played,
   last played, and optional external/source metadata.
 - Optional import/export metadata for tag-based playcount fields, including
-  source name, last imported timestamp, last exported timestamp, and conflict
-  status.
+  source fields, observed values, merge strategy, and future export/conflict
+  state.
 
 The app should support importing play statistics from file tags used by tools
 such as foobar2000/foo_playcount where the tag format can be identified. Import
 and export of listening statistics to file tags should be settings-controlled
 and disabled by default. Database tracking should remain enabled regardless of
 those settings.
+
+The first import implementation recognizes foobar2000/foo_playcount fields
+such as `PLAY_COUNT`, `FIRST_PLAYED_TIMESTAMP`, and `LAST_PLAYED_TIMESTAMP`, as
+well as common legacy aliases and the ID3 play counter. Timestamps support both
+textual date values and the Windows FILETIME values written by foo_playcount.
+Imports use a
+non-decreasing merge: counts never decrease, the earliest first-played value is
+retained, and the latest last-played value is retained. The exact imported
+values remain in `track_play_statistics.source_metadata` for later conflict
+handling. Unchanged files are imported from cached raw metadata, so enabling
+the setting does not force a full metadata re-read.
 
 Writing listening statistics back to file tags should reuse the future
 metadata-editing write path: preview changes, optionally back up files, write in
@@ -425,12 +436,16 @@ Last.fm integration.
 - Add a never-played filter to the track list. (Complete)
 - Add album/artist aggregate listening stats derived from track stats. (Complete)
 - Add scanner import support for known playcount tags, including foobar2000 /
-  foo_playcount-compatible fields where available.
-- Add settings for listening-stat tag import and tag export. Both should be
-  disabled by default.
+  foo_playcount-compatible fields where available. (Complete for aggregate
+  count, first played, and last played fields)
+- Add settings for listening-stat tag import and tag export. (Import setting
+  complete and disabled by default; export setting remains disabled and is not
+  exposed until writing is implemented)
 - Add optional queued export of play count, first played, and last played back
   to file tags for interoperability with other players.
 - Add conflict handling when DB statistics and file-tag statistics disagree.
+  (Non-destructive merge and source preservation complete; interactive conflict
+  review remains pending)
 - Add Last.fm settings, authentication/token storage, and explicit connect /
   disconnect workflow.
 - Add Last.fm scrobbling for eligible app plays.
