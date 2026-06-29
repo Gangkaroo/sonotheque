@@ -54,6 +54,9 @@ class LibraryScannerTest extends TestCase
             album: 'Debut',
             albumArtist: 'Björk',
             artists: ['Björk'],
+            composers: ['Nellee Hooper'],
+            performers: ['Björk'],
+            comment: 'Album version',
             genres: ['Electronic'],
             year: 1993,
             originalReleaseYear: 1993,
@@ -99,6 +102,10 @@ class LibraryScannerTest extends TestCase
         $this->assertDatabaseHas(Artist::class, ['name' => 'Björk', 'browse_initial' => 'B']);
         $this->assertDatabaseHas(Album::class, ['title' => 'Debut', 'original_release_year' => 1993]);
         $this->assertDatabaseHas(Track::class, ['title' => 'Human Behaviour', 'track_number' => 1]);
+        $track = Track::firstOrFail();
+        $this->assertSame(['Nellee Hooper'], $track->composers);
+        $this->assertSame(['Björk'], $track->performers);
+        $this->assertSame('Album version', $track->comment);
         $this->assertDatabaseHas(Genre::class, ['name' => 'Electronic']);
         $this->assertDatabaseHas(MediaFile::class, [
             'relative_path' => 'Bjoerk/Debut/01 - Human Behaviour.mp3',

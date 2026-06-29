@@ -60,6 +60,7 @@ class CatalogPayloads
 
         return [
             ...$this->albumSummary($album),
+            'discTotal' => $album->disc_total,
             'artworkUrl' => $album->artwork_id ? "/api/artwork/{$album->artwork_id}/original" : null,
             'artworkWidth' => $album->artwork?->width,
             'artworkHeight' => $album->artwork?->height,
@@ -110,6 +111,9 @@ class CatalogPayloads
         return [
             ...$this->trackSummary($track),
             'year' => $track->year,
+            'comment' => $track->comment,
+            'composers' => $track->composers ?? [],
+            'performers' => $track->performers ?? [],
             'genres' => $track->genres->map(fn (Genre $genre) => [
                 'id' => $genre->id,
                 'name' => $genre->name,

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import { apiRequest } from '@/api/client'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
@@ -18,6 +19,58 @@ const player = usePlayerStore()
 const statistics = useStatisticsStore()
 const addToPlaylistDialog = ref(false)
 const recentPlaysPage = ref(1)
+const metadataDialog = ref(false)
+const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
+const metadataLoading = ref(false)
+const metadataError = ref<string | null>(null)
+const metadataSuccess = ref(false)
+const metadataPreview = ref<MetadataPreview | null>(null)
+const metadataJob = ref<MetadataEditJob | null>(null)
+const metadataForm = reactive({
+  title: '',
+  artistNames: [] as string[],
+  composers: [] as string[],
+  performers: [] as string[],
+  comment: '',
+  trackNumber: '',
+  discNumber: '',
+  year: '',
+})
+let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
+
+interface MetadataChange {
+  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'comment' | 'trackNumber' | 'discNumber' | 'year'
+  current: string | number | string[] | null
+  proposed: string | number | string[] | null
+}
+
+interface MetadataPreview {
+  trackId: number
+  file: string
+  format: string
+  supported: boolean
+  fingerprint: string
+  values: MetadataValues
+  changes: MetadataChange[]
+}
+
+interface MetadataValues {
+  title: string
+  artistNames: string[]
+  composers: string[]
+  performers: string[]
+  comment: string | null
+  trackNumber: number | null
+  discNumber: number | null
+  year: number | null
+}
+
+interface MetadataEditJob {
+  id: number
+  trackId: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error?: string | null
+}
 
 const trackId = computed(() => Number(route.params.id))
 const backAlbumId = computed(() => {
@@ -34,16 +87,20 @@ const backLabel = computed(() => backAlbumId.value ? t('tracks.backToAlbum') : t
 const track = computed(() => catalog.trackDetail)
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
+const canEditMetadata = computed(() => track.value?.mediaFile?.relativePath.toLowerCase().endsWith('.mp3') ?? false)
 const artistNames = computed(() => track.value?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
 const trackDetailRows = computed(() => {
   if (!track.value) return []
 
   return [
     { label: t('tracks.artists'), value: artistNames.value },
+    { label: t('tracks.composers'), value: track.value.composers.join(', ') || null },
+    { label: t('tracks.performers'), value: track.value.performers.join(', ') || null },
     { label: t('tracks.album'), value: track.value.album?.title ?? t('catalog.unknownAlbum') },
     { label: t('tracks.duration'), value: duration(track.value.durationMs) },
     { label: t('tracks.trackNumber'), value: trackNumber() },
     { label: t('tracks.year'), value: track.value.year ? String(track.value.year) : null },
+    { label: t('tracks.comment'), value: track.value.comment },
   ].filter((row) => row.value)
 })
 const playbackStatTiles = computed(() => {
@@ -141,6 +198,132 @@ function queueTrack() {
   player.queueTrack(track.value, 'track-list')
 }
 
+function openMetadataEditor() {
+  if (!track.value) return
+
+  Object.assign(metadataForm, {
+    title: track.value.title,
+    artistNames: track.value.artists.map((artist) => artist.name),
+    composers: [...track.value.composers],
+    performers: [...track.value.performers],
+    comment: track.value.comment ?? '',
+    trackNumber: track.value.trackNumber?.toString() ?? '',
+    discNumber: track.value.discNumber?.toString() ?? '',
+    year: track.value.year?.toString() ?? '',
+  })
+  metadataStep.value = 'form'
+  metadataPreview.value = null
+  metadataJob.value = null
+  metadataError.value = null
+  metadataDialog.value = true
+}
+
+function metadataValues(): MetadataValues {
+  return {
+    title: metadataForm.title.trim(),
+    artistNames: cleanNames(metadataForm.artistNames),
+    composers: cleanNames(metadataForm.composers),
+    performers: cleanNames(metadataForm.performers),
+    comment: metadataForm.comment.trim() || null,
+    trackNumber: nullableInteger(metadataForm.trackNumber),
+    discNumber: nullableInteger(metadataForm.discNumber),
+    year: nullableInteger(metadataForm.year),
+  }
+}
+
+function cleanNames(names: string[]) {
+  return names.map((name) => name.trim()).filter(Boolean)
+}
+
+function nullableInteger(value: string) {
+  const trimmed = value.trim()
+  return trimmed === '' ? null : Number(trimmed)
+}
+
+async function previewMetadataEdit() {
+  if (!track.value) return
+
+  metadataLoading.value = true
+  metadataError.value = null
+  try {
+    metadataPreview.value = await apiRequest<MetadataPreview>(`/tracks/${track.value.id}/metadata/preview`, {
+      method: 'POST',
+      body: JSON.stringify(metadataValues()),
+    })
+    metadataStep.value = 'preview'
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
+  } finally {
+    metadataLoading.value = false
+  }
+}
+
+async function queueMetadataEdit() {
+  if (!track.value || !metadataPreview.value) return
+
+  metadataLoading.value = true
+  metadataError.value = null
+  try {
+    metadataJob.value = await apiRequest<MetadataEditJob>(`/tracks/${track.value.id}/metadata-edits`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...metadataPreview.value.values,
+        fingerprint: metadataPreview.value.fingerprint,
+      }),
+    })
+    metadataStep.value = 'queued'
+    scheduleMetadataPoll()
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
+  } finally {
+    metadataLoading.value = false
+  }
+}
+
+function scheduleMetadataPoll() {
+  if (metadataPollTimer) clearTimeout(metadataPollTimer)
+  metadataPollTimer = setTimeout(pollMetadataEdit, 1000)
+}
+
+async function pollMetadataEdit() {
+  if (!metadataJob.value) return
+
+  try {
+    metadataJob.value = await apiRequest<MetadataEditJob>(`/metadata-edits/${metadataJob.value.id}`)
+    if (metadataJob.value.status === 'completed') {
+      metadataDialog.value = false
+      metadataSuccess.value = true
+      await catalog.loadTrack(trackId.value)
+      return
+    }
+    if (metadataJob.value.status === 'failed') {
+      metadataError.value = metadataJob.value.error ?? t('tracks.metadataEditFailed')
+      return
+    }
+    scheduleMetadataPoll()
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
+  }
+}
+
+function metadataFieldLabel(field: MetadataChange['field']) {
+  return {
+    title: t('tracks.metadataTitle'),
+    artistNames: t('tracks.artists'),
+    composers: t('tracks.composers'),
+    performers: t('tracks.performers'),
+    comment: t('tracks.comment'),
+    trackNumber: t('tracks.trackNumber'),
+    discNumber: t('tracks.discNumber'),
+    year: t('tracks.year'),
+  }[field]
+}
+
+function metadataValue(value: MetadataChange['current']) {
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '-'
+  return value === null || value === '' ? '-' : String(value)
+}
+
 function toggleTrack() {
   if (!track.value) return
 
@@ -170,6 +353,10 @@ watch(trackId, (id) => {
   void catalog.loadTrack(id)
   loadRecentPlays(1)
 }, { immediate: true })
+
+onUnmounted(() => {
+  if (metadataPollTimer) clearTimeout(metadataPollTimer)
+})
 </script>
 
 <template>
@@ -204,7 +391,7 @@ watch(trackId, (id) => {
           </v-chip>
         </div>
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions class="track-actions">
         <v-btn
           color="primary"
           variant="flat"
@@ -228,6 +415,14 @@ watch(trackId, (id) => {
           @click="addToPlaylistDialog = true"
         >
           {{ t('playlists.addTrackToPlaylist') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-tag-edit-outline"
+          variant="tonal"
+          @click="openMetadataEditor"
+        >
+          {{ t('tracks.editMetadata') }}
         </v-btn>
         <v-btn
           color="primary"
@@ -324,6 +519,127 @@ watch(trackId, (id) => {
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+
+  <v-dialog v-model="metadataDialog" max-width="680" persistent>
+    <v-card prepend-icon="mdi-tag-edit-outline" :title="t('tracks.editMetadata')">
+      <v-card-text>
+        <v-alert v-if="metadataError" class="mb-4" type="error" variant="tonal">
+          {{ metadataError }}
+        </v-alert>
+
+        <template v-if="metadataStep === 'form'">
+          <v-alert v-if="!canEditMetadata" class="mb-4" type="warning" variant="tonal">
+            {{ t('tracks.metadataMp3Only') }}
+          </v-alert>
+          <v-text-field v-model="metadataForm.title" :label="t('tracks.metadataTitle')" maxlength="512" />
+          <v-combobox
+            v-model="metadataForm.artistNames"
+            chips
+            closable-chips
+            :label="t('tracks.artists')"
+            multiple
+          />
+          <v-combobox
+            v-model="metadataForm.composers"
+            chips
+            closable-chips
+            clearable
+            :label="t('tracks.composers')"
+            multiple
+          />
+          <v-combobox
+            v-model="metadataForm.performers"
+            chips
+            closable-chips
+            clearable
+            :label="t('tracks.performers')"
+            multiple
+          />
+          <v-textarea v-model="metadataForm.comment" auto-grow :label="t('tracks.comment')" maxlength="10000" rows="2" />
+          <v-row>
+            <v-col cols="12" sm="4">
+              <v-text-field v-model="metadataForm.trackNumber" inputmode="numeric" :label="t('tracks.trackNumber')" />
+            </v-col>
+            <v-col cols="12" sm="4">
+              <v-text-field v-model="metadataForm.discNumber" inputmode="numeric" :label="t('tracks.discNumber')" />
+            </v-col>
+            <v-col cols="12" sm="4">
+              <v-text-field v-model="metadataForm.year" inputmode="numeric" :label="t('tracks.year')" />
+            </v-col>
+          </v-row>
+          <div class="text-caption text-medium-emphasis">{{ t('tracks.metadataPreviewHint') }}</div>
+        </template>
+
+        <template v-else-if="metadataStep === 'preview' && metadataPreview">
+          <v-alert v-if="!metadataPreview.supported" class="mb-4" type="warning" variant="tonal">
+            {{ t('tracks.metadataMp3Only') }}
+          </v-alert>
+          <div class="text-body-2 text-medium-emphasis mb-3">{{ metadataPreview.file }}</div>
+          <v-list v-if="metadataPreview.changes.length" border rounded>
+            <v-list-item v-for="change in metadataPreview.changes" :key="change.field">
+              <v-list-item-title>{{ metadataFieldLabel(change.field) }}</v-list-item-title>
+              <v-list-item-subtitle class="metadata-change">
+                <span>{{ metadataValue(change.current) }}</span>
+                <v-icon icon="mdi-arrow-right" size="small" />
+                <strong>{{ metadataValue(change.proposed) }}</strong>
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+          <v-alert v-else type="info" variant="tonal">{{ t('tracks.metadataNoChanges') }}</v-alert>
+        </template>
+
+        <template v-else-if="metadataStep === 'queued' && metadataJob">
+          <div class="d-flex align-center ga-3">
+            <v-progress-circular v-if="metadataJob.status !== 'failed'" color="primary" indeterminate size="28" />
+            <div>
+              <div class="font-weight-bold">{{ t(`tracks.metadataStatuses.${metadataJob.status}`) }}</div>
+              <div class="text-body-2 text-medium-emphasis">{{ t('tracks.metadataQueuedHint') }}</div>
+            </div>
+          </div>
+        </template>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn
+          v-if="metadataStep === 'preview'"
+          :disabled="metadataLoading"
+          @click="metadataStep = 'form'"
+        >
+          {{ t('tracks.metadataBack') }}
+        </v-btn>
+        <v-spacer />
+        <v-btn
+          :disabled="metadataLoading || (metadataStep === 'queued' && metadataJob?.status !== 'failed')"
+          @click="metadataDialog = false"
+        >
+          {{ t('settings.cancel') }}
+        </v-btn>
+        <v-btn
+          v-if="metadataStep === 'form'"
+          color="primary"
+          :disabled="!canEditMetadata || !metadataForm.title.trim() || !cleanNames(metadataForm.artistNames).length"
+          :loading="metadataLoading"
+          variant="flat"
+          @click="previewMetadataEdit"
+        >
+          {{ t('tracks.metadataReview') }}
+        </v-btn>
+        <v-btn
+          v-else-if="metadataStep === 'preview'"
+          color="primary"
+          :disabled="!metadataPreview?.supported || !metadataPreview?.changes.length"
+          :loading="metadataLoading"
+          variant="flat"
+          @click="queueMetadataEdit"
+        >
+          {{ t('tracks.metadataApply') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="metadataSuccess" color="success" timeout="3000">
+    {{ t('tracks.metadataCompleted') }}
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -353,6 +669,22 @@ watch(trackId, (id) => {
   gap: 12px;
   height: 100%;
   padding: 12px;
+}
+
+.metadata-change {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.track-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.track-actions :deep(.v-btn) {
+  flex: 0 0 auto;
+  margin-inline-start: 0 !important;
 }
 
 </style>

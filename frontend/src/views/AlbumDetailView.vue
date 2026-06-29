@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { apiRequest } from '@/api/client'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -20,6 +21,67 @@ const player = usePlayerStore()
 const artworkDialog = ref(false)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
+const metadataDialog = ref(false)
+const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
+const metadataLoading = ref(false)
+const metadataError = ref<string | null>(null)
+const metadataSuccess = ref(false)
+const metadataPreview = ref<AlbumMetadataPreview | null>(null)
+const metadataJob = ref<AlbumMetadataJob | null>(null)
+const metadataForm = reactive({ albumTitle: '', albumArtist: '', releaseYear: '', totalDiscs: '', genres: [] as string[] })
+let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
+
+interface AlbumMetadataValues {
+  albumTitle: string
+  albumArtist: string
+  releaseYear: number | null
+  totalDiscs: number | null
+  genres: string[]
+}
+
+interface AlbumMetadataChange {
+  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres'
+  current: string | number | string[] | null
+  proposed: string | number | string[] | null
+}
+
+interface AlbumMetadataFile {
+  trackId: number
+  trackTitle: string
+  file: string | null
+  format: string | null
+  supported: boolean
+}
+
+interface AlbumMetadataPreview {
+  albumId: number
+  fingerprint: string
+  values: AlbumMetadataValues
+  changes: AlbumMetadataChange[]
+  files: AlbumMetadataFile[]
+  supportedFiles: number
+  unsupportedFiles: number
+}
+
+interface AlbumMetadataJobItem {
+  id: number
+  trackId: number
+  status: string
+  file?: string | null
+  trackTitle?: string | null
+  error?: string | null
+}
+
+interface AlbumMetadataJob {
+  id: number
+  status: 'pending' | 'running' | 'completed' | 'partial' | 'failed'
+  totalItems: number
+  processedItems: number
+  succeededItems: number
+  failedItems: number
+  items: AlbumMetadataJobItem[]
+  error?: string | null
+}
 
 const albumId = computed(() => Number(route.params.id))
 const album = computed(() => catalog.albumDetail)
@@ -33,11 +95,13 @@ const artworkStyle = computed(() => ({
 const albumDetails = computed(() => {
   if (!album.value) return ''
 
-  if (album.value.originalReleaseYear === undefined || album.value.originalReleaseYear === null) {
-    return t('albums.trackCount', { count: album.value.trackCount })
-  }
+  const details = album.value.originalReleaseYear === undefined || album.value.originalReleaseYear === null
+    ? t('albums.trackCount', { count: album.value.trackCount })
+    : t('albums.details', { year: album.value.originalReleaseYear, count: album.value.trackCount })
 
-  return t('albums.details', { year: album.value.originalReleaseYear, count: album.value.trackCount })
+  return album.value.discTotal
+    ? `${details} · ${t('albums.discCount', { count: album.value.discTotal })}`
+    : details
 })
 const albumPlaybackStats = computed(() => {
   const totalTrackPlays = tracks.value.reduce((total, track) => total + track.playStatistics.playCount, 0)
@@ -126,6 +190,119 @@ function addTrackToPlaylist(track: Track) {
   addToPlaylistDialog.value = true
 }
 
+function openMetadataEditor() {
+  if (!album.value) return
+
+  Object.assign(metadataForm, {
+    albumTitle: album.value.title,
+    albumArtist: album.value.primaryArtist?.name ?? '',
+    releaseYear: album.value.originalReleaseYear?.toString() ?? '',
+    totalDiscs: album.value.discTotal?.toString() ?? '',
+    genres: albumGenres.value.map((genre) => genre.name),
+  })
+  metadataStep.value = 'form'
+  metadataPreview.value = null
+  metadataJob.value = null
+  metadataError.value = null
+  metadataDialog.value = true
+}
+
+function metadataValues(): AlbumMetadataValues {
+  const year = metadataForm.releaseYear.trim()
+  const totalDiscs = metadataForm.totalDiscs.trim()
+
+  return {
+    albumTitle: metadataForm.albumTitle.trim(),
+    albumArtist: metadataForm.albumArtist.trim(),
+    releaseYear: year === '' ? null : Number(year),
+    totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
+    genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
+  }
+}
+
+async function previewMetadataEdit() {
+  if (!album.value) return
+
+  metadataLoading.value = true
+  metadataError.value = null
+  try {
+    metadataPreview.value = await apiRequest<AlbumMetadataPreview>(`/albums/${album.value.id}/metadata/preview`, {
+      method: 'POST',
+      body: JSON.stringify(metadataValues()),
+    })
+    metadataStep.value = 'preview'
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
+  } finally {
+    metadataLoading.value = false
+  }
+}
+
+async function queueMetadataEdit() {
+  if (!album.value || !metadataPreview.value) return
+
+  metadataLoading.value = true
+  metadataError.value = null
+  try {
+    metadataJob.value = await apiRequest<AlbumMetadataJob>(`/albums/${album.value.id}/metadata-edits`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...metadataPreview.value.values,
+        fingerprint: metadataPreview.value.fingerprint,
+      }),
+    })
+    metadataStep.value = 'queued'
+    scheduleMetadataPoll()
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
+  } finally {
+    metadataLoading.value = false
+  }
+}
+
+function scheduleMetadataPoll() {
+  if (metadataPollTimer) clearTimeout(metadataPollTimer)
+  metadataPollTimer = setTimeout(pollMetadataEdit, 1000)
+}
+
+async function pollMetadataEdit() {
+  if (!metadataJob.value) return
+
+  try {
+    metadataJob.value = await apiRequest<AlbumMetadataJob>(`/metadata-edits/${metadataJob.value.id}`)
+    if (metadataJob.value.status === 'completed') {
+      metadataDialog.value = false
+      metadataSuccess.value = true
+      await catalog.loadAlbum(albumId.value)
+      return
+    }
+    if (['partial', 'failed'].includes(metadataJob.value.status)) return
+    scheduleMetadataPoll()
+  } catch (cause) {
+    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
+  }
+}
+
+function metadataFieldLabel(field: AlbumMetadataChange['field']) {
+  return {
+    albumTitle: t('albums.metadataAlbumTitle'),
+    albumArtist: t('albums.metadataAlbumArtist'),
+    releaseYear: t('albums.releaseYear'),
+    totalDiscs: t('albums.totalDiscs'),
+    genres: t('tracks.genres'),
+  }[field]
+}
+
+function metadataValue(value: AlbumMetadataChange['current']) {
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '-'
+  return value === null || value === '' ? '-' : String(value)
+}
+
+function metadataProgress() {
+  if (!metadataJob.value?.totalItems) return 0
+  return Math.round((metadataJob.value.processedItems / metadataJob.value.totalItems) * 100)
+}
+
 function openArtwork() {
   if (!artworkUrl.value) return
 
@@ -153,6 +330,10 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   if (!id || player.playbackContext !== 'album' || route.name !== 'album-detail' || id === albumId.value) return
 
   void router.replace({ name: 'album-detail', params: { id } })
+})
+
+onUnmounted(() => {
+  if (metadataPollTimer) clearTimeout(metadataPollTimer)
 })
 </script>
 
@@ -229,6 +410,9 @@ watch(() => player.currentTrack?.album?.id, (id) => {
             </v-btn>
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-music" :disabled="!tracks.length" @click="addAlbumToPlaylist">
               {{ t('playlists.addAlbumToPlaylist') }}
+            </v-btn>
+            <v-btn color="primary" variant="tonal" prepend-icon="mdi-tag-edit-outline" :disabled="!tracks.length" @click="openMetadataEditor">
+              {{ t('albums.editMetadata') }}
             </v-btn>
             <v-btn
               color="primary"
@@ -328,6 +512,128 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   </v-dialog>
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+
+  <v-dialog v-model="metadataDialog" max-width="760" persistent scrollable>
+    <v-card prepend-icon="mdi-tag-edit-outline" :title="t('albums.editMetadata')">
+      <v-card-text>
+        <v-alert v-if="metadataError" class="mb-4" type="error" variant="tonal">
+          {{ metadataError }}
+        </v-alert>
+
+        <template v-if="metadataStep === 'form'">
+          <v-text-field v-model="metadataForm.albumTitle" :label="t('albums.metadataAlbumTitle')" maxlength="512" />
+          <v-text-field v-model="metadataForm.albumArtist" :label="t('albums.metadataAlbumArtist')" maxlength="512" />
+          <v-text-field v-model="metadataForm.releaseYear" inputmode="numeric" :label="t('albums.releaseYear')" />
+          <v-text-field v-model="metadataForm.totalDiscs" inputmode="numeric" :label="t('albums.totalDiscs')" />
+          <v-combobox
+            v-model="metadataForm.genres"
+            chips
+            closable-chips
+            clearable
+            :label="t('tracks.genres')"
+            multiple
+          />
+          <div class="text-caption text-medium-emphasis">{{ t('albums.metadataPreviewHint') }}</div>
+        </template>
+
+        <template v-else-if="metadataStep === 'preview' && metadataPreview">
+          <v-alert v-if="metadataPreview.unsupportedFiles" class="mb-4" type="warning" variant="tonal">
+            {{ t('albums.metadataUnsupportedFiles', { count: metadataPreview.unsupportedFiles }) }}
+          </v-alert>
+          <v-list v-if="metadataPreview.changes.length" border rounded class="mb-4">
+            <v-list-item v-for="change in metadataPreview.changes" :key="change.field">
+              <v-list-item-title>{{ metadataFieldLabel(change.field) }}</v-list-item-title>
+              <v-list-item-subtitle class="metadata-change">
+                <span>{{ metadataValue(change.current) }}</span>
+                <v-icon icon="mdi-arrow-right" size="small" />
+                <strong>{{ metadataValue(change.proposed) }}</strong>
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+          <v-alert v-else class="mb-4" type="info" variant="tonal">{{ t('albums.metadataNoChanges') }}</v-alert>
+
+          <div class="text-subtitle-2 mb-2">{{ t('albums.metadataAffectedFiles', { count: metadataPreview.files.length }) }}</div>
+          <v-list border rounded class="metadata-file-list" density="compact">
+            <v-list-item
+              v-for="file in metadataPreview.files"
+              :key="file.trackId"
+              :prepend-icon="file.supported ? 'mdi-file-music-outline' : 'mdi-alert-outline'"
+              :title="file.trackTitle"
+              :subtitle="file.file ?? '-'"
+            >
+              <template #append>
+                <v-chip :color="file.supported ? 'success' : 'warning'" size="x-small" variant="tonal">
+                  {{ file.format ?? '-' }}
+                </v-chip>
+              </template>
+            </v-list-item>
+          </v-list>
+        </template>
+
+        <template v-else-if="metadataStep === 'queued' && metadataJob">
+          <div class="font-weight-bold mb-2">{{ t(`albums.metadataStatuses.${metadataJob.status}`) }}</div>
+          <v-progress-linear
+            class="mb-2"
+            color="primary"
+            :model-value="metadataProgress()"
+            rounded
+          />
+          <div class="text-body-2 text-medium-emphasis mb-4">
+            {{ t('albums.metadataProgress', {
+              processed: metadataJob.processedItems,
+              total: metadataJob.totalItems,
+              failed: metadataJob.failedItems,
+            }) }}
+          </div>
+          <v-list v-if="metadataJob.items.some((item) => item.status === 'failed')" border rounded class="metadata-file-list" density="compact">
+            <v-list-item
+              v-for="item in metadataJob.items.filter((entry) => entry.status === 'failed')"
+              :key="item.id"
+              prepend-icon="mdi-alert-circle-outline"
+              :title="item.trackTitle ?? item.file ?? String(item.trackId)"
+              :subtitle="item.error ?? t('albums.metadataEditFailed')"
+            />
+          </v-list>
+        </template>
+      </v-card-text>
+      <v-card-actions>
+        <v-btn v-if="metadataStep === 'preview'" :disabled="metadataLoading" @click="metadataStep = 'form'">
+          {{ t('tracks.metadataBack') }}
+        </v-btn>
+        <v-spacer />
+        <v-btn
+          :disabled="metadataLoading || (metadataStep === 'queued' && !['partial', 'failed'].includes(metadataJob?.status ?? ''))"
+          @click="metadataDialog = false"
+        >
+          {{ t('settings.cancel') }}
+        </v-btn>
+        <v-btn
+          v-if="metadataStep === 'form'"
+          color="primary"
+          :disabled="!metadataForm.albumTitle.trim() || !metadataForm.albumArtist.trim()"
+          :loading="metadataLoading"
+          variant="flat"
+          @click="previewMetadataEdit"
+        >
+          {{ t('tracks.metadataReview') }}
+        </v-btn>
+        <v-btn
+          v-else-if="metadataStep === 'preview'"
+          color="primary"
+          :disabled="!metadataPreview?.changes.length || Boolean(metadataPreview?.unsupportedFiles)"
+          :loading="metadataLoading"
+          variant="flat"
+          @click="queueMetadataEdit"
+        >
+          {{ t('tracks.metadataApply') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="metadataSuccess" color="success" timeout="3000">
+    {{ t('albums.metadataCompleted') }}
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -342,6 +648,17 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 .album-actions {
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.metadata-change {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.metadata-file-list {
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .album-stat-grid {

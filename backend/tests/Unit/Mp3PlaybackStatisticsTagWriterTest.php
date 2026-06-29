@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Music\Metadata\Mp3Id3v2TagEditor;
 use App\Music\PlaybackStatistics\Mp3PlaybackStatisticsTagWriter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
 use App\Music\PlaybackStatistics\UnsupportedPlaybackStatisticsTagFormat;
@@ -45,7 +46,7 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
         $originalSize = filesize($path);
 
-        (new Mp3PlaybackStatisticsTagWriter(new PlaybackStatisticsTagReader))->write(
+        (new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor, new PlaybackStatisticsTagReader))->write(
             $path,
             17,
             CarbonImmutable::parse('2020-01-02T03:04:05.123456Z'),
@@ -72,7 +73,7 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'track.m4a';
         file_put_contents($path, 'unchanged');
 
-        $writer = new Mp3PlaybackStatisticsTagWriter(new PlaybackStatisticsTagReader);
+        $writer = new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor, new PlaybackStatisticsTagReader);
 
         try {
             $writer->write($path, 1, null, null);

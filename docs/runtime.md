@@ -179,6 +179,30 @@ verified before replacing the original file. Unsupported formats and unusual
 ID3 layouts remain database-only; playback itself is never blocked by export.
 The queue listener must be running for write-back jobs to execute.
 
+## Metadata Editing
+
+Track detail pages can edit title, track artists, composers, performers,
+comment, track number, disc number, and year for MP3 files with ordinary
+ID3v2.3 or ID3v2.4 tags. The UI first requests a fingerprinted preview and
+displays every changed value. Confirmation creates a queued edit;
+the worker writes a temporary file, verifies the resulting tags, replaces the
+original with a short-lived rollback copy, and refreshes the database fingerprint
+and raw metadata.
+
+Unrelated ID3 frames, separately described comment frames, embedded artwork,
+playback-statistics fields, track/disc totals, and audio bytes are preserved.
+Unusual ID3 layouts and non-MP3 formats are rejected rather than rewritten.
+Metadata edits require the queue listener and are protected by the same
+local/LAN administrative middleware as Settings.
+
+Album detail pages can edit album title, album artist, release year, total
+discs, and shared genres across all tracks in an MP3-only album. The preview
+lists every file and blocks mixed-format batches before writing. The worker
+processes files sequentially and reports per-file progress and failures. Track
+titles, track numbers, and existing disc numbers remain unchanged; a file with
+no disc number receives disc 1 when a total is added. The shared album catalog
+record and genre relationships update only after every file succeeds.
+
 ## Runtime Logs
 
 If services are started as background processes, write logs to `runtime-logs/`.

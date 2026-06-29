@@ -14,6 +14,9 @@ return [
             'api/library_roots*',
             'api/scan_runs*',
             'api/settings*',
+            'api/tracks/*/metadata*',
+            'api/albums/*/metadata*',
+            'api/metadata-edits*',
         ],
     ],
 

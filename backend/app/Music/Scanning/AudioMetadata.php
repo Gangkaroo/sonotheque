@@ -8,6 +8,8 @@ final readonly class AudioMetadata
 {
     /**
      * @param  list<string>  $artists
+     * @param  list<string>  $composers
+     * @param  list<string>  $performers
      * @param  list<string>  $genres
      * @param  list<string>  $warnings
      * @param  array<string, mixed>  $rawMetadata
@@ -17,6 +19,9 @@ final readonly class AudioMetadata
         public ?string $album = null,
         public ?string $albumArtist = null,
         public array $artists = [],
+        public array $composers = [],
+        public array $performers = [],
+        public ?string $comment = null,
         public array $genres = [],
         public ?int $year = null,
         public ?int $originalReleaseYear = null,

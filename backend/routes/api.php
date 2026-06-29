@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\FolderBrowserController;
 use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistsController;
+use App\Http\Controllers\TrackMetadataController;
 use App\Http\Controllers\TrackPlayStatisticsController;
 use Illuminate\Support\Facades\Route;
 
@@ -19,6 +21,8 @@ Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::cl
 Route::get('/catalog/playback/tracks/random', [CatalogBrowseController::class, 'randomTrack']);
 Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::class, 'nextTrack']);
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
+Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
+Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
 Route::get('/catalog/tracks', [CatalogBrowseController::class, 'tracks']);
 Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track']);
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
@@ -26,6 +30,9 @@ Route::get('/artwork/{artwork}/thumbnail', ArtworkThumbnailController::class);
 Route::get('/artwork/{artwork}/original', [ArtworkThumbnailController::class, 'original']);
 Route::get('/tracks/{track}/stream', AudioStreamController::class);
 Route::post('/tracks/{track}/plays', [TrackPlayStatisticsController::class, 'store']);
+Route::post('/tracks/{track}/metadata/preview', [TrackMetadataController::class, 'preview']);
+Route::post('/tracks/{track}/metadata-edits', [TrackMetadataController::class, 'store']);
+Route::get('/metadata-edits/{metadataEditJob}', [TrackMetadataController::class, 'show']);
 Route::get('/statistics/recent-plays', [PlaybackStatisticsController::class, 'recentPlays']);
 Route::get('/statistics/most-played-tracks', [PlaybackStatisticsController::class, 'mostPlayedTracks']);
 Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::class, 'mostPlayedAlbums']);

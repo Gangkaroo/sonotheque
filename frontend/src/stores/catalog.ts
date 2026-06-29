@@ -27,6 +27,7 @@ export interface Album {
   originalReleaseYear?: number
   primaryArtist: NamedCatalogItem | null
   trackCount: number
+  discTotal?: number | null
   artworkThumbnailUrl?: string | null
   artworkUrl?: string | null
   artworkWidth?: number | null
@@ -52,6 +53,9 @@ export interface Track {
 }
 
 export interface TrackDetail extends Track {
+  comment?: string | null
+  composers: string[]
+  performers: string[]
   genres: NamedCatalogItem[]
   mediaFile: {
     id: number

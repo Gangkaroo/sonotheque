@@ -191,16 +191,17 @@ Favorites and playlist items reference catalog entities rather than duplicating 
 
 ### Editable Metadata
 
-Tag editing is planned as a separate post-MVP capability because it writes back
-to music files and therefore needs stronger safety guarantees than catalog
-browsing.
+Tag editing is implemented for ordinary MP3 ID3v2.3/ID3v2.4 files and uses
+stronger safety guarantees than catalog browsing because it writes back to
+music files.
 
 The UI should distinguish album-level metadata from track-level metadata:
 
 - Album-level fields: album title, album artist, original release year/date,
-  cover artwork, album genres, and shared release metadata.
+  total discs, cover artwork, album genres, and shared release metadata.
 - Track-level fields: track title, track number, disc number, track artist,
-  track genres, and other values that can differ per file.
+  composer, performer, comment, track genres, and other values that can differ
+  per file.
 
 The database can continue to store scanned metadata as normalized catalog data,
 but tag edits should be tracked as explicit edit operations before they are
@@ -412,25 +413,37 @@ This phase was pulled forward after the queue model became stable. It builds on 
 
 ### 5b. Metadata Editing
 
-This phase is deferred until the browsing, playback, scanning, and backup paths
-are stable.
+This phase has started with a preservation-oriented MP3 track-editing slice.
+File writes remain queued and require a preview and explicit confirmation.
 
 - Choose and wrap a tag-writing library behind a small backend adapter.
+  (Complete for the shared byte-preserving MP3 ID3v2 editor)
 - Define editable field mappings for MP3/ID3, FLAC/Vorbis comments, MP4/M4A,
-  Ogg/Opus, and WAV where possible.
+  Ogg/Opus, and WAV where possible. (Complete for MP3 title, track artist,
+  composer, performer, comment, track/disc number, year, album title, album
+  artist, release year, total discs, and genres; other formats pending)
 - Add track edit forms for per-track fields such as title, track number, disc
-  number, artist, and genre.
+  number, artist, and genre. (Complete for title, track artist, composer,
+  performer, comment, track number, disc number, and year on track detail;
+  track genre editing pending)
 - Add album edit forms for shared fields such as album title, album artist,
-  release year/date, album genres, and cover artwork.
+  release year/date, album genres, and cover artwork. (Complete for MP3 album
+  title, album artist, release year, total discs, and shared genres; cover
+  editing pending)
 - Support bulk album edits that can update all tracks in an album while allowing
-  per-track exceptions for title, track number, and disc number.
+  per-track exceptions for title, track number, and disc number. (Complete for
+  sequential MP3 batches; track-specific fields are preserved)
 - Add a preview/confirmation step that shows every affected file and tag field
-  before writing.
+  before writing. (Complete for individual MP3 tracks and album batches)
 - Add optional file backup before write operations.
 - Add queued tag-write jobs with progress, errors, and rollback guidance.
+  (Queued job status, per-file progress, and partial-error reporting complete
+  for individual tracks and album batches; durable backup/rollback guidance
+  pending)
 - Re-scan or re-read changed files after writing so the database reflects the
-  actual file contents.
+  actual file contents. (Complete for MP3 track and album edits)
 - Add tests with small representative files for the supported audio/tag formats.
+  (MP3 preservation and queued workflow fixtures complete)
 
 ### 5c. Listening History And Scrobbling
 
@@ -499,19 +512,23 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The next best slice is the **metadata-editing safety foundation**.
+The next best slice is a **durable metadata backup policy**.
 
-Startup and shutdown are now repeatable manual operations. Before exposing tag
-editing in the UI, define and test the backend write boundary that both metadata
-editing and future listening-statistics export will use.
+Individual and album-wide MP3 editing now share fingerprinted previews,
+sequential queued execution, temporary rollback copies, read-after-write
+verification, progress, and per-file failures. Before adding artwork editing or
+more file formats, users should be able to retain recoverable originals for a
+configurable period.
 
 Recommended scope:
 
-1. Select a tag-writing library and wrap it behind a format-neutral adapter.
-2. Define supported fields and formats without enabling writes by default.
-3. Add representative fixture files and read-after-write tests.
-4. Design preview, backup, queued execution, and failure reporting contracts.
-5. Implement the first narrow edit only after those safeguards are covered.
+1. Add a disabled-by-default backup setting with a configurable location and
+   retention period.
+2. Store backups by library root and relative path without overwriting an
+   existing recovery copy.
+3. Record backup paths in metadata edit items and expose them in failure details.
+4. Add cleanup and explicit restore commands with path-safety checks.
+5. Only then broaden editing to artwork and additional audio formats.
 
 ## First Milestone Definition
 

@@ -42,6 +42,8 @@ class MusicLibrarySchemaTest extends TestCase
             ['albums', 'metadata'],
             ['media_files', 'raw_metadata'],
             ['tracks', 'metadata'],
+            ['tracks', 'composers'],
+            ['tracks', 'performers'],
         ] as [$table, $column]) {
             $this->assertTrue(
                 DB::table('information_schema.columns')

@@ -346,6 +346,9 @@ class LibraryScanner
                         'track_number' => $metadata->trackNumber,
                         'disc_number' => $metadata->discNumber,
                         'year' => $metadata->year,
+                        'comment' => $metadata->comment,
+                        'composers' => $metadata->composers ?: null,
+                        'performers' => $metadata->performers ?: null,
                         'metadata' => null,
                     ],
                 );

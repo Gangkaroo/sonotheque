@@ -25,6 +25,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'track_number',
     'disc_number',
     'year',
+    'comment',
+    'composers',
+    'performers',
     'metadata',
 ])]
 #[ApiResource(
@@ -125,6 +128,8 @@ class Track extends Model
     protected function casts(): array
     {
         return [
+            'composers' => 'array',
+            'performers' => 'array',
             'metadata' => 'array',
         ];
     }

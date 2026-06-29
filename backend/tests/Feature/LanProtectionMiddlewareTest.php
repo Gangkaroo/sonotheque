@@ -65,6 +65,28 @@ class LanProtectionMiddlewareTest extends TestCase
                 'albums' => 0,
                 'tracks' => 0,
                 'genres' => 0,
+                'playedAlbums' => 0,
+                'playedTracks' => 0,
             ]);
+    }
+
+    public function test_metadata_edit_routes_are_blocked_from_lan_by_default(): void
+    {
+        foreach ([
+            ['POST', '/api/tracks/1/metadata/preview'],
+            ['POST', '/api/tracks/1/metadata-edits'],
+            ['POST', '/api/albums/1/metadata/preview'],
+            ['POST', '/api/albums/1/metadata-edits'],
+            ['GET', '/api/metadata-edits/1'],
+        ] as [$method, $uri]) {
+            $this->call(
+                $method,
+                $uri,
+                server: [
+                    'REMOTE_ADDR' => '192.168.1.20',
+                    'HTTP_ACCEPT' => 'application/json',
+                ],
+            )->assertForbidden();
+        }
     }
 }
