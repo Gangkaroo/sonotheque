@@ -47,6 +47,18 @@ class LanProtectionMiddlewareTest extends TestCase
             ],
         )
             ->assertOk();
+
+        $this->call(
+            'GET',
+            '/api/settings/access',
+            server: [
+                'REMOTE_ADDR' => '192.168.1.20',
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_X_MUSIC_LIBRARY_ADMIN_TOKEN' => 'secret-token',
+            ],
+        )
+            ->assertOk()
+            ->assertExactJson(['authorized' => true]);
     }
 
     public function test_public_catalog_routes_remain_available_from_lan(): void
@@ -80,6 +92,7 @@ class LanProtectionMiddlewareTest extends TestCase
             ['GET', '/api/metadata-edits/1'],
             ['GET', '/api/settings/metadata-backups'],
             ['PATCH', '/api/settings/metadata-backups'],
+            ['GET', '/api/settings/access'],
         ] as [$method, $uri]) {
             $this->call(
                 $method,

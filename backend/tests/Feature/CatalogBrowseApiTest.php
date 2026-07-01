@@ -39,6 +39,11 @@ class CatalogBrowseApiTest extends TestCase
             'first_played_at' => '2026-06-01 12:00:00+00',
             'last_played_at' => '2026-06-02 12:00:00+00',
         ]);
+        Artist::create([
+            'name' => 'Artist archive',
+            'sort_name' => 'Artist archive',
+            'browse_initial' => 'A',
+        ]);
 
         $this->getJson('/api/catalog/artists?initial=A&search=Artist')
             ->assertOk()
@@ -89,10 +94,12 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('total', 1);
 
+        Genre::create(['name' => 'Rock archive']);
         $this->getJson('/api/catalog/genres?search=Rock')
             ->assertOk()
             ->assertJsonPath('items.0.id', $genre->id)
-            ->assertJsonPath('items.0.trackCount', 1);
+            ->assertJsonPath('items.0.trackCount', 1)
+            ->assertJsonPath('total', 1);
     }
 
     public function test_album_detail_returns_album_metadata_and_tracks(): void
@@ -101,14 +108,17 @@ class CatalogBrowseApiTest extends TestCase
         $artwork = Artwork::create([
             'source_type' => ArtworkSource::Folder,
             'source_relative_path' => 'Cover/Front.jpg',
-            'cache_path' => 'originals/example.jpg',
             'thumbnail_path' => 'thumbnails/example.webp',
             'mime_type' => 'image/jpeg',
             'width' => 1200,
             'height' => 1200,
             'checksum' => hash('sha256', 'example artwork'),
         ]);
-        $album->update(['artwork_id' => $artwork->id]);
+        $album->update([
+            'artwork_id' => $artwork->id,
+            'artwork_source_type' => ArtworkSource::Folder,
+            'artwork_source_relative_path' => 'Cover/Front.jpg',
+        ]);
 
         $this->getJson("/api/catalog/albums/{$album->id}")
             ->assertOk()
@@ -118,7 +128,7 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('primaryArtist.name', 'Artist')
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('artworkThumbnailUrl', "/api/artwork/{$artwork->id}/thumbnail")
-            ->assertJsonPath('artworkUrl', "/api/artwork/{$artwork->id}/original")
+            ->assertJsonPath('artworkUrl', "/api/albums/{$album->id}/artwork/original")
             ->assertJsonPath('artworkWidth', 1200)
             ->assertJsonPath('artworkHeight', 1200)
             ->assertJsonPath('genres.0.id', Genre::where('name', 'Rock')->value('id'))
@@ -128,6 +138,41 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('tracks.0.album.title', 'Album')
             ->assertJsonPath('tracks.0.artists.0.name', 'Artist')
             ->assertJsonPath('tracks.0.playStatistics.playCount', 0);
+    }
+
+    public function test_album_and_track_browse_support_exact_artist_filters(): void
+    {
+        [$artist, $album, $track] = $this->createCatalog();
+        $otherArtist = Artist::create([
+            'name' => 'Other',
+            'sort_name' => 'Other',
+            'browse_initial' => 'O',
+        ]);
+        $otherAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $otherArtist->id,
+            'title' => 'Artist compilation',
+            'sort_title' => 'Artist compilation',
+            'relative_path' => 'Other/Artist compilation',
+            'relative_path_hash' => hash('sha256', 'other/artist compilation'),
+        ]);
+        $otherTrack = $this->createTrackForAlbum($album->libraryRoot, $otherAlbum);
+        $otherTrack->artists()->attach($otherArtist, ['role' => 'primary', 'position' => 0]);
+
+        $this->getJson('/api/catalog/albums?search=Artist')
+            ->assertOk()
+            ->assertJsonPath('total', 2);
+        $this->getJson("/api/catalog/albums?artist={$artist->id}")
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $album->id)
+            ->assertJsonPath('total', 1);
+        $this->getJson('/api/catalog/tracks?search=Artist')
+            ->assertOk()
+            ->assertJsonPath('total', 2);
+        $this->getJson("/api/catalog/tracks?artist={$artist->id}")
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('total', 1);
     }
 
     public function test_track_detail_returns_catalog_and_media_file_metadata(): void
@@ -141,6 +186,12 @@ class CatalogBrowseApiTest extends TestCase
             'sample_rate' => 44100,
             'channels' => 2,
             'status' => MediaFileStatus::Available,
+            'raw_metadata' => [
+                'audio' => [
+                    'encoder' => 'LAME3.100',
+                    'encoder_options' => 'V2',
+                ],
+            ],
         ]);
 
         $this->getJson("/api/catalog/tracks/{$track->id}")
@@ -158,6 +209,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('mediaFile.status', MediaFileStatus::Available->value)
             ->assertJsonPath('mediaFile.mimeType', 'audio/mpeg')
             ->assertJsonPath('mediaFile.codec', 'mp3')
+            ->assertJsonPath('mediaFile.encoder', 'LAME3.100')
+            ->assertJsonPath('mediaFile.encoderSettings', 'V2')
             ->assertJsonPath('mediaFile.bitrate', 320000)
             ->assertJsonPath('mediaFile.sampleRate', 44100)
             ->assertJsonPath('mediaFile.channels', 2);

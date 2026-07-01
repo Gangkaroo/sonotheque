@@ -19,8 +19,10 @@ use App\Models\ScanRun;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Music\Artwork\EmbeddedArtwork;
+use App\Music\Scanning\AudioFileDiscoverer;
 use App\Music\Scanning\AudioMetadata;
 use App\Music\Scanning\AudioMetadataReader;
+use App\Music\Scanning\DiscoveryDiagnostics;
 use App\Music\Scanning\LibraryScanner;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -237,7 +239,7 @@ class LibraryScannerTest extends TestCase
         ], $observedProgress);
     }
 
-    public function test_scanner_marks_files_missing_when_they_disappear(): void
+    public function test_scanner_removes_files_and_tracks_when_they_disappear(): void
     {
         $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
         $remainingTrackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'02.mp3';
@@ -252,12 +254,34 @@ class LibraryScannerTest extends TestCase
         $scan = $this->createScan($root);
         $this->app->make(LibraryScanner::class)->scan($scan);
 
-        $this->assertSame(1, $scan->fresh()->files_missing);
-        $this->assertSame(
-            MediaFileStatus::Missing,
-            MediaFile::where('relative_path', 'Bjoerk/Debut/01.mp3')->firstOrFail()->status,
-        );
-        $this->assertSame('files_missing', $scan->fresh()->summary['issues'][0]['code']);
+        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertDatabaseMissing(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/01.mp3']);
+        $this->assertDatabaseCount(MediaFile::class, 1);
+        $this->assertDatabaseCount(Track::class, 1);
+        $this->assertSame('files_removed', $scan->fresh()->summary['issues'][0]['code']);
+    }
+
+    public function test_scanner_replaces_catalog_records_when_a_file_moves(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $oldPath = $albumPath.DIRECTORY_SEPARATOR.'01.mp3';
+        $newPath = $albumPath.DIRECTORY_SEPARATOR.'03.mp3';
+        file_put_contents($oldPath, 'fake audio data');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+
+        rename($oldPath, $newPath);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $scan = $this->createScan($root);
+        $scanner->scan($scan);
+
+        $this->assertSame(1, $scan->fresh()->files_added);
+        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertDatabaseMissing(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/01.mp3']);
+        $this->assertDatabaseHas(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/03.mp3']);
+        $this->assertDatabaseCount(MediaFile::class, 1);
+        $this->assertDatabaseCount(Track::class, 1);
     }
 
     public function test_empty_first_scan_completes_with_actionable_warnings(): void
@@ -275,13 +299,12 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(['invalid_layout', 'no_music_files'], array_column($scan->summary['issues'], 'code'));
     }
 
-    public function test_suspicious_empty_rescan_preserves_existing_file_availability(): void
+    public function test_empty_rescan_removes_catalog_data_when_the_root_is_readable(): void
     {
         $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
         file_put_contents($trackPath, 'fake audio data');
         $root = $this->createRoot();
         $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
-        $lastScannedAt = $root->fresh()->last_scanned_at;
         unlink($trackPath);
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
         $scan = $this->createScan($root);
@@ -289,15 +312,22 @@ class LibraryScannerTest extends TestCase
         $this->app->make(LibraryScanner::class)->scan($scan);
 
         $scan->refresh();
-        $this->assertSame(ScanStatus::Failed, $scan->status);
-        $this->assertSame('empty_scan_preserved', $scan->summary['issues'][0]['code']);
-        $this->assertSame(MediaFileStatus::Available, MediaFile::sole()->status);
-        $this->assertTrue($lastScannedAt->equalTo($root->fresh()->last_scanned_at));
+        $this->assertSame(ScanStatus::Completed, $scan->status);
+        $this->assertSame(1, $scan->files_removed);
+        $this->assertDatabaseCount(MediaFile::class, 0);
+        $this->assertDatabaseCount(Track::class, 0);
+        $this->assertDatabaseCount(Album::class, 0);
+        $this->assertDatabaseCount(Artist::class, 0);
+        $this->assertDatabaseCount(Genre::class, 0);
     }
 
     public function test_unavailable_root_fails_with_an_actionable_scan_issue(): void
     {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
         $root = $this->createRoot();
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+        $this->assertDatabaseCount(MediaFile::class, 1);
         $scan = $this->createScan($root);
         $this->removeDirectory($this->musicPath);
 
@@ -312,6 +342,8 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(1, $scan->error_count);
         $this->assertSame('scan_failed', $scan->summary['issues'][0]['code']);
         $this->assertStringContainsString('does not exist or is not readable', $scan->summary['error']);
+        $this->assertDatabaseCount(MediaFile::class, 1);
+        $this->assertDatabaseCount(Track::class, 1);
     }
 
     public function test_scanner_caches_a_configured_folder_cover_on_an_unchanged_album(): void
@@ -334,11 +366,12 @@ class LibraryScannerTest extends TestCase
         $this->assertSame($artwork->id, $album->artwork->id);
         $this->assertSame(ArtworkSource::Folder, $artwork->source_type);
         $this->assertSame('cover.jpg', $artwork->source_relative_path);
+        $this->assertSame(ArtworkSource::Folder, $album->artwork_source_type);
+        $this->assertSame('cover.jpg', $album->artwork_source_relative_path);
         $this->assertSame(640, $artwork->width);
         $this->assertSame(320, $artwork->height);
         $this->assertSame(1, $this->metadataReader->calls);
         $this->assertSame(0, $scan->fresh()->files_updated);
-        Storage::disk('artwork')->assertExists($artwork->cache_path);
         Storage::disk('artwork')->assertExists($artwork->thumbnail_path);
 
         [$thumbnailWidth, $thumbnailHeight, $thumbnailType] = getimagesize(
@@ -348,6 +381,102 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(320, $thumbnailWidth);
         $this->assertSame(160, $thumbnailHeight);
         $this->assertSame(IMAGETYPE_WEBP, $thumbnailType);
+    }
+
+    public function test_scanner_uses_the_first_existing_configured_cover_path(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $discPath = $albumPath.DIRECTORY_SEPARATOR.'Disc 1';
+        mkdir($discPath);
+        file_put_contents($albumPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
+        $this->createCover($discPath.DIRECTORY_SEPARATOR.'Front.jpg', 600, 600);
+        $root = $this->createRoot();
+        $root->update([
+            'cover_image_paths' => ['missing.jpg', 'Disc 1/Front.jpg'],
+        ]);
+
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $artwork = Artwork::sole();
+        $this->assertSame(ArtworkSource::Folder, $artwork->source_type);
+        $this->assertSame('Disc 1/Front.jpg', $artwork->source_relative_path);
+        $this->assertNotNull(Album::sole()->artwork_id);
+    }
+
+    public function test_scanner_uses_a_parent_relative_cover_path_within_the_library_root(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $coverPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Cover';
+        mkdir($coverPath);
+        file_put_contents($albumPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
+        $this->createCover($coverPath.DIRECTORY_SEPARATOR.'Front.jpg', 600, 600);
+        $root = $this->createRoot();
+        $root->update([
+            'cover_image_paths' => ['../Cover/Front.jpg'],
+        ]);
+
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $artwork = Artwork::sole();
+        $this->assertSame(ArtworkSource::Folder, $artwork->source_type);
+        $this->assertSame('../Cover/Front.jpg', $artwork->source_relative_path);
+        $this->assertNotNull(Album::sole()->artwork_id);
+    }
+
+    public function test_scanner_prunes_excluded_directories_despite_an_unrelated_unreadable_directory(): void
+    {
+        $includedPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $excludedPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Incoming';
+        mkdir($excludedPath);
+        file_put_contents($includedPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
+        file_put_contents($excludedPath.DIRECTORY_SEPARATOR.'02.mp3', 'fake audio data');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        $this->assertDatabaseCount(Track::class, 2);
+
+        $root->update(['excluded_directories' => ['Bjoerk/Incoming']]);
+        $this->mockUnreadableDirectory('System Volume Information');
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $scan = $this->createScan($root);
+
+        $this->app->make(LibraryScanner::class)->scan($scan);
+
+        $this->assertSame(1, $scan->fresh()->files_discovered);
+        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertSame(2, $this->metadataReader->calls);
+        $this->assertDatabaseCount(Track::class, 1);
+        $this->assertDatabaseCount(Album::class, 1);
+        $this->assertDatabaseMissing(MediaFile::class, [
+            'relative_path' => 'Bjoerk/Incoming/02.mp3',
+        ]);
+        $issueCodes = array_column($scan->fresh()->summary['issues'], 'code');
+        $this->assertContains('files_removed', $issueCodes);
+        $this->assertContains('unreadable_directory', $issueCodes);
+        $this->assertNotContains('stale_cleanup_preserved', $issueCodes);
+    }
+
+    public function test_scanner_preserves_stale_files_beneath_an_unreadable_directory(): void
+    {
+        $readablePath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        $unreadablePath = $this->musicPath.DIRECTORY_SEPARATOR.'Unreadable'.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album';
+        mkdir($unreadablePath, recursive: true);
+        file_put_contents($readablePath, 'fake audio data');
+        file_put_contents($unreadablePath.DIRECTORY_SEPARATOR.'02.mp3', 'fake audio data');
+        $root = $this->createRoot();
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+        $this->assertDatabaseCount(MediaFile::class, 2);
+
+        $this->mockUnreadableDirectory('Unreadable', skipContents: true);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $scan = $this->createScan($root);
+        $this->app->make(LibraryScanner::class)->scan($scan);
+
+        $this->assertSame(0, $scan->fresh()->files_removed);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Unreadable/Artist/Album/02.mp3',
+        ]);
+        $this->assertContains('stale_cleanup_preserved', array_column($scan->summary['issues'], 'code'));
     }
 
     public function test_scanner_uses_the_track_parent_folder_as_album_when_root_has_prefix_directories(): void
@@ -361,7 +490,7 @@ class LibraryScannerTest extends TestCase
         file_put_contents($albumPath.DIRECTORY_SEPARATOR.'01.mp3', 'fake audio data');
         $this->createCover($coverPath.DIRECTORY_SEPARATOR.'Front.jpg', 640, 640);
         $root = $this->createRoot();
-        $root->update(['cover_image_path' => 'Cover/Front.jpg']);
+        $root->update(['cover_image_paths' => ['Cover/Front.jpg']]);
 
         $scanner = $this->app->make(LibraryScanner::class);
         $scanner->scan($this->createScan($root));
@@ -392,7 +521,7 @@ class LibraryScannerTest extends TestCase
         file_put_contents($trackPath, 'fake audio data');
         $this->createCover($coverPath.DIRECTORY_SEPARATOR.'Front.jpg', 640, 640);
         $root = $this->createRoot();
-        $root->update(['cover_image_path' => 'Cover/Front.jpg']);
+        $root->update(['cover_image_paths' => ['Cover/Front.jpg']]);
         $artist = Artist::create(['name' => 'Lyvten', 'sort_name' => 'Lyvten', 'browse_initial' => 'L']);
         $album = Album::create([
             'library_root_id' => $root->id,
@@ -484,8 +613,10 @@ class LibraryScannerTest extends TestCase
 
         $this->assertSame(ArtworkSource::Embedded, $artwork->source_type);
         $this->assertNull($artwork->source_relative_path);
-        $this->assertSame($artwork->id, Album::sole()->artwork_id);
-        Storage::disk('artwork')->assertExists($artwork->cache_path);
+        $album = Album::sole();
+        $this->assertSame($artwork->id, $album->artwork_id);
+        $this->assertSame(ArtworkSource::Embedded, $album->artwork_source_type);
+        $this->assertNull($album->artwork_source_relative_path);
         Storage::disk('artwork')->assertExists($artwork->thumbnail_path);
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
@@ -568,8 +699,30 @@ class LibraryScannerTest extends TestCase
             'name' => 'Test Root',
             'path' => $this->musicPath,
             'path_hash' => hash('sha256', mb_strtolower(str_replace('\\', '/', $this->musicPath))),
-            'cover_image_path' => 'cover.jpg',
+            'cover_image_paths' => ['cover.jpg'],
         ]);
+    }
+
+    private function mockUnreadableDirectory(string $relativePath, bool $skipContents = false): void
+    {
+        $realDiscoverer = $this->app->make(AudioFileDiscoverer::class);
+        $discoverer = \Mockery::mock(AudioFileDiscoverer::class);
+        $discoverer->shouldReceive('discover')
+            ->twice()
+            ->andReturnUsing(function (LibraryRoot $libraryRoot, ?DiscoveryDiagnostics $diagnostics) use ($realDiscoverer, $relativePath, $skipContents): \Generator {
+                $diagnostics?->record(
+                    'unreadable_directory',
+                    'A directory could not be read and was skipped.',
+                    $relativePath,
+                );
+
+                foreach ($realDiscoverer->discover($libraryRoot, $diagnostics) as $file) {
+                    if (! $skipContents || ! str_starts_with($file->relativePath, $relativePath.'/')) {
+                        yield $file;
+                    }
+                }
+            });
+        $this->app->instance(AudioFileDiscoverer::class, $discoverer);
     }
 
     private function createScan(LibraryRoot $root): ScanRun

@@ -61,7 +61,7 @@ class CatalogPayloads
         return [
             ...$this->albumSummary($album),
             'discTotal' => $album->disc_total,
-            'artworkUrl' => $album->artwork_id ? "/api/artwork/{$album->artwork_id}/original" : null,
+            'artworkUrl' => $album->artwork_id ? "/api/albums/{$album->id}/artwork/original" : null,
             'artworkWidth' => $album->artwork?->width,
             'artworkHeight' => $album->artwork?->height,
             'genres' => $genres->map(fn (Genre $genre) => [
@@ -102,11 +102,17 @@ class CatalogPayloads
             'album:id,title,original_release_year',
             'artists:id,name',
             'genres:id,name',
-            'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error',
+            'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',
             'playStatistic:track_id,play_count,first_played_at,last_played_at',
         ]);
 
         $mediaFile = $track->mediaFile;
+        $audioMetadata = is_array($mediaFile?->raw_metadata['audio'] ?? null)
+            ? $mediaFile->raw_metadata['audio']
+            : [];
+        $audioStream = is_array($audioMetadata['streams'][0] ?? null)
+            ? $audioMetadata['streams'][0]
+            : [];
 
         return [
             ...$this->trackSummary($track),
@@ -126,6 +132,8 @@ class CatalogPayloads
                 'mimeType' => $mediaFile->mime_type,
                 'container' => $mediaFile->container,
                 'codec' => $mediaFile->codec,
+                'encoder' => $this->metadataText($audioMetadata['encoder'] ?? $audioStream['encoder'] ?? null),
+                'encoderSettings' => $this->metadataText($audioMetadata['encoder_options'] ?? $audioStream['encoder_options'] ?? null),
                 'bitrate' => $mediaFile->bitrate,
                 'sampleRate' => $mediaFile->sample_rate,
                 'channels' => $mediaFile->channels,
@@ -146,5 +154,16 @@ class CatalogPayloads
             'firstPlayedAt' => $statistics?->first_played_at?->toJSON(),
             'lastPlayedAt' => $statistics?->last_played_at?->toJSON(),
         ];
+    }
+
+    private function metadataText(mixed $value): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

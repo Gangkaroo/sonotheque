@@ -6,6 +6,7 @@ use App\Enums\ArtworkSource;
 use App\Models\Album;
 use App\Models\Artwork;
 use App\Models\LibraryRoot;
+use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -29,24 +30,43 @@ class AlbumArtworkManager
         ?EmbeddedArtwork $embeddedArtwork = null,
         bool $embeddedInspected = false,
     ): ArtworkSyncResult {
+        $warnings = [];
+
         try {
             $albumRelativePath = $this->pathGuard->normalizeRelativePath($album->relative_path);
-            $coverRelativePath = $this->pathGuard->normalizeRelativePath($libraryRoot->cover_image_path);
-            $source = $this->pathGuard->resolveExistingFileWithin(
-                $libraryRoot->path,
-                $albumRelativePath.'/'.$coverRelativePath,
-            );
+            $coverCandidates = $libraryRoot->cover_image_paths ?: ['cover.jpg'];
+            $source = null;
+            $selectedCoverPath = null;
+            foreach ($coverCandidates as $candidate) {
+                try {
+                    $coverRelativePath = $this->pathGuard->normalizeNavigableRelativePath($candidate);
+                    $source = $this->pathGuard->resolveExistingFileWithinFrom(
+                        $libraryRoot->path,
+                        $albumRelativePath,
+                        $coverRelativePath,
+                    );
+                } catch (InvalidLibraryPath $exception) {
+                    $warnings[] = "Album artwork path [{$candidate}] for [{$album->relative_path}] was skipped: {$exception->getMessage()}";
+
+                    continue;
+                }
+
+                if ($source !== null) {
+                    $selectedCoverPath = $coverRelativePath;
+                    break;
+                }
+            }
 
             if ($source !== null) {
                 $bytes = $this->readSourceFile($source);
                 $artwork = $this->cache(
                     $bytes,
                     ArtworkSource::Folder,
-                    $libraryRoot->cover_image_path,
+                    $selectedCoverPath,
                 );
-                $album->update(['artwork_id' => $artwork->id]);
+                $this->attach($album, $artwork, ArtworkSource::Folder, $selectedCoverPath);
 
-                return new ArtworkSyncResult($artwork);
+                return new ArtworkSyncResult($artwork, $warnings);
             }
 
             if ($embeddedArtwork !== null) {
@@ -56,27 +76,29 @@ class AlbumArtworkManager
                     null,
                     $embeddedArtwork->mimeType,
                 );
-                $album->update(['artwork_id' => $artwork->id]);
+                $this->attach($album, $artwork, ArtworkSource::Embedded);
 
-                return new ArtworkSyncResult($artwork);
+                return new ArtworkSyncResult($artwork, $warnings);
             }
 
-            if ($album->artwork?->source_type === ArtworkSource::Embedded) {
-                return new ArtworkSyncResult($album->artwork);
+            if ($this->hasEmbeddedArtwork($album)) {
+                return new ArtworkSyncResult($album->artwork, $warnings);
             }
 
             if (! $embeddedInspected) {
                 return new ArtworkSyncResult(
                     $album->artwork,
+                    $warnings,
                     requiresEmbeddedFallback: true,
                 );
             }
 
-            $album->update(['artwork_id' => null]);
+            $this->detach($album);
 
-            return new ArtworkSyncResult(null);
+            return new ArtworkSyncResult(null, $warnings);
         } catch (Throwable $exception) {
             $warning = "Album artwork for [{$album->relative_path}] was skipped: {$exception->getMessage()}";
+            $warnings[] = $warning;
 
             if ($embeddedArtwork !== null) {
                 try {
@@ -86,24 +108,26 @@ class AlbumArtworkManager
                         null,
                         $embeddedArtwork->mimeType,
                     );
-                    $album->update(['artwork_id' => $artwork->id]);
+                    $this->attach($album, $artwork, ArtworkSource::Embedded);
 
-                    return new ArtworkSyncResult($artwork, [$warning]);
+                    return new ArtworkSyncResult($artwork, $warnings);
                 } catch (Throwable $fallbackException) {
+                    $warnings[] = "Embedded artwork was skipped: {$fallbackException->getMessage()}";
+
                     return new ArtworkSyncResult(
                         $album->artwork,
-                        [$warning, "Embedded artwork was skipped: {$fallbackException->getMessage()}"],
+                        $warnings,
                     );
                 }
             }
 
-            if ($album->artwork?->source_type === ArtworkSource::Embedded) {
-                return new ArtworkSyncResult($album->artwork, [$warning]);
+            if ($this->hasEmbeddedArtwork($album)) {
+                return new ArtworkSyncResult($album->artwork, $warnings);
             }
 
             return new ArtworkSyncResult(
                 $album->artwork,
-                [$warning],
+                $warnings,
                 requiresEmbeddedFallback: ! $embeddedInspected,
             );
         }
@@ -149,7 +173,7 @@ class AlbumArtworkManager
             throw new RuntimeException('The embedded artwork MIME type does not match its image data.');
         }
 
-        $extension = $this->extensionForMime($mimeType);
+        $this->extensionForMime($mimeType);
 
         if ($width * $height > $this->maxSourcePixels) {
             throw new RuntimeException('The source image exceeds the configured pixel limit.');
@@ -157,7 +181,6 @@ class AlbumArtworkManager
 
         $checksum = hash('sha256', $bytes);
         $prefix = substr($checksum, 0, 2);
-        $cachePath = "originals/{$prefix}/{$checksum}.{$extension}";
         $thumbnailPath = sprintf(
             'thumbnails/%s/%s-%dx%d-q%d.webp',
             $prefix,
@@ -167,18 +190,13 @@ class AlbumArtworkManager
             $this->thumbnailQuality,
         );
         $storage = Storage::disk($this->disk);
-
-        if (! $storage->exists($cachePath)) {
-            $storage->put($cachePath, $bytes);
-        }
+        $artwork = Artwork::firstOrNew(['checksum' => $checksum]);
 
         if (! $storage->exists($thumbnailPath)) {
             $storage->put($thumbnailPath, $this->thumbnail($bytes, $width, $height));
         }
 
-        $artwork = Artwork::firstOrNew(['checksum' => $checksum]);
         $attributes = [
-            'cache_path' => $cachePath,
             'thumbnail_path' => $thumbnailPath,
             'mime_type' => $mimeType,
             'width' => $width,
@@ -194,6 +212,35 @@ class AlbumArtworkManager
         $artwork->save();
 
         return $artwork;
+    }
+
+    private function attach(
+        Album $album,
+        Artwork $artwork,
+        ArtworkSource $sourceType,
+        ?string $sourceRelativePath = null,
+    ): void {
+        $album->update([
+            'artwork_id' => $artwork->id,
+            'artwork_source_type' => $sourceType,
+            'artwork_source_relative_path' => $sourceRelativePath,
+        ]);
+    }
+
+    private function detach(Album $album): void
+    {
+        $album->update([
+            'artwork_id' => null,
+            'artwork_source_type' => null,
+            'artwork_source_relative_path' => null,
+        ]);
+    }
+
+    private function hasEmbeddedArtwork(Album $album): bool
+    {
+        return $album->artwork_source_type === ArtworkSource::Embedded
+            || ($album->artwork_source_type === null
+                && $album->artwork?->source_type === ArtworkSource::Embedded);
     }
 
     private function thumbnail(string $bytes, int $sourceWidth, int $sourceHeight): string

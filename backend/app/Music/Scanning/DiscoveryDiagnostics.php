@@ -4,8 +4,19 @@ namespace App\Music\Scanning;
 
 class DiscoveryDiagnostics
 {
+    private const READ_FAILURE_CODES = [
+        'unreadable_directory',
+        'unreadable_entry',
+        'unreadable_file',
+    ];
+
     /** @var array<string, array{count: int, message: string, path: ?string}> */
     private array $warnings = [];
+
+    /** @var array<string, true> */
+    private array $pathsRequiringPreservation = [];
+
+    private bool $hasUnscopedReadFailure = false;
 
     public function record(string $code, string $message, ?string $path = null): void
     {
@@ -14,6 +25,14 @@ class DiscoveryDiagnostics
         }
 
         $this->warnings[$code]['count']++;
+
+        if (in_array($code, self::READ_FAILURE_CODES, true)) {
+            if ($path === null || $path === '') {
+                $this->hasUnscopedReadFailure = true;
+            } else {
+                $this->pathsRequiringPreservation[$path] = true;
+            }
+        }
     }
 
     public function warningCount(): int
@@ -37,5 +56,13 @@ class DiscoveryDiagnostics
         }
 
         return $issues;
+    }
+
+    /** @return list<string>|null Null indicates that the read failure could not be scoped safely. */
+    public function pathsRequiringPreservation(): ?array
+    {
+        return $this->hasUnscopedReadFailure
+            ? null
+            : array_keys($this->pathsRequiringPreservation);
     }
 }

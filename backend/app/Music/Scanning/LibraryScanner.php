@@ -16,6 +16,7 @@ use App\Music\PlaybackStatistics\ImportedPlayStatistics;
 use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -198,7 +199,9 @@ class LibraryScanner
                 $progress['warning_count'] += $diagnostics->warningCount();
             }
 
-            if ($progress['files_discovered'] === 0 && $existingFileCount > 0) {
+            $canRemoveStaleFiles = $this->canRemoveStaleFiles($diagnostics);
+
+            if ($progress['files_discovered'] === 0 && $existingFileCount > 0 && ! $canRemoveStaleFiles) {
                 $message = 'No supported audio files were found, although this root previously contained indexed files. Existing file availability was preserved.';
                 $this->addIssue($issues, 'empty_scan_preserved', 'error', $message);
                 $progress['error_count']++;
@@ -221,28 +224,39 @@ class LibraryScanner
                 $progress['warning_count']++;
             }
 
-            $missing = $scanRun->libraryRoot->mediaFiles()
-                ->where('last_seen_at', '<', $startedAt)
-                ->where('status', '!=', MediaFileStatus::Missing->value)
-                ->update(['status' => MediaFileStatus::Missing->value]);
+            $staleFiles = MediaFile::query()
+                ->where('library_root_id', $scanRun->library_root_id)
+                ->where('last_seen_at', '<', $startedAt);
+            $removed = $this->deleteStaleFiles($staleFiles, $diagnostics);
 
-            if ($missing > 0) {
+            if ($removed > 0) {
                 $this->addIssue(
                     $issues,
-                    'files_missing',
+                    'files_removed',
                     'warning',
-                    'Previously indexed audio files were not found during this scan.',
-                    count: $missing,
+                    'Previously indexed audio files were not found and were removed from the catalog.',
+                    count: $removed,
                 );
-                $progress['warning_count'] += $missing;
+                $progress['warning_count'] += $removed;
+            }
+
+            if (! $canRemoveStaleFiles && (clone $staleFiles)->exists()) {
+                $this->addIssue(
+                    $issues,
+                    'stale_cleanup_preserved',
+                    'warning',
+                    'Some folders or files could not be read, so unseen catalog records were preserved.',
+                );
+                $progress['warning_count']++;
             }
 
             $this->deleteAlbumsWithoutMediaFiles($scanRun);
+            $this->deleteOrphanedCatalogData();
 
             $scanRun->libraryRoot->update(['last_scanned_at' => now()]);
             $scanRun->update(array_merge($progress, [
                 'status' => ScanStatus::Completed,
-                'files_missing' => $missing,
+                'files_removed' => $removed,
                 'finished_at' => now(),
                 'summary' => $this->summary('completed', $issues),
             ]));
@@ -553,6 +567,44 @@ class LibraryScanner
             ->where('library_root_id', $scanRun->library_root_id)
             ->whereDoesntHave('mediaFiles')
             ->delete();
+    }
+
+    private function deleteOrphanedCatalogData(): void
+    {
+        Artist::query()
+            ->whereDoesntHave('albums')
+            ->whereDoesntHave('tracks')
+            ->delete();
+        Genre::query()
+            ->whereDoesntHave('tracks')
+            ->delete();
+    }
+
+    private function canRemoveStaleFiles(DiscoveryDiagnostics $diagnostics): bool
+    {
+        return $diagnostics->pathsRequiringPreservation() === [];
+    }
+
+    /** @param Builder<MediaFile> $staleFiles */
+    private function deleteStaleFiles(Builder $staleFiles, DiscoveryDiagnostics $diagnostics): int
+    {
+        $preservedPaths = $diagnostics->pathsRequiringPreservation();
+
+        if ($preservedPaths === null) {
+            return 0;
+        }
+
+        $deletableFiles = clone $staleFiles;
+        $comparisonColumn = PHP_OS_FAMILY === 'Windows' ? 'LOWER(relative_path)' : 'relative_path';
+
+        foreach ($preservedPaths as $path) {
+            $comparisonPath = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($path) : $path;
+            $deletableFiles
+                ->whereRaw("{$comparisonColumn} <> ?", [$comparisonPath])
+                ->whereRaw("NOT starts_with({$comparisonColumn}, ?)", [$comparisonPath.'/']);
+        }
+
+        return $deletableFiles->delete();
     }
 
     private function prepareScanCaches(ScanRun $scanRun): void

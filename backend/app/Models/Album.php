@@ -10,6 +10,7 @@ use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\QueryParameter;
 use App\ApiPlatform\Filter\CaseInsensitivePartialSearchFilter;
 use App\ApiPlatform\Filter\RelationshipEqualsFilter;
+use App\Enums\ArtworkSource;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'library_root_id',
     'primary_artist_id',
     'artwork_id',
+    'artwork_source_type',
+    'artwork_source_relative_path',
     'title',
     'sort_title',
     'relative_path',
@@ -136,6 +139,7 @@ class Album extends Model
     {
         return [
             'metadata' => 'array',
+            'artwork_source_type' => ArtworkSource::class,
         ];
     }
 }

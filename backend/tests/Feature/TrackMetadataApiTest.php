@@ -25,6 +25,7 @@ class TrackMetadataApiTest extends TestCase
             'artistNames' => ['Artist', 'Guest'],
             'composers' => ['Composer'],
             'performers' => ['Performer'],
+            'genres' => ['Alternative', 'Rock'],
             'comment' => 'Updated comment',
             'trackNumber' => 2,
             'discNumber' => 1,
@@ -35,6 +36,11 @@ class TrackMetadataApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('supported', true)
             ->assertJsonPath('changes.0.field', 'title')
+            ->assertJsonFragment([
+                'field' => 'genres',
+                'current' => [],
+                'proposed' => ['Alternative', 'Rock'],
+            ])
             ->json();
 
         $response = $this->postJson("/api/tracks/{$track->id}/metadata-edits", [
@@ -60,6 +66,7 @@ class TrackMetadataApiTest extends TestCase
             'artistNames' => ['Artist'],
             'composers' => [],
             'performers' => [],
+            'genres' => [],
             'comment' => null,
             'trackNumber' => 2,
             'discNumber' => 1,
@@ -85,6 +92,7 @@ class TrackMetadataApiTest extends TestCase
             'artistNames' => ['Artist'],
             'composers' => [],
             'performers' => [],
+            'genres' => [],
             'comment' => null,
             'trackNumber' => 2,
             'discNumber' => 1,
@@ -101,6 +109,61 @@ class TrackMetadataApiTest extends TestCase
         ])->assertUnprocessable()
             ->assertJsonValidationErrors('track');
         Queue::assertNothingPushed();
+    }
+
+    public function test_it_reports_id3v2_unsynchronization_before_queueing(): void
+    {
+        Queue::fake();
+        $track = $this->createTrack('track.mp3');
+        $track->mediaFile->update([
+            'raw_metadata' => ['id3v2' => ['majorversion' => 3, 'flags' => ['unsynch' => true]]],
+        ]);
+        $values = [
+            'title' => 'Changed title',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'genres' => ['Synthpop'],
+            'comment' => null,
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2014,
+        ];
+
+        $preview = $this->postJson("/api/tracks/{$track->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('supported', false)
+            ->assertJsonPath('supportIssue', 'id3v2_unsynchronization')
+            ->json();
+
+        $this->postJson("/api/tracks/{$track->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('track');
+        Queue::assertNothingPushed();
+    }
+
+    public function test_it_allows_id3v24_unsynchronization(): void
+    {
+        $track = $this->createTrack('track.mp3');
+        $track->mediaFile->update([
+            'raw_metadata' => ['id3v2' => ['majorversion' => 4, 'flags' => ['unsynch' => true]]],
+        ]);
+
+        $this->postJson("/api/tracks/{$track->id}/metadata/preview", [
+            'title' => 'Changed title',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'genres' => ['Synthpop'],
+            'comment' => null,
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2014,
+        ])->assertOk()
+            ->assertJsonPath('supported', true)
+            ->assertJsonPath('supportIssue', null);
     }
 
     private function createTrack(string $filename): Track

@@ -73,7 +73,9 @@ const albumRoute = computed(() => {
   return albumId ? { name: 'album-detail', params: { id: albumId } } : null
 })
 const artistAlbumsRoute = computed(() => {
-  return primaryArtist.value ? { name: 'albums', query: { search: primaryArtist.value.name } } : null
+  return primaryArtist.value
+    ? { name: 'albums', query: { artist: primaryArtist.value.id, artistName: primaryArtist.value.name } }
+    : null
 })
 const playbackStateText = computed(() => {
   if (player.error) return player.error
@@ -548,7 +550,13 @@ onMounted(async () => {
           variant="text"
           @click="void player.next()"
         />
-        <v-badge :content="player.queue.length" :model-value="player.queue.length > 0" color="primary">
+        <v-badge
+          :content="player.queue.length"
+          :model-value="player.queue.length > 0"
+          color="primary"
+          offset-x="4"
+          offset-y="4"
+        >
           <TooltipIconButton
             :text="t('player.queue')"
             :aria-label="t('player.queue')"
@@ -745,7 +753,7 @@ onMounted(async () => {
             <template v-if="nowPlayingQueueItem.track.artists.length">
               <template v-for="(artist, artistIndex) in nowPlayingQueueItem.track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { search: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>
@@ -828,7 +836,7 @@ onMounted(async () => {
             <template v-if="track.artists.length">
               <template v-for="(artist, artistIndex) in track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { search: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>
@@ -911,7 +919,7 @@ onMounted(async () => {
             <template v-if="track.artists.length">
               <template v-for="(artist, artistIndex) in track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { search: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>

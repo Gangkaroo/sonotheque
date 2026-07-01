@@ -57,7 +57,13 @@ class DashboardMetricsApiTest extends TestCase
             'first_played_at' => now(),
             'last_played_at' => now(),
         ]);
-        Genre::create(['name' => 'Rock']);
+        Artist::create([
+            'name' => 'Unused',
+            'sort_name' => 'Unused',
+            'browse_initial' => 'U',
+        ]);
+        $track->genres()->attach(Genre::create(['name' => 'Rock']));
+        Genre::create(['name' => 'Unused']);
 
         $this->getJson('/api/dashboard-metrics')
             ->assertOk()

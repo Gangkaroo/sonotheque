@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Artist;
+use App\Models\Genre;
 use App\Models\MetadataEditJob;
 use App\Music\Metadata\MetadataBackupManager;
 use App\Music\Metadata\TrackMetadataEditing;
@@ -80,6 +81,7 @@ class ApplyTrackMetadataEdit implements ShouldQueue
                 'performers' => $metadata->performers ?: null,
                 'metadata' => $metadata->rawMetadata,
             ]);
+            $previousArtistIds = $track->artists()->pluck('artists.id');
             $artistPivots = [];
             foreach ($metadata->artists as $position => $name) {
                 $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()
@@ -91,6 +93,21 @@ class ApplyTrackMetadataEdit implements ShouldQueue
                 $artistPivots[$artist->id] = ['role' => 'primary', 'position' => $position];
             }
             $track->artists()->sync($artistPivots);
+            Artist::query()
+                ->whereIn('id', $previousArtistIds)
+                ->whereDoesntHave('albums')
+                ->whereDoesntHave('tracks')
+                ->delete();
+            $previousGenreIds = $track->genres()->pluck('genres.id');
+            $genreIds = collect($metadata->genres)->map(function (string $name): int {
+                return Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()?->id
+                    ?? Genre::create(['name' => $name])->id;
+            })->all();
+            $track->genres()->sync($genreIds);
+            Genre::query()
+                ->whereIn('id', $previousGenreIds)
+                ->whereDoesntHave('tracks')
+                ->delete();
             $mediaFile->update([
                 'file_size' => $fileSize,
                 'modified_at' => CarbonImmutable::createFromTimestampUTC($modifiedAt),

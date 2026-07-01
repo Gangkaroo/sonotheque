@@ -47,11 +47,11 @@ php artisan music:scan 1
 For development or diagnostics, run it in the current process with
 `php artisan music:scan 1 --sync`.
 
-Each library root's `cover_image_path` is resolved relative to its album
-folders. Valid JPEG, PNG, GIF, and WebP covers are cached under
+Each library root has an ordered `cover_image_paths` list. Paths are resolved
+from each album folder and may use parent segments as long as the result remains
+inside the library root. Valid JPEG, PNG, GIF, and WebP covers are cached under
 `storage/app/artwork`, with a bounded WebP thumbnail generated during scans.
-Embedded artwork is used as a fallback when the configured folder cover is
-absent.
+Embedded artwork is used when no configured folder cover can be used.
 
 API documentation is available at `http://127.0.0.1:8000/api/docs`.
 

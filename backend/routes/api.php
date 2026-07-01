@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AdminAccessController;
 use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioStreamController;
@@ -22,13 +23,13 @@ Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::cl
 Route::get('/catalog/playback/tracks/random', [CatalogBrowseController::class, 'randomTrack']);
 Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::class, 'nextTrack']);
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
+Route::get('/albums/{album}/artwork/original', [ArtworkThumbnailController::class, 'albumOriginal']);
 Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
 Route::get('/catalog/tracks', [CatalogBrowseController::class, 'tracks']);
 Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track']);
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
 Route::get('/artwork/{artwork}/thumbnail', ArtworkThumbnailController::class);
-Route::get('/artwork/{artwork}/original', [ArtworkThumbnailController::class, 'original']);
 Route::get('/tracks/{track}/stream', AudioStreamController::class);
 Route::post('/tracks/{track}/plays', [TrackPlayStatisticsController::class, 'store']);
 Route::post('/tracks/{track}/metadata/preview', [TrackMetadataController::class, 'preview']);
@@ -39,6 +40,7 @@ Route::get('/statistics/most-played-tracks', [PlaybackStatisticsController::clas
 Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::class, 'mostPlayedAlbums']);
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
+Route::get('/settings/access', AdminAccessController::class);
 Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
 Route::get('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'show']);
 Route::patch('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'update']);

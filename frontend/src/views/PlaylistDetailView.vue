@@ -278,7 +278,7 @@ watch(itemIds, (ids) => {
             <template v-if="item.track.artists.length">
               <template v-for="(artist, artistIndex) in item.track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="playlist-track-link" :to="{ name: 'albums', query: { search: artist.name } }">
+                <RouterLink class="playlist-track-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }">
                   {{ artist.name }}
                 </RouterLink>
               </template>

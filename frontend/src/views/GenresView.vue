@@ -32,7 +32,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <PageHeader :title="t('genres.title')" :description="t('genres.description')" icon="mdi-tag-multiple-outline" />
+  <PageHeader
+    :title="t('genres.title')"
+    :count="catalog.genresLoading || catalog.genresError ? undefined : catalog.genres.total"
+    :description="t('genres.description')"
+    icon="mdi-tag-multiple-outline"
+  />
   <v-text-field v-model="search" class="mb-6" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('genres.search')" />
   <v-alert v-if="catalog.genresError" type="error" variant="tonal">{{ catalog.genresError }}</v-alert>
   <v-skeleton-loader v-else-if="catalog.genresLoading" type="list-item-two-line@5" />

@@ -149,6 +149,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
             $attributes['sort_title'] = $values['albumTitle'];
         }
         if (isset($changedFields['albumArtist'])) {
+            $previousArtistId = $edit->album->primary_artist_id;
             $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$values['albumArtist']])->first()
                 ?? Artist::create([
                     'name' => $values['albumArtist'],
@@ -166,7 +167,17 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         if ($attributes !== []) {
             $edit->album->update($attributes);
         }
+        if (isset($changedFields['albumArtist'])) {
+            Artist::query()
+                ->whereKey($previousArtistId)
+                ->whereDoesntHave('albums')
+                ->whereDoesntHave('tracks')
+                ->delete();
+        }
         if (isset($changedFields['genres'])) {
+            $previousGenreIds = Genre::query()
+                ->whereHas('tracks', fn ($query) => $query->where('album_id', $edit->album->id))
+                ->pluck('id');
             $genreIds = collect($values['genres'])->map(function (string $name): int {
                 return Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()?->id
                     ?? Genre::create(['name' => $name])->id;
@@ -174,6 +185,10 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
             foreach ($edit->album->tracks as $track) {
                 $track->genres()->sync($genreIds);
             }
+            Genre::query()
+                ->whereIn('id', $previousGenreIds)
+                ->whereDoesntHave('tracks')
+                ->delete();
         }
     }
 }

@@ -162,9 +162,22 @@ library-root/
         `-- 02 - Track.flac
 ```
 
-Cover paths are configured per library root and resolved relative to each album
-folder. The configured folder cover is preferred. Embedded artwork is used as a
-fallback.
+Cover paths are configured as an ordered list per library root and resolved
+relative to each album folder. The first existing candidate is preferred, so a
+root can check values such as `cover.jpg`, `artwork/front.jpg`, and
+`Disc 1/front.jpg`. Parent-relative candidates such as `../Cover/Front.jpg` are
+also supported for multi-disc layouts. They are resolved separately for each
+album and rejected if the result would leave the library root. Embedded artwork
+is used as a fallback when no configured candidate can be used.
+
+Settings can also hold explicit excluded folders relative to each library root.
+An excluded folder and all descendants are pruned during the discovery pass, so
+their files are neither counted nor parsed. After a successful, trustworthy
+scan, files that were deleted, moved, or newly excluded are removed from the
+catalog together with empty albums and unreferenced artists or genres. Records
+beneath an unreadable path are preserved, while unrelated stale or explicitly
+excluded paths can still be cleaned. A completely unavailable root preserves
+the existing catalog.
 
 ## Playback Statistics Synchronization
 
@@ -343,7 +356,7 @@ Restore a database dump into an empty database:
 Get-Content .\music_library.sql | docker exec -i music-library-postgres psql -U music_library music_library
 ```
 
-Back up artwork cache:
+Back up generated artwork thumbnails:
 
 ```powershell
 Compress-Archive -Path backend\storage\app\artwork -DestinationPath artwork-backup.zip
@@ -351,6 +364,18 @@ Compress-Archive -Path backend\storage\app\artwork -DestinationPath artwork-back
 
 The music files themselves are not copied, moved, deleted, or backed up by this
 application. They remain on the configured library drives.
+
+Folder cover originals are served from their source location and are no longer
+copied into application storage. Embedded originals are extracted from their
+audio files only when requested. Thumbnails remain cached for responsive list
+views.
+
+After applying the artwork-source migration, remove the obsolete full-size
+artwork cache:
+
+```powershell
+php artisan music:artwork:remove-original-cache
+```
 
 ## LAN Access
 
@@ -370,6 +395,7 @@ the configured admin token:
 ```text
 MUSIC_LIBRARY_LAN_ENABLED=true
 MUSIC_LIBRARY_ADMIN_TOKEN=choose-a-long-random-token
+MUSIC_LIBRARY_TRUSTED_HOSTS=localhost,127.0.0.1,::1,music-pc,192.168.1.10
 ```
 
 Remote admin requests must include:
@@ -381,9 +407,25 @@ X-Music-Library-Admin-Token: choose-a-long-random-token
 Catalog browsing, artwork, audio streaming, favorites, and playlists are not
 blocked by this middleware.
 
-The frontend does not yet have a token entry field, so remote LAN browsing can
-work once the services are bound to the LAN interface, but remote Settings UI
-operations still need a small frontend follow-up to send the admin token.
+The Security tab in Settings verifies the token before saving it. By default it
+is kept in `sessionStorage` until the tab or browser session ends. The optional
+"Remember on this device" setting uses `localStorage`. The token is sent only
+to same-origin `/api` requests and is never returned by the backend. Clearing
+it also clears protected library-root and scan data from the current page.
 
-Before exposing the app on the local network, the project also still needs
-stricter CORS and trusted-host configuration.
+`MUSIC_LIBRARY_TRUSTED_HOSTS` is a comma-separated list of exact hostnames and
+IP addresses accepted in HTTP `Host` headers. Add the computer's chosen LAN
+hostname and/or static LAN address before exposing the services. Requests with
+any other host are rejected.
+
+Cross-origin API access is denied by default. The Vue development proxy and a
+normal same-origin deployment do not need CORS. If the frontend is deliberately
+served from a different origin, list only those exact origins:
+
+```text
+MUSIC_LIBRARY_ALLOWED_ORIGINS=http://192.168.1.10:5173
+```
+
+The manual startup scripts still bind Laravel and Vite to `127.0.0.1`. An
+explicit opt-in bind setting and Windows Firewall guidance remain to be added
+before normal LAN startup is enabled.

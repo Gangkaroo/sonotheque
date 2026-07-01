@@ -51,6 +51,7 @@ interface AlbumMetadataFile {
   file: string | null
   format: string | null
   supported: boolean
+  supportIssue?: string | null
 }
 
 interface AlbumMetadataPreview {
@@ -282,6 +283,7 @@ async function pollMetadataEdit() {
     if (metadataJob.value.status === 'completed') {
       metadataDialog.value = false
       metadataSuccess.value = true
+      catalog.invalidateMetrics()
       await catalog.loadAlbum(albumId.value)
       return
     }
@@ -310,6 +312,21 @@ function metadataValue(value: AlbumMetadataChange['current']) {
 function metadataProgress() {
   if (!metadataJob.value?.totalItems) return 0
   return Math.round((metadataJob.value.processedItems / metadataJob.value.totalItems) * 100)
+}
+
+function metadataUnsupportedSummary() {
+  const unsupportedFiles = metadataPreview.value?.files.filter((file) => !file.supported) ?? []
+  const issues = unsupportedFiles.map((file) => file.supportIssue)
+  const count = unsupportedFiles.length
+
+  if (issues.every((issue) => issue?.startsWith('id3v2_'))) {
+    return t('albums.metadataUnsupportedTagFiles', { count })
+  }
+  if (issues.every((issue) => issue === 'unsupported_format')) {
+    return t('albums.metadataUnsupportedFiles', { count })
+  }
+
+  return t('albums.metadataUnsupportedMixedFiles', { count })
 }
 
 function openArtwork() {
@@ -539,15 +556,17 @@ onUnmounted(() => {
             chips
             closable-chips
             clearable
+            :hint="t('albums.metadataGenresHint')"
             :label="t('tracks.genres')"
             multiple
+            persistent-hint
           />
           <div class="text-caption text-medium-emphasis">{{ t('albums.metadataPreviewHint') }}</div>
         </template>
 
         <template v-else-if="metadataStep === 'preview' && metadataPreview">
           <v-alert v-if="metadataPreview.unsupportedFiles" class="mb-4" type="warning" variant="tonal">
-            {{ t('albums.metadataUnsupportedFiles', { count: metadataPreview.unsupportedFiles }) }}
+            {{ metadataUnsupportedSummary() }}
           </v-alert>
           <v-list v-if="metadataPreview.changes.length" border rounded class="mb-4">
             <v-list-item v-for="change in metadataPreview.changes" :key="change.field">
@@ -568,8 +587,13 @@ onUnmounted(() => {
               :key="file.trackId"
               :prepend-icon="file.supported ? 'mdi-file-music-outline' : 'mdi-alert-outline'"
               :title="file.trackTitle"
-              :subtitle="file.file ?? '-'"
             >
+              <v-list-item-subtitle>
+                <div>{{ file.file ?? '-' }}</div>
+                <div v-if="file.supportIssue" class="text-warning">
+                  {{ t(`tracks.metadataSupportIssues.${file.supportIssue}`) }}
+                </div>
+              </v-list-item-subtitle>
               <template #append>
                 <v-chip :color="file.supported ? 'success' : 'warning'" size="x-small" variant="tonal">
                   {{ file.format ?? '-' }}

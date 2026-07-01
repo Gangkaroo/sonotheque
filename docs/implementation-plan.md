@@ -46,6 +46,8 @@ The first usable release will provide:
 
 - Configuration of one or more local music folders
 - Manual and incremental library scans
+- Removal of stale catalog records after scans, including deleted, moved, and
+  newly excluded files, while preserving records beneath unreadable paths
 - Scan status, progress, warnings, and errors
 - Browsing by artist, album, track, and genre
 - Search, filtering, sorting, and pagination
@@ -54,7 +56,9 @@ The first usable release will provide:
 - Album filtering by artist initial, original release year, and genre
 - Track filtering by genre
 - Cross-navigation from artists and genres to filtered album and track lists
-- Album artwork discovery from a configurable path relative to each album folder
+- Album artwork discovery from an ordered list of configurable paths relative
+  to each album folder
+- Explicit library-root subfolder exclusions that prune complete directory trees
 - Cached, smaller album-cover thumbnails for album lists and grids
 - Embedded album artwork extraction as a fallback
 - Album detail pages with full-size artwork, track listing, album genres, and artwork overlay
@@ -67,14 +71,14 @@ The first usable release will provide:
 - English and German translations
 - Localhost access by default and optional LAN access
 
-The following features are deferred until after the MVP:
+The following features are deferred until after the first stable local release:
 
-- Editing or writing ID3/audio tags
+- Metadata writing for formats beyond MP3 and album cover editing
 - User accounts and permissions
 - Automatic metadata lookup from external services
 - Audio transcoding
 - Playlist import/export
-- Listening-statistics tag import/export and Last.fm integration
+- Last.fm integration
 - Duplicate-file management
 - Mobile applications
 
@@ -91,11 +95,18 @@ library-root/
 `-- Artist/
     `-- Album/
         |-- configured/relative/cover.jpg
+        |-- Disc 1/alternate-cover.jpg
         |-- 01 - Track.mp3
         `-- 02 - Track.mp3
 ```
 
-The cover-image path is configured per library root and resolved relative to each album folder. For example, a value of `cover.jpg` refers to a file directly in the album folder, while `artwork/front.jpg` refers to a nested file. When the configured file is absent or invalid, the scanner falls back to embedded artwork from the album's audio files.
+Cover-image paths are configured as an ordered list per library root and
+resolved relative to each album folder. For example, `cover.jpg` refers to a
+file directly in the album folder, while `Disc 1/front.jpg` refers to a nested
+file. The first existing candidate is used. When none exists or the selected
+image is invalid, the scanner falls back to embedded artwork from the album's
+audio files. Explicitly excluded directories are stored relative to the library
+root and pruned before scan counting and metadata parsing.
 
 Audio is delivered through a dedicated streaming endpoint supporting HTTP range requests. The server must verify that every requested file belongs to an enabled library root before reading it.
 
@@ -115,8 +126,8 @@ Configured folders and their scan settings:
 - Parent library
 - Path and display name
 - Enabled state
-- Include/exclude patterns
-- Cover-image path relative to each album folder
+- Include/exclude patterns and explicit excluded directories
+- Ordered cover-image paths relative to each album folder
 - Last successful scan time
 
 ### `scan_runs`
@@ -293,7 +304,7 @@ Completed:
 - Library-root list, create, edit, and remove workflow with canonical path, subfolder checks, and safe relative cover-path validation
 - Scan start/cancel API, queued dispatch, progress/history API, and periodically refreshed Settings UI controls
 - Structured scan diagnostics for invalid layouts, unreadable entries, malformed files, missing files, and unavailable roots
-- Safe handling for suspicious empty rescans so an unavailable drive does not mark the existing catalog missing
+- Stale-file removal after scans, scoped preservation beneath paths that could not be read, and orphan cleanup for albums, artists, and genres
 - Read-only Explorer-style server folder browser for selecting library roots
 - Batched scan progress, cancellation checks, incremental fingerprints, and repeated metadata lookup caches
 - Raw tag metadata sanitation for binary ID3 payloads that PostgreSQL JSONB cannot represent
@@ -318,14 +329,16 @@ Completed:
   Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup
 - Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
+- Exact trusted-host validation, deny-by-default CORS configuration, and a frontend Security tab for verified session or device admin tokens
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
+- Optional MP3 statistics synchronization using foo_playcount-compatible tags, with queued coalesced write-back
+- Previewed and queued MP3 track/album metadata editing with verification, conflict fingerprints, and optional durable backups
 
 In progress or still required for the first milestone:
 
 - Local runtime integration for starting, stopping, and checking Docker,
   Laravel, the queue listener, and Vite together. (Complete)
-- Frontend admin-token entry/storage so protected Settings operations can be used intentionally from LAN devices
-- CORS and trusted-host hardening before binding services to the LAN interface
+- Explicit opt-in LAN binding in the manual startup scripts, including clear Windows Firewall guidance
 - Broader end-to-end and packaging coverage
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. The app is now past the first playable browsing milestone; the next work should make local operation, startup, and recovery boringly repeatable.
@@ -357,11 +370,13 @@ The implementation order changed from the original phase list. The scanner and a
 - Normalize artists, albums, tracks, and genres.
 - Associate files using the configured `artist/album` folder layout while retaining tag metadata for display and diagnostics.
 - Resolve and validate the configured cover-image path inside each album folder.
-- Cache full-size album artwork and generate a smaller thumbnail.
+- Generate and cache thumbnails for all artwork; serve folder originals from
+  their guarded library paths and extract embedded originals from audio files
+  only when requested.
 - Fall back to embedded artwork when no configured folder image is available.
 - Deduplicate cached artwork using checksums.
 - Detect unchanged files using size and modification time.
-- Update modified files and mark missing files as unavailable.
+- Update modified files and remove catalog records for files no longer discovered, while preserving records only beneath unreadable paths.
 - Record malformed files and nonfatal warnings without stopping a scan.
 - Execute scans through queued jobs.
 
@@ -423,9 +438,9 @@ File writes remain queued and require a preview and explicit confirmation.
   composer, performer, comment, track/disc number, year, album title, album
   artist, release year, total discs, and genres; other formats pending)
 - Add track edit forms for per-track fields such as title, track number, disc
-  number, artist, and genre. (Complete for title, track artist, composer,
-  performer, comment, track number, disc number, and year on track detail;
-  track genre editing pending)
+  number, artist, and genre. (Complete for MP3 title, track artist, composer,
+  performer, comment, track number, disc number, year, and genres on track
+  detail)
 - Add album edit forms for shared fields such as album title, album artist,
   release year/date, album genres, and cover artwork. (Complete for MP3 album
   title, album artist, release year, total discs, and shared genres; cover
@@ -484,8 +499,9 @@ Last.fm integration.
 - Add and remove library roots. (Complete)
 - Provide manual path input. (Complete)
 - Provide a restricted server-side folder browser. (Complete)
-- Configure the album-cover path relative to album folders for each library root. (Complete)
-- Validate the cover path as a safe relative path. (Complete)
+- Configure ordered album-cover paths relative to album folders for each library root. (Complete)
+- Validate cover paths as relative paths and confine their resolved files to the library root. (Complete)
+- Select and prune excluded subfolders for each library root. (Complete)
 - Show an example resolved cover location. (Pending)
 - Start, cancel, and repeat scans. (Complete)
 - Display live or periodically refreshed scan progress. (Complete)
@@ -494,12 +510,12 @@ Last.fm integration.
 ### 7. Local and LAN Security
 
 - Bind services to `127.0.0.1` by default. (Complete for current dev startup)
-- Require an explicit configuration change for LAN settings access. (Backend middleware complete; frontend token entry pending)
+- Require an explicit configuration change for LAN settings access. (Complete with backend middleware and verified frontend token storage)
 - Prevent path traversal and symbolic-link escapes. (Complete for streaming/scanning guard paths)
-- Reject absolute or escaping album-cover paths such as paths containing unresolved `..` segments. (Complete)
+- Reject absolute album-cover paths and any parent-relative path that resolves outside the library root. (Complete)
 - Restrict folder browsing to configured drives or parent directories. (Basic server-side browser complete; policy can be tightened before LAN exposure)
-- Configure CORS and trusted hosts narrowly.
-- Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost.
+- Configure CORS and trusted hosts narrowly. (Complete; both use exact environment-driven allowlists)
+- Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost. (Complete)
 
 ### 8. Testing and Packaging
 
@@ -518,10 +534,13 @@ uses a configurable location and retention period, preserves source-relative
 paths in unique copies, records checksums and edit ownership, exposes recovery
 details, and provides cleanup and path-checked restore commands.
 
-Artwork editing and additional audio formats are intentionally deferred. The
-next planning pass can instead focus on smaller metadata workflow refinements,
-such as track-level genre editing and a browsable backup audit, after the
-current backup behavior has been exercised with representative library files.
+Artwork editing and additional audio formats are intentionally deferred. Track
+genre editing completes the planned per-track MP3 field set; a browsable backup
+audit in Settings remains as a later metadata workflow refinement.
+
+The LAN authorization boundary, browser token workflow, trusted-host checks,
+and CORS allowlist are complete. The next LAN step is an explicit startup bind
+setting with Windows Firewall guidance and verification from a second device.
 
 ## First Milestone Definition
 

@@ -20,6 +20,7 @@ const listing = ref(/** @type {{
  * volumes: Array<{name: string, path: string}>
  * } | null} */ (null))
 const entries = computed(() => listing.value?.path ? listing.value.directories : listing.value?.volumes ?? [])
+const folderListHeight = computed(() => Math.min(420, Math.max(64, entries.value.length * 64)))
 
 watch(() => props.modelValue, (open) => {
   if (open) browse(props.initialPath || null)
@@ -86,18 +87,28 @@ function selectCurrent() {
         </div>
 
         <v-skeleton-loader v-if="loading && !listing" type="list-item@5" />
-        <v-list v-else border rounded="lg" lines="one" max-height="420" class="overflow-y-auto">
-          <v-list-item
-            v-for="entry in entries"
-            :key="entry.path"
-            :title="entry.name"
-            :subtitle="entry.path"
-            :prepend-icon="listing?.path ? 'mdi-folder-outline' : 'mdi-harddisk'"
-            @click="browse(entry.path)"
-          >
-            <template #append><v-icon icon="mdi-chevron-right" /></template>
-          </v-list-item>
-          <v-list-item v-if="!loading && !entries.length" :title="t('settings.folderBrowserEmpty')" />
+        <v-virtual-scroll
+          v-else-if="entries.length"
+          class="border rounded-lg"
+          :height="folderListHeight"
+          item-height="64"
+          item-key="path"
+          :items="entries"
+        >
+          <template #default="{ item }">
+            <v-list-item
+              :disabled="loading"
+              :title="item.name"
+              :subtitle="item.path"
+              :prepend-icon="listing?.path ? 'mdi-folder-outline' : 'mdi-harddisk'"
+              @click="browse(item.path)"
+            >
+              <template #append><v-icon icon="mdi-chevron-right" /></template>
+            </v-list-item>
+          </template>
+        </v-virtual-scroll>
+        <v-list v-else border rounded="lg" lines="one">
+          <v-list-item :title="t('settings.folderBrowserEmpty')" />
         </v-list>
       </v-card-text>
       <v-card-actions>

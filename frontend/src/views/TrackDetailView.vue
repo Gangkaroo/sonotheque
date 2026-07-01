@@ -31,6 +31,7 @@ const metadataForm = reactive({
   artistNames: [] as string[],
   composers: [] as string[],
   performers: [] as string[],
+  genres: [] as string[],
   comment: '',
   trackNumber: '',
   discNumber: '',
@@ -39,7 +40,7 @@ const metadataForm = reactive({
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 
 interface MetadataChange {
-  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'comment' | 'trackNumber' | 'discNumber' | 'year'
+  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year'
   current: string | number | string[] | null
   proposed: string | number | string[] | null
 }
@@ -49,6 +50,7 @@ interface MetadataPreview {
   file: string
   format: string
   supported: boolean
+  supportIssue?: string | null
   fingerprint: string
   values: MetadataValues
   changes: MetadataChange[]
@@ -59,6 +61,7 @@ interface MetadataValues {
   artistNames: string[]
   composers: string[]
   performers: string[]
+  genres: string[]
   comment: string | null
   trackNumber: number | null
   discNumber: number | null
@@ -146,6 +149,8 @@ const technicalRows = computed(() => {
     { label: t('tracks.modifiedAt'), value: formatDate(mediaFile.modifiedAt) },
     { label: t('tracks.status'), value: mediaFile.status },
     { label: t('tracks.codec'), value: mediaFile.codec },
+    { label: t('tracks.encoder'), value: mediaFile.encoder },
+    { label: t('tracks.encoderSettings'), value: mediaFile.encoderSettings },
     { label: t('tracks.container'), value: mediaFile.container },
     { label: t('tracks.mimeType'), value: mediaFile.mimeType },
     { label: t('tracks.bitrate'), value: formatBitrate(mediaFile.bitrate) },
@@ -215,6 +220,7 @@ function openMetadataEditor() {
     artistNames: track.value.artists.map((artist) => artist.name),
     composers: [...track.value.composers],
     performers: [...track.value.performers],
+    genres: track.value.genres.map((genre) => genre.name),
     comment: track.value.comment ?? '',
     trackNumber: track.value.trackNumber?.toString() ?? '',
     discNumber: track.value.discNumber?.toString() ?? '',
@@ -233,6 +239,7 @@ function metadataValues(): MetadataValues {
     artistNames: cleanNames(metadataForm.artistNames),
     composers: cleanNames(metadataForm.composers),
     performers: cleanNames(metadataForm.performers),
+    genres: cleanNames(metadataForm.genres),
     comment: metadataForm.comment.trim() || null,
     trackNumber: nullableInteger(metadataForm.trackNumber),
     discNumber: nullableInteger(metadataForm.discNumber),
@@ -302,6 +309,7 @@ async function pollMetadataEdit() {
     if (metadataJob.value.status === 'completed') {
       metadataDialog.value = false
       metadataSuccess.value = true
+      catalog.invalidateMetrics()
       await catalog.loadTrack(trackId.value)
       return
     }
@@ -321,6 +329,7 @@ function metadataFieldLabel(field: MetadataChange['field']) {
     artistNames: t('tracks.artists'),
     composers: t('tracks.composers'),
     performers: t('tracks.performers'),
+    genres: t('tracks.genres'),
     comment: t('tracks.comment'),
     trackNumber: t('tracks.trackNumber'),
     discNumber: t('tracks.discNumber'),
@@ -564,6 +573,14 @@ onUnmounted(() => {
             :label="t('tracks.performers')"
             multiple
           />
+          <v-combobox
+            v-model="metadataForm.genres"
+            chips
+            closable-chips
+            clearable
+            :label="t('tracks.genres')"
+            multiple
+          />
           <v-textarea v-model="metadataForm.comment" auto-grow :label="t('tracks.comment')" maxlength="10000" rows="2" />
           <v-row>
             <v-col cols="12" sm="4">
@@ -581,7 +598,9 @@ onUnmounted(() => {
 
         <template v-else-if="metadataStep === 'preview' && metadataPreview">
           <v-alert v-if="!metadataPreview.supported" class="mb-4" type="warning" variant="tonal">
-            {{ t('tracks.metadataMp3Only') }}
+            {{ metadataPreview.supportIssue
+              ? t(`tracks.metadataSupportIssues.${metadataPreview.supportIssue}`)
+              : t('tracks.metadataMp3Only') }}
           </v-alert>
           <div class="text-body-2 text-medium-emphasis mb-3">{{ metadataPreview.file }}</div>
           <v-list v-if="metadataPreview.changes.length" border rounded>

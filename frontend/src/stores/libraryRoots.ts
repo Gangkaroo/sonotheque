@@ -7,7 +7,8 @@ export interface LibraryRoot {
   id: number
   name: string
   path: string
-  coverImagePath: string
+  coverImagePaths: string[]
+  excludedDirectories: string[]
   enabled: boolean
   lastScannedAt: string | null
 }
@@ -17,12 +18,14 @@ interface HydraCollection<T> { member: T[] }
 export interface CreateLibraryRootInput {
   name: string
   path: string
-  coverImagePath: string
+  coverImagePaths: string[]
+  excludedDirectories: string[]
 }
 
 export interface UpdateLibraryRootInput {
   name: string
-  coverImagePath: string
+  coverImagePaths: string[]
+  excludedDirectories: string[]
 }
 
 export const useLibraryRootsStore = defineStore('libraryRoots', () => {
@@ -82,5 +85,10 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
     roots.value = roots.value.filter((root) => root.id !== id)
   }
 
-  return { roots, loading, saving, error, hasRoots, load, create, update, remove }
+  function clear() {
+    roots.value = []
+    error.value = null
+  }
+
+  return { roots, loading, saving, error, hasRoots, load, create, update, remove, clear }
 })

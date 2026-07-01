@@ -27,6 +27,7 @@ class CatalogBrowseController extends Controller
 
         $artists = Artist::query()
             ->select(['id', 'name', 'sort_name', 'browse_initial'])
+            ->where(fn (Builder $query) => $query->whereHas('albums')->orWhereHas('tracks'))
             ->addSelect([
                 'play_count' => TrackPlayStatistic::query()
                     ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)')
@@ -71,6 +72,7 @@ class CatalogBrowseController extends Controller
             'initial' => ['sometimes', 'nullable', 'string', 'in:#,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z'],
             'year' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:9999'],
             'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
         $albums = Album::query()
@@ -86,6 +88,7 @@ class CatalogBrowseController extends Controller
             ->with(['primaryArtist:id,name', 'artwork:id'])
             ->withCount('tracks')
             ->has('tracks')
+            ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->where('albums.primary_artist_id', $artist))
             ->when($filters['year'] ?? null, fn (Builder $query, int $year) => $query->where('albums.original_release_year', $year))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('tracks.genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
@@ -171,12 +174,14 @@ class CatalogBrowseController extends Controller
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
             'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'playStatus' => ['sometimes', 'nullable', 'string', 'in:never'],
         ]);
 
         $tracks = Track::query()
             ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
             ->with(['album:id,title,original_release_year', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+            ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->whereHas('artists', fn (Builder $artistQuery) => $artistQuery->whereKey($artist)))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when(($filters['playStatus'] ?? null) === 'never', function (Builder $query): void {
                 $query->where(function (Builder $query): void {
@@ -214,6 +219,7 @@ class CatalogBrowseController extends Controller
 
         $genres = Genre::query()
             ->select(['id', 'name'])
+            ->has('tracks')
             ->withCount('tracks')
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->orderBy('name')

@@ -58,7 +58,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <PageHeader :title="t('artists.title')" :description="t('artists.description')" icon="mdi-account-music-outline" />
+  <PageHeader
+    :title="t('artists.title')"
+    :count="catalog.artistsLoading || catalog.artistsError ? undefined : catalog.artists.total"
+    :description="t('artists.description')"
+    icon="mdi-account-music-outline"
+  />
   <v-text-field v-model="search" class="mb-4" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('artists.search')" />
   <div class="d-flex flex-wrap ga-1 mb-6">
     <v-btn size="small" :variant="initial === null ? 'flat' : 'tonal'" @click="selectInitial(null)">{{ t('artists.all') }}</v-btn>
@@ -97,7 +102,7 @@ onUnmounted(() => {
             :disabled="artist.albumCount === 0"
             icon="mdi-album"
             size="small"
-            :to="{ name: 'albums', query: { search: artist.name } }"
+            :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }"
             variant="text"
           />
           <TooltipIconButton
@@ -105,7 +110,7 @@ onUnmounted(() => {
             :aria-label="t('artists.viewTracks', { name: artist.name })"
             icon="mdi-music-note"
             size="small"
-            :to="{ name: 'tracks', query: { search: artist.name } }"
+            :to="{ name: 'tracks', query: { artist: artist.id, artistName: artist.name } }"
             variant="text"
           />
         </div>

@@ -66,7 +66,7 @@ describe('catalog store', () => {
       primaryArtist: { id: 3, name: 'Artist' },
       trackCount: 1,
       artworkThumbnailUrl: null,
-      artworkUrl: '/api/artwork/2/original',
+      artworkUrl: '/api/albums/5/artwork/original',
       artworkWidth: 1200,
       artworkHeight: 1200,
       genres: [{ id: 4, name: 'Rock' }],
@@ -109,6 +109,8 @@ describe('catalog store', () => {
         mimeType: 'audio/mpeg',
         container: 'mp3',
         codec: 'mp3',
+        encoder: 'LAME3.100',
+        encoderSettings: 'V2',
         bitrate: 320000,
         sampleRate: 44100,
         channels: 2,
@@ -124,6 +126,7 @@ describe('catalog store', () => {
     expect(store.trackDetail?.album?.title).toBe('Album')
     expect(store.trackDetail?.genres[0]?.name).toBe('Rock')
     expect(store.trackDetail?.mediaFile?.codec).toBe('mp3')
+    expect(store.trackDetail?.mediaFile?.encoderSettings).toBe('V2')
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks/9', expect.any(Object))
   })
 
@@ -145,5 +148,54 @@ describe('catalog store', () => {
     expect(store.metricsHaveCatalog).toBe(true)
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith('/api/dashboard-metrics', expect.any(Object))
+  })
+
+  it('keeps the newest dashboard metrics when requests overlap', async () => {
+    let resolveFirst!: (response: Response) => void
+    const firstResponse = new Promise<Response>((resolve) => {
+      resolveFirst = resolve
+    })
+    const freshMetrics = {
+      artists: 13,
+      albums: 35,
+      tracks: 570,
+      genres: 9,
+      playedAlbums: 22,
+      playedTracks: 125,
+    }
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => firstResponse)
+      .mockResolvedValueOnce(new Response(JSON.stringify(freshMetrics), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    const firstRequest = store.loadMetrics()
+    await store.loadMetrics()
+    resolveFirst(new Response(JSON.stringify({ ...freshMetrics, tracks: 100 }), { status: 200 }))
+    await firstRequest
+
+    expect(store.metrics).toEqual(freshMetrics)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reuses valid metrics until the cache is invalidated', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      artists: 12,
+      albums: 34,
+      tracks: 567,
+      genres: 8,
+      playedAlbums: 21,
+      playedTracks: 123,
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadMetrics()
+    await store.loadMetrics()
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    store.invalidateMetrics()
+    await store.loadMetrics()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

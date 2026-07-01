@@ -47,6 +47,8 @@ class AudioFileDiscoverer
         }
 
         foreach ($iterator as $file) {
+            $relativePath = null;
+
             try {
                 if (! $file instanceof SplFileInfo) {
                     continue;
@@ -63,6 +65,10 @@ class AudioFileDiscoverer
                 }
 
                 if ($file->isDir()) {
+                    if ($this->isExcludedDirectory($relativePath, $libraryRoot)) {
+                        continue;
+                    }
+
                     yield from $this->walk($file->getPathname(), $rootPath, $libraryRoot, $diagnostics);
 
                     continue;
@@ -130,7 +136,7 @@ class AudioFileDiscoverer
                 $diagnostics->record(
                     'unreadable_entry',
                     'A filesystem entry could not be inspected and was skipped.',
-                    isset($relativePath) ? $relativePath : null,
+                    $relativePath,
                 );
             }
         }
@@ -145,12 +151,37 @@ class AudioFileDiscoverer
 
     private function matchesPatterns(string $relativePath, LibraryRoot $libraryRoot): bool
     {
-        $included = empty($libraryRoot->include_patterns)
-            || collect($libraryRoot->include_patterns)->contains(fn (string $pattern): bool => Str::is($pattern, $relativePath));
-
-        $excluded = collect($libraryRoot->exclude_patterns ?? [])
-            ->contains(fn (string $pattern): bool => Str::is($pattern, $relativePath));
+        $includePatterns = $libraryRoot->include_patterns ?? [];
+        $included = $includePatterns === [] || $this->matchesAnyPattern($relativePath, $includePatterns);
+        $excluded = $this->matchesAnyPattern($relativePath, $libraryRoot->exclude_patterns ?? []);
 
         return $included && ! $excluded;
+    }
+
+    /** @param list<string> $patterns */
+    private function matchesAnyPattern(string $relativePath, array $patterns): bool
+    {
+        foreach ($patterns as $pattern) {
+            if (Str::is($pattern, $relativePath)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isExcludedDirectory(string $relativePath, LibraryRoot $libraryRoot): bool
+    {
+        $comparisonPath = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($relativePath) : $relativePath;
+
+        foreach ($libraryRoot->excluded_directories ?? [] as $excluded) {
+            $excluded = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($excluded) : $excluded;
+
+            if ($comparisonPath === $excluded || str_starts_with($comparisonPath, $excluded.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

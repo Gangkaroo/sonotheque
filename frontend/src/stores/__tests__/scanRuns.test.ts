@@ -12,7 +12,7 @@ const scan = {
   filesProcessed: 0,
   filesAdded: 0,
   filesUpdated: 0,
-  filesMissing: 0,
+  filesRemoved: 0,
   warningCount: 0,
   errorCount: 0,
   startedAt: null,

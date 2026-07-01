@@ -9,6 +9,14 @@ use Throwable;
 
 class Mp3Id3v2TagEditor
 {
+    public const ISSUE_UNSYNCHRONIZATION = 'id3v2_unsynchronization';
+
+    public const ISSUE_EXTENDED_HEADER = 'id3v2_extended_header';
+
+    public const ISSUE_EXPERIMENTAL = 'id3v2_experimental';
+
+    public const ISSUE_FOOTER = 'id3v2_footer';
+
     public function supports(string $path): bool
     {
         return mb_strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'mp3';
@@ -27,6 +35,34 @@ class Mp3Id3v2TagEditor
         }
 
         return $majorVersion;
+    }
+
+    /** @param array<string, mixed> $rawMetadata */
+    public function supportIssue(array $rawMetadata): ?string
+    {
+        $flags = is_array($rawMetadata['id3v2']['flags'] ?? null)
+            ? $rawMetadata['id3v2']['flags']
+            : [];
+        $majorVersion = $rawMetadata['id3v2']['majorversion'] ?? null;
+
+        return match (true) {
+            ($flags['unsynch'] ?? false) === true && $majorVersion !== 4 => self::ISSUE_UNSYNCHRONIZATION,
+            ($flags['exthead'] ?? false) === true => self::ISSUE_EXTENDED_HEADER,
+            ($flags['experim'] ?? false) === true => self::ISSUE_EXPERIMENTAL,
+            ($flags['isfooter'] ?? false) === true => self::ISSUE_FOOTER,
+            default => null,
+        };
+    }
+
+    public function supportIssueMessage(string $issue): string
+    {
+        return match ($issue) {
+            self::ISSUE_UNSYNCHRONIZATION => 'ID3v2 tag-level unsynchronization is not supported for safe editing.',
+            self::ISSUE_EXTENDED_HEADER => 'ID3v2 extended headers are not supported for safe editing.',
+            self::ISSUE_EXPERIMENTAL => 'Experimental ID3v2 tags are not supported for safe editing.',
+            self::ISSUE_FOOTER => 'ID3v2 footers are not supported for safe editing.',
+            default => 'This ID3v2 tag structure is not supported for safe editing.',
+        };
     }
 
     /**
@@ -52,7 +88,7 @@ class Mp3Id3v2TagEditor
         }
 
         $suffix = '.music-library-metadata-'.bin2hex(random_bytes(8));
-        $temporaryPath = $path.$suffix.'.tmp';
+        $temporaryPath = $path.$suffix.'.tmp.'.pathinfo($path, PATHINFO_EXTENSION);
         $backupPath = $path.$suffix.'.bak';
 
         try {
@@ -105,8 +141,8 @@ class Mp3Id3v2TagEditor
                 if (! in_array($majorVersion, [3, 4], true)) {
                     throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$majorVersion} tags are not supported for editing.");
                 }
-                if ($flags !== 0) {
-                    throw new UnsupportedPlaybackStatisticsTagFormat('ID3v2 tags with extended flags are not supported for editing.');
+                if ($issue = $this->headerSupportIssue($majorVersion, $flags)) {
+                    throw new UnsupportedPlaybackStatisticsTagFormat($this->supportIssueMessage($issue));
                 }
 
                 $existingSize = $this->decodeSynchsafe(substr($firstBytes, 6, 4));
@@ -209,6 +245,18 @@ class Mp3Id3v2TagEditor
         }
 
         return $preserved.$this->newFrames($majorVersion, $textFrames, $userTextFrames, $commentFrames);
+    }
+
+    private function headerSupportIssue(int $majorVersion, int $flags): ?string
+    {
+        return match (true) {
+            ($flags & 0x80) !== 0 && $majorVersion !== 4 => self::ISSUE_UNSYNCHRONIZATION,
+            ($flags & 0x40) !== 0 => self::ISSUE_EXTENDED_HEADER,
+            ($flags & 0x20) !== 0 => self::ISSUE_EXPERIMENTAL,
+            $majorVersion === 4 && ($flags & 0x10) !== 0 => self::ISSUE_FOOTER,
+            ($flags & ~($majorVersion === 4 ? 0x80 : 0)) !== 0 => 'id3v2_unknown_flags',
+            default => null,
+        };
     }
 
     /**

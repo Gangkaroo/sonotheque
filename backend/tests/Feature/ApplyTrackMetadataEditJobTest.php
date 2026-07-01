@@ -6,6 +6,7 @@ use App\Jobs\ApplyTrackMetadataEdit;
 use App\Models\Album;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
+use App\Models\Genre;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\MetadataBackup;
@@ -46,6 +47,12 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $writer = new FakeTrackMetadataWriter;
         $this->app->instance(TrackMetadataWriter::class, $writer);
         $track = $this->createTrack();
+        $trackOnlyArtist = Artist::create([
+            'name' => 'Track-only artist',
+            'sort_name' => 'Track-only artist',
+            'browse_initial' => 'T',
+        ]);
+        $track->artists()->attach($trackOnlyArtist, ['role' => 'featured', 'position' => 1]);
         $path = $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'track.mp3';
         file_put_contents($path, 'audio');
         ApplicationSetting::current()->update([
@@ -59,6 +66,7 @@ class ApplyTrackMetadataEditJobTest extends TestCase
             'artistNames' => ['Changed artist'],
             'composers' => ['Composer'],
             'performers' => ['Performer'],
+            'genres' => ['Alternative', 'Rock'],
             'comment' => 'A comment',
             'trackNumber' => 2,
             'discNumber' => 1,
@@ -84,6 +92,9 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $this->assertSame(['Composer'], $track->fresh()->composers);
         $this->assertSame(['Performer'], $track->fresh()->performers);
         $this->assertSame(['Changed artist'], $track->fresh()->artists()->pluck('name')->all());
+        $this->assertDatabaseMissing(Artist::class, ['name' => 'Track-only artist']);
+        $this->assertEqualsCanonicalizing(['Alternative', 'Rock'], $track->fresh()->genres()->pluck('name')->all());
+        $this->assertDatabaseMissing('genres', ['name' => 'Old genre']);
         $this->assertSame(['verified' => true], $track->fresh()->metadata);
         $this->assertSame('written', file_get_contents($path));
         $this->assertSame(7, $track->fresh()->mediaFile->file_size);
@@ -133,6 +144,7 @@ class ApplyTrackMetadataEditJobTest extends TestCase
             'track_number' => 1,
         ]);
         $track->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
+        $track->genres()->attach(Genre::create(['name' => 'Old genre']));
 
         return $track;
     }
@@ -170,6 +182,7 @@ class FakeTrackMetadataWriter implements TrackMetadataWriter
             artists: $values['artistNames'],
             composers: $values['composers'],
             performers: $values['performers'],
+            genres: $values['genres'],
             comment: $values['comment'],
             year: $values['year'],
             trackNumber: $values['trackNumber'],

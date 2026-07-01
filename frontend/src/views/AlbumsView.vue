@@ -17,6 +17,8 @@ interface AlbumFilters {
   year: number | null
   genre: number | null
   genreName: string
+  artist: number | null
+  artistName: string
 }
 
 const { t } = useI18n()
@@ -31,6 +33,8 @@ const initial = ref<string | null>(restoredFilters.initial)
 const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
+const artist = ref(restoredFilters.artist)
+const artistName = ref(restoredFilters.artistName)
 const year = ref<number | null>(restoredFilters.year)
 const page = ref(1)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -42,7 +46,14 @@ const releaseYears = computed(() => {
 })
 
 function load() {
-  void catalog.loadAlbums({ page: page.value, search: querySearch(search.value), initial: initial.value, year: year.value, genre: genre.value })
+  void catalog.loadAlbums({
+    page: page.value,
+    search: querySearch(search.value),
+    initial: initial.value,
+    year: year.value,
+    genre: genre.value,
+    artist: artist.value,
+  })
 }
 
 function selectInitial(value: string | null) {
@@ -57,6 +68,8 @@ function currentFilters(): AlbumFilters {
     year: year.value,
     genre: genre.value,
     genreName: genreName.value,
+    artist: artist.value,
+    artistName: artistName.value,
   }
 }
 
@@ -67,6 +80,8 @@ function defaultFilters(): AlbumFilters {
     year: null,
     genre: null,
     genreName: '',
+    artist: null,
+    artistName: '',
   }
 }
 
@@ -87,11 +102,13 @@ function filtersFromQuery(): AlbumFilters | null {
     year: queryNumber(route.query.year),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    artist: queryNumber(route.query.artist),
+    artistName: querySearch(route.query.artistName),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'initial', 'year', 'genre', 'genreName'].some((key) => route.query[key] !== undefined)
+  return ['search', 'initial', 'year', 'genre', 'genreName', 'artist', 'artistName'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -107,6 +124,8 @@ function filtersFromStorage(): AlbumFilters | null {
       year: typeof parsed.year === 'number' ? parsed.year : null,
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      artist: typeof parsed.artist === 'number' ? parsed.artist : null,
+      artistName: typeof parsed.artistName === 'string' ? parsed.artistName : '',
     }
   } catch {
     return null
@@ -118,6 +137,8 @@ function saveFilters() {
 }
 
 function syncFiltersToRoute() {
+  if (route.name !== 'albums') return
+
   const query = filterQuery(currentFilters())
 
   if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
@@ -132,6 +153,8 @@ function applyFilters(filters: AlbumFilters) {
   year.value = filters.year
   genre.value = filters.genre
   genreName.value = filters.genreName
+  artist.value = filters.artist
+  artistName.value = filters.artistName
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -145,6 +168,8 @@ function filterQuery(filters: AlbumFilters) {
   if (filters.year) query.year = String(filters.year)
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.artist) query.artist = String(filters.artist)
+  if (filters.artistName.trim()) query.artistName = filters.artistName.trim()
 
   return query
 }
@@ -156,6 +181,8 @@ function normalizedFilterQuery(query: typeof route.query) {
     year: queryNumber(query.year),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    artist: queryNumber(query.artist),
+    artistName: querySearch(query.artistName),
   })
 }
 
@@ -184,6 +211,12 @@ function clearGenreFilter() {
   page.value = 1
 }
 
+function clearArtistFilter() {
+  artist.value = null
+  artistName.value = ''
+  page.value = 1
+}
+
 function albumDetails(album: Album) {
   if (album.originalReleaseYear === undefined || album.originalReleaseYear === null) {
     return t('albums.trackCount', { count: album.trackCount })
@@ -195,6 +228,8 @@ function albumDetails(album: Album) {
 saveFilters()
 
 watch(() => route.query, () => {
+  if (route.name !== 'albums') return
+
   const routeFilters = filtersFromQuery()
   if (routeFilters) {
     applyFilters(routeFilters)
@@ -203,14 +238,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([initial, year, genre, genreName], () => {
+watch([initial, year, genre, genreName, artist, artistName], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre], load, { immediate: true })
+watch([page, initial, year, genre, artist], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -233,7 +268,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <PageHeader :title="t('albums.title')" :description="t('albums.description')" icon="mdi-album" />
+  <PageHeader
+    :title="t('albums.title')"
+    :count="catalog.albumsLoading || catalog.albumsError ? undefined : catalog.albums.total"
+    :description="t('albums.description')"
+    icon="mdi-album"
+  />
   <div class="d-flex flex-wrap ga-3 mb-4">
     <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="void player.playRandomAlbum()">
       {{ t('player.playRandomAlbum') }}
@@ -274,9 +314,12 @@ onUnmounted(() => {
       {{ letter }}
     </v-btn>
   </div>
-  <div v-if="genre" class="mb-6">
-    <v-chip closable color="primary" variant="tonal" @click:close="clearGenreFilter">
+  <div v-if="genre || artist" class="d-flex flex-wrap ga-2 mb-6">
+    <v-chip v-if="genre" closable color="primary" variant="tonal" @click:close="clearGenreFilter">
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
+    </v-chip>
+    <v-chip v-if="artist" closable color="primary" variant="tonal" @click:close="clearArtistFilter">
+      {{ t('artists.filterLabel', { name: artistName || t('artists.filterFallback', { id: artist }) }) }}
     </v-chip>
   </div>
   <v-alert v-if="catalog.albumsError" type="error" variant="tonal">{{ catalog.albumsError }}</v-alert>

@@ -11,7 +11,6 @@ use Illuminate\Validation\ValidationException;
 class AlbumMetadataEditing
 {
     public function __construct(
-        private readonly TrackMetadataWriter $writer,
         private readonly TrackMetadataEditing $trackEditing,
     ) {}
 
@@ -49,13 +48,15 @@ class AlbumMetadataEditing
 
         $files = $album->tracks->map(function ($track) use ($writeValues): array {
             $file = $track->mediaFile?->relative_path;
+            $supportIssue = $this->trackEditing->supportIssue($track);
 
             return [
                 'trackId' => $track->id,
                 'trackTitle' => $track->title,
                 'file' => $file,
                 'format' => $file ? mb_strtolower(pathinfo($file, PATHINFO_EXTENSION)) : null,
-                'supported' => $file !== null && $this->writer->supports($file),
+                'supported' => $supportIssue === null,
+                'supportIssue' => $supportIssue,
                 'fingerprint' => $this->trackEditing->fingerprint($track),
                 'writeValues' => $writeValues,
             ];
@@ -90,8 +91,9 @@ class AlbumMetadataEditing
             throw ValidationException::withMessages(['album' => 'This album has no editable MP3 files.']);
         }
         if ($preview['unsupportedFiles'] > 0) {
+            $issue = $preview['files']->firstWhere('supported', false)['supportIssue'] ?? null;
             throw ValidationException::withMessages([
-                'album' => 'Every file in an album batch must be an editable MP3 file.',
+                'album' => $this->trackEditing->supportIssueMessage($issue),
             ]);
         }
 
@@ -114,7 +116,7 @@ class AlbumMetadataEditing
                     'fingerprint' => $file['fingerprint'],
                     'requested_changes' => $file['writeValues'],
                     'preview' => $file,
-                    'error' => $file['supported'] ? null : 'Metadata editing currently supports MP3 files only.',
+                    'error' => $file['supported'] ? null : $this->trackEditing->supportIssueMessage($file['supportIssue']),
                     'finished_at' => $file['supported'] ? null : now(),
                 ]);
             }

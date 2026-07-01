@@ -34,10 +34,18 @@ class MusicLibrarySchemaTest extends TestCase
         $this->assertFalse(Schema::hasTable('password_reset_tokens'));
         $this->assertTrue(Schema::hasTable('sessions'));
         $this->assertFalse(Schema::hasColumn('sessions', 'user_id'));
+        $this->assertFalse(Schema::hasColumn('library_roots', 'cover_image_path'));
+        $this->assertTrue(Schema::hasColumn('scan_runs', 'files_removed'));
+        $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_type'));
+        $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_relative_path'));
+        $this->assertFalse(Schema::hasColumn('artwork', 'cache_path'));
+        $this->assertFalse(Schema::hasColumn('scan_runs', 'files_missing'));
 
         foreach ([
             ['library_roots', 'include_patterns'],
             ['library_roots', 'exclude_patterns'],
+            ['library_roots', 'cover_image_paths'],
+            ['library_roots', 'excluded_directories'],
             ['scan_runs', 'summary'],
             ['albums', 'metadata'],
             ['media_files', 'raw_metadata'],
@@ -64,7 +72,8 @@ class MusicLibrarySchemaTest extends TestCase
             'name' => 'Primary HDD',
             'path' => 'D:\\Music',
             'path_hash' => hash('sha256', 'd:\\music'),
-            'cover_image_path' => 'artwork/front.jpg',
+            'cover_image_paths' => ['artwork/front.jpg', 'Disc 1/front.jpg'],
+            'excluded_directories' => ['Incoming'],
             'include_patterns' => ['*.flac', '*.mp3'],
         ]);
 
@@ -83,7 +92,6 @@ class MusicLibrarySchemaTest extends TestCase
         $artwork = Artwork::create([
             'source_type' => ArtworkSource::Folder,
             'source_relative_path' => 'artwork/front.jpg',
-            'cache_path' => 'artwork/full/example.webp',
             'thumbnail_path' => 'artwork/thumbnails/example.webp',
             'mime_type' => 'image/webp',
             'width' => 1000,
@@ -128,6 +136,8 @@ class MusicLibrarySchemaTest extends TestCase
         $this->assertTrue($library->scanRuns()->whereKey($scan->id)->exists());
         $this->assertTrue($root->fresh()->library->is($library));
         $this->assertSame(['*.flac', '*.mp3'], $root->fresh()->include_patterns);
+        $this->assertSame(['artwork/front.jpg', 'Disc 1/front.jpg'], $root->fresh()->cover_image_paths);
+        $this->assertSame(['Incoming'], $root->fresh()->excluded_directories);
         $this->assertSame(ArtworkSource::Folder, $album->fresh()->artwork->source_type);
         $this->assertSame(MediaFileStatus::Available, $mediaFile->fresh()->status);
         $this->assertTrue($artist->tracks()->whereKey($track->id)->exists());
@@ -144,6 +154,7 @@ class MusicLibrarySchemaTest extends TestCase
             'path' => 'D:\\Music',
             'path_hash' => hash('sha256', 'd:\\music'),
         ]);
+        $this->assertSame(['cover.jpg'], $root->fresh()->cover_image_paths);
         $album = Album::create([
             'library_root_id' => $root->id,
             'title' => 'Album',

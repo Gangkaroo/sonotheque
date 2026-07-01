@@ -6,10 +6,12 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
+import { useScanRunsStore } from '@/stores/scanRuns'
 
 const { t } = useI18n()
 const catalog = useCatalogStore()
 const player = usePlayerStore()
+const scanRuns = useScanRunsStore()
 const metrics = computed(() => [
   { key: 'artists', title: t('navigation.artists'), value: catalog.metrics.artists, icon: 'mdi-account-music-outline', to: '/artists' },
   { key: 'genres', title: t('navigation.genres'), value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
@@ -19,7 +21,7 @@ const metrics = computed(() => [
   { key: 'playedTracks', title: t('dashboard.playedTracks'), value: catalog.metrics.playedTracks, icon: 'mdi-headphones', to: '/history' },
 ])
 
-onMounted(() => catalog.loadMetrics(true))
+onMounted(() => void catalog.loadMetrics(scanRuns.hasActiveScans))
 </script>
 
 <template>

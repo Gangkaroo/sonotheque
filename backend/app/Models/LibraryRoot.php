@@ -20,7 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'name',
     'path',
     'path_hash',
-    'cover_image_path',
+    'cover_image_paths',
+    'excluded_directories',
     'enabled',
     'include_patterns',
     'exclude_patterns',
@@ -34,14 +35,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
             rules: [
                 'name' => ['required', 'string', 'max:255'],
                 'path' => ['required', 'string', 'max:4096'],
-                'cover_image_path' => ['nullable', 'string', 'max:1024'],
+                'cover_image_paths' => ['sometimes', 'array', 'min:1', 'max:20'],
+                'cover_image_paths.*' => ['string', 'max:1024'],
+                'excluded_directories' => ['sometimes', 'array', 'max:100'],
+                'excluded_directories.*' => ['string', 'max:4096'],
             ],
             processor: CreateLibraryRootProcessor::class,
         ),
         new Patch(
             rules: [
                 'name' => ['required', 'string', 'max:255'],
-                'cover_image_path' => ['nullable', 'string', 'max:1024'],
+                'cover_image_paths' => ['sometimes', 'array', 'min:1', 'max:20'],
+                'cover_image_paths.*' => ['string', 'max:1024'],
+                'excluded_directories' => ['sometimes', 'array', 'max:100'],
+                'excluded_directories.*' => ['string', 'max:4096'],
             ],
             processor: UpdateLibraryRootProcessor::class,
         ),
@@ -84,6 +91,8 @@ class LibraryRoot extends Model
             'enabled' => 'boolean',
             'include_patterns' => 'array',
             'exclude_patterns' => 'array',
+            'cover_image_paths' => 'array',
+            'excluded_directories' => 'array',
             'last_scanned_at' => 'immutable_datetime',
         ];
     }

@@ -35,14 +35,18 @@ class LibraryRootApiTest extends TestCase
         $response = $this->postJson('/api/library_roots', [
             'name' => 'Main collection',
             'path' => $this->musicPath,
-            'coverImagePath' => 'artwork\\front.jpg',
+            'coverImagePaths' => ['artwork\\front.jpg', '..\\Cover\\Front.jpg', 'Disc 1\\Front.jpg'],
+            'excludedDirectories' => ['Incoming', 'Downloads\\Incomplete'],
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $rootId = $response->json('id');
 
         $response
             ->assertJsonPath('name', 'Main collection')
-            ->assertJsonPath('coverImagePath', 'artwork/front.jpg')
+            ->assertJsonPath('coverImagePaths.0', 'artwork/front.jpg')
+            ->assertJsonPath('coverImagePaths.1', '../Cover/Front.jpg')
+            ->assertJsonPath('coverImagePaths.2', 'Disc 1/Front.jpg')
+            ->assertJsonPath('excludedDirectories.1', 'Downloads/Incomplete')
             ->assertJsonMissingPath('pathHash');
 
         $this->get('/api/library_roots', ['Accept' => 'application/ld+json'])
@@ -61,19 +65,19 @@ class LibraryRootApiTest extends TestCase
         $this->postJson('/api/library_roots', [
             'name' => 'Missing',
             'path' => $this->musicPath.'-missing',
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertUnprocessable();
 
         $this->postJson('/api/library_roots', [
             'name' => 'Main collection',
             'path' => $this->musicPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $this->postJson('/api/library_roots', [
             'name' => 'Duplicate',
             'path' => $this->musicPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertUnprocessable();
 
         $unsafePath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'unsafe-root-'.Str::uuid();
@@ -83,7 +87,7 @@ class LibraryRootApiTest extends TestCase
             $this->postJson('/api/library_roots', [
                 'name' => 'Unsafe cover',
                 'path' => $unsafePath,
-                'coverImagePath' => '../cover.jpg',
+                'coverImagePaths' => ['/outside/cover.jpg'],
             ], ['Accept' => 'application/ld+json'])->assertUnprocessable();
         } finally {
             rmdir($unsafePath);
@@ -100,13 +104,13 @@ class LibraryRootApiTest extends TestCase
         $this->postJson('/api/library_roots', [
             'name' => 'Main collection',
             'path' => $this->musicPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $this->postJson('/api/library_roots', [
             'name' => 'Nested collection',
             'path' => $artistPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])
             ->assertUnprocessable()
             ->assertJsonPath('violations.0.propertyPath', 'path');
@@ -117,13 +121,13 @@ class LibraryRootApiTest extends TestCase
         $this->postJson('/api/library_roots', [
             'name' => 'Nested collection',
             'path' => $artistPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $this->postJson('/api/library_roots', [
             'name' => 'Parent collection',
             'path' => $this->musicPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])
             ->assertUnprocessable()
             ->assertJsonPath('violations.0.propertyPath', 'path');
@@ -137,7 +141,7 @@ class LibraryRootApiTest extends TestCase
         $root = $this->postJson('/api/library_roots', [
             'name' => 'Main collection',
             'path' => $this->musicPath,
-            'coverImagePath' => 'cover.jpg',
+            'coverImagePaths' => ['cover.jpg'],
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $this->call(
@@ -149,12 +153,35 @@ class LibraryRootApiTest extends TestCase
             ],
             content: json_encode([
                 'name' => 'Archive',
-                'coverImagePath' => 'artwork\\front.jpg',
+                'coverImagePaths' => ['artwork\\front.jpg', 'Disc 1\\Front.jpg'],
+                'excludedDirectories' => ['Incoming'],
             ], JSON_THROW_ON_ERROR),
         )
             ->assertOk()
             ->assertJsonPath('name', 'Archive')
-            ->assertJsonPath('coverImagePath', 'artwork/front.jpg')
+            ->assertJsonPath('coverImagePaths.1', 'Disc 1/Front.jpg')
+            ->assertJsonPath('excludedDirectories.0', 'Incoming')
             ->assertJsonPath('path', str_replace('\\', '/', realpath($this->musicPath)));
+    }
+
+    public function test_root_configuration_rejects_unsafe_cover_and_excluded_folder_paths(): void
+    {
+        $this->postJson('/api/library_roots', [
+            'name' => 'Unsafe cover',
+            'path' => $this->musicPath,
+            'coverImagePaths' => ['cover.jpg', '/outside/front.jpg'],
+            'excludedDirectories' => [],
+        ], ['Accept' => 'application/ld+json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('violations.0.propertyPath', 'coverImagePaths');
+
+        $this->postJson('/api/library_roots', [
+            'name' => 'Unsafe exclusion',
+            'path' => $this->musicPath,
+            'coverImagePaths' => ['cover.jpg'],
+            'excludedDirectories' => ['../Other'],
+        ], ['Accept' => 'application/ld+json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('violations.0.propertyPath', 'excludedDirectories');
     }
 }

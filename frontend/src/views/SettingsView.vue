@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '@/api/client'
 import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
+import LanAccessSettings from '@/components/LanAccessSettings.vue'
+import MetadataSettings from '@/components/MetadataSettings.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { useAdminAccessStore } from '@/stores/adminAccess'
+import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
-import { useMetadataBackupSettingsStore } from '@/stores/metadataBackupSettings'
-import { usePlaybackStatisticsSettingsStore } from '@/stores/playbackStatisticsSettings'
 import { useScanRunsStore } from '@/stores/scanRuns'
 
 /** @typedef {import('@/stores/libraryRoots').LibraryRoot} LibraryRoot */
@@ -15,37 +17,37 @@ import { useScanRunsStore } from '@/stores/scanRuns'
 /** @typedef {import('@/stores/scanRuns').ScanIssue} ScanIssue */
 
 const { t, locale } = useI18n()
+const adminAccess = useAdminAccessStore()
+const catalog = useCatalogStore()
 const libraryRoots = useLibraryRootsStore()
-const metadataBackupSettings = useMetadataBackupSettingsStore()
-const playbackStatisticsSettings = usePlaybackStatisticsSettingsStore()
 const scanRuns = useScanRunsStore()
+const localBrowser = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname)
+const canAccessProtectedSettings = computed(() => localBrowser || adminAccess.hasToken)
+const activeSettingsTab = ref(canAccessProtectedSettings.value ? 'media-library' : 'security')
 const rootRows = computed(() => libraryRoots.roots.map((root) => ({
   root,
   scan: scanRuns.latestForRoot(root.id),
 })))
 const rootDialog = ref(false)
 const folderBrowserDialog = ref(false)
-const backupFolderBrowserDialog = ref(false)
+const excludeFolderBrowserDialog = ref(false)
 const deleteDialog = ref(false)
 const scanDetailsDialog = ref(false)
 const rootToDelete = ref(/** @type {LibraryRoot | null} */ (null))
 const rootToEdit = ref(/** @type {LibraryRoot | null} */ (null))
 const selectedScan = ref(/** @type {ScanRun | null} */ (null))
-const form = reactive({ name: '', path: '', coverImagePath: 'cover.jpg' })
-const backupForm = reactive({ enabled: false, path: '', retentionDays: 30 })
-const backupSaved = ref(false)
+const form = reactive({
+  name: '',
+  path: '',
+  coverImagePaths: /** @type {string[]} */ (['cover.jpg']),
+  excludedDirectories: /** @type {string[]} */ ([]),
+})
 const fieldErrors = reactive(/** @type {Record<string, string[]>} */ ({}))
 const submitError = ref(/** @type {string | null} */ (null))
 let pollTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null)
 
 onMounted(async () => {
-  await Promise.all([
-    libraryRoots.load(),
-    playbackStatisticsSettings.load(),
-    metadataBackupSettings.load(),
-    scanRuns.load(),
-  ])
-  Object.assign(backupForm, metadataBackupSettings.settings)
+  if (canAccessProtectedSettings.value) await loadProtectedSettings()
   schedulePolling()
 })
 
@@ -56,6 +58,24 @@ onUnmounted(() => {
 function schedulePolling() {
   if (pollTimer) clearTimeout(pollTimer)
   pollTimer = scanRuns.hasActiveScans ? setTimeout(pollScans, 2000) : null
+}
+
+async function loadProtectedSettings() {
+  await Promise.all([libraryRoots.load(), scanRuns.load()])
+  if (scanRuns.hasActiveScans) catalog.invalidateMetrics()
+}
+
+async function handleAdminAccessChanged() {
+  if (!canAccessProtectedSettings.value) {
+    libraryRoots.clear()
+    scanRuns.clear()
+    activeSettingsTab.value = 'security'
+    schedulePolling()
+    return
+  }
+
+  await loadProtectedSettings()
+  schedulePolling()
 }
 
 async function refreshScans() {
@@ -82,6 +102,7 @@ async function pollScans() {
 async function startScan(rootId) {
   try {
     await scanRuns.start(rootId)
+    catalog.invalidateMetrics()
   } finally {
     schedulePolling()
   }
@@ -149,7 +170,7 @@ function issueText(issue) {
 
 function openAddDialog() {
   rootToEdit.value = null
-  Object.assign(form, { name: '', path: '', coverImagePath: 'cover.jpg' })
+  Object.assign(form, { name: '', path: '', coverImagePaths: ['cover.jpg'], excludedDirectories: [] })
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
   submitError.value = null
   rootDialog.value = true
@@ -161,7 +182,8 @@ function openEditDialog(root) {
   Object.assign(form, {
     name: root.name,
     path: root.path,
-    coverImagePath: root.coverImagePath,
+    coverImagePaths: root.coverImagePaths?.length ? [...root.coverImagePaths] : ['cover.jpg'],
+    excludedDirectories: [...(root.excludedDirectories ?? [])],
   })
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
   submitError.value = null
@@ -170,6 +192,7 @@ function openEditDialog(root) {
 
 /** @param {string} path */
 function selectFolder(path) {
+  if (form.path !== path) form.excludedDirectories = []
   form.path = path
   fieldErrors.path = []
 }
@@ -177,15 +200,20 @@ function selectFolder(path) {
 async function saveRoot() {
   Object.keys(fieldErrors).forEach((key) => delete fieldErrors[key])
   submitError.value = null
+  const input = {
+    name: form.name,
+    coverImagePaths: form.coverImagePaths.map((path) => path.trim()).filter(Boolean),
+    excludedDirectories: [...form.excludedDirectories],
+  }
 
   try {
     if (rootToEdit.value) {
-      await libraryRoots.update(rootToEdit.value.id, {
-        name: form.name,
-        coverImagePath: form.coverImagePath,
-      })
+      await libraryRoots.update(rootToEdit.value.id, input)
     } else {
-      await libraryRoots.create({ ...form })
+      await libraryRoots.create({
+        ...input,
+        path: form.path,
+      })
     }
     rootDialog.value = false
   } catch (cause) {
@@ -196,6 +224,37 @@ async function saveRoot() {
     }
     submitError.value = cause instanceof Error ? cause.message : t('settings.saveError')
   }
+}
+
+function addCoverPath() {
+  form.coverImagePaths.push('')
+}
+
+/** @param {number} index */
+function removeCoverPath(index) {
+  if (form.coverImagePaths.length > 1) form.coverImagePaths.splice(index, 1)
+}
+
+/** @param {string} selectedPath */
+function selectExcludedFolder(selectedPath) {
+  const root = form.path.replace(/\\/g, '/').replace(/\/$/, '')
+  const selected = selectedPath.replace(/\\/g, '/').replace(/\/$/, '')
+  const prefix = `${root}/`
+  if (!root || selected.toLocaleLowerCase() === root.toLocaleLowerCase() || !selected.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase())) {
+    submitError.value = t('settings.excludedFolderOutsideRoot')
+    return
+  }
+
+  const relative = selected.slice(prefix.length)
+  if (!form.excludedDirectories.some((path) => path.toLocaleLowerCase() === relative.toLocaleLowerCase())) {
+    form.excludedDirectories.push(relative)
+  }
+  submitError.value = null
+}
+
+/** @param {string} path */
+function removeExcludedFolder(path) {
+  form.excludedDirectories = form.excludedDirectories.filter((candidate) => candidate !== path)
 }
 
 /** @param {LibraryRoot} root */
@@ -211,32 +270,33 @@ async function removeRoot() {
   rootToDelete.value = null
 }
 
-/** @param {boolean | null} enabled */
-async function setSynchronizePlayStatistics(enabled) {
-  if (enabled === null) return
-
-  await playbackStatisticsSettings.setSynchronizeWithFileTags(enabled)
-}
-
-/** @param {string} path */
-function selectBackupFolder(path) {
-  backupForm.path = path
-}
-
-async function saveBackupSettings() {
-  try {
-    await metadataBackupSettings.save({ ...backupForm })
-    Object.assign(backupForm, metadataBackupSettings.settings)
-    backupSaved.value = true
-  } catch {
-    // The store exposes the API error in the settings card.
-  }
-}
 </script>
 
 <template>
   <PageHeader :title="t('settings.title')" :description="t('settings.description')" icon="mdi-cog-outline" />
-  <v-card border rounded="xl">
+  <v-tabs
+    v-model="activeSettingsTab"
+    :aria-label="t('settings.title')"
+    color="primary"
+    show-arrows
+  >
+    <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-folder-music-outline" value="media-library">
+      {{ t('settings.mediaLibraryTab') }}
+    </v-tab>
+    <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-tag-multiple-outline" value="metadata">
+      {{ t('settings.metadataTab') }}
+    </v-tab>
+    <v-tab prepend-icon="mdi-shield-lock-outline" value="security">
+      {{ t('settings.securityTab') }}
+    </v-tab>
+  </v-tabs>
+
+  <LanAccessSettings
+    v-if="activeSettingsTab === 'security'"
+    @changed="handleAdminAccessChanged"
+  />
+
+  <v-card v-show="activeSettingsTab === 'media-library'" border rounded="xl" class="mt-6">
     <v-card-item class="library-roots-header pa-6 pb-2">
       <v-card-title>{{ t('settings.libraryRoots') }}</v-card-title>
       <v-card-subtitle>{{ t('settings.libraryRootsDescription') }}</v-card-subtitle>
@@ -259,7 +319,13 @@ async function saveBackupSettings() {
         <v-list-item v-for="row in rootRows" :key="row.root.id" prepend-icon="mdi-harddisk">
           <v-list-item-title class="font-weight-bold">{{ row.root.name }}</v-list-item-title>
           <v-list-item-subtitle>{{ row.root.path }}</v-list-item-subtitle>
-          <v-list-item-subtitle>{{ t('settings.coverPath') }}: {{ row.root.coverImagePath }}</v-list-item-subtitle>
+          <v-list-item-subtitle>
+            {{ t('settings.coverPaths') }}:
+            {{ row.root.coverImagePaths.join(', ') }}
+          </v-list-item-subtitle>
+          <v-list-item-subtitle v-if="row.root.excludedDirectories?.length">
+            {{ t('settings.excludedFolders') }}: {{ row.root.excludedDirectories.join(', ') }}
+          </v-list-item-subtitle>
           <div v-if="row.scan" class="mt-2">
             <div class="d-flex flex-wrap align-center ga-2">
               <v-chip :color="statusColor(row.scan.status)" size="small" variant="tonal">
@@ -272,7 +338,8 @@ async function saveBackupSettings() {
                 <span v-else class="scan-counts">
                   <span>{{ t('settings.scanFiles', { processed: row.scan.filesProcessed, discovered: row.scan.filesDiscovered }) }} ·</span>
                   <span>{{ t('settings.scanAdded', { count: row.scan.filesAdded }) }} ·</span>
-                  <span>{{ t('settings.scanUpdated', { count: row.scan.filesUpdated }) }}</span>
+                  <span>{{ t('settings.scanUpdated', { count: row.scan.filesUpdated }) }} ·</span>
+                  <span>{{ t('settings.scanRemoved', { count: row.scan.filesRemoved }) }}</span>
                 </span>
               </span>
             </div>
@@ -337,92 +404,12 @@ async function saveBackupSettings() {
     </v-card-text>
   </v-card>
 
-  <v-card border rounded="xl" class="mt-6">
-    <v-card-item class="pa-6 pb-2" prepend-icon="mdi-headphones">
-      <v-card-title>{{ t('settings.listeningStatistics') }}</v-card-title>
-      <v-card-subtitle>{{ t('settings.listeningStatisticsDescription') }}</v-card-subtitle>
-    </v-card-item>
-    <v-card-text class="pa-6 pt-4">
-      <v-alert v-if="playbackStatisticsSettings.error" class="mb-4" type="error" variant="tonal">
-        {{ playbackStatisticsSettings.error }}
-      </v-alert>
-      <v-skeleton-loader v-if="playbackStatisticsSettings.loading" type="list-item-two-line" />
-      <v-switch
-        v-else
-        color="primary"
-        :disabled="playbackStatisticsSettings.saving"
-        :hint="t('settings.synchronizePlayStatisticsHint')"
-        :label="t('settings.synchronizePlayStatistics')"
-        :loading="playbackStatisticsSettings.saving"
-        :model-value="playbackStatisticsSettings.settings.synchronizeWithFileTags"
-        persistent-hint
-        @update:model-value="setSynchronizePlayStatistics"
-      />
-    </v-card-text>
-  </v-card>
+  <MetadataSettings
+    v-if="activeSettingsTab === 'metadata' && canAccessProtectedSettings"
+    :key="adminAccess.revision"
+  />
 
-  <v-card border rounded="xl" class="mt-6">
-    <v-card-item class="pa-6 pb-2" prepend-icon="mdi-backup-restore">
-      <v-card-title>{{ t('settings.metadataBackups') }}</v-card-title>
-      <v-card-subtitle>{{ t('settings.metadataBackupsDescription') }}</v-card-subtitle>
-    </v-card-item>
-    <v-card-text class="pa-6 pt-4">
-      <v-alert v-if="metadataBackupSettings.error" class="mb-4" type="error" variant="tonal">
-        {{ metadataBackupSettings.error }}
-      </v-alert>
-      <v-skeleton-loader v-if="metadataBackupSettings.loading" type="list-item-two-line" />
-      <template v-else>
-        <v-switch
-          v-model="backupForm.enabled"
-          color="primary"
-          :label="t('settings.enableMetadataBackups')"
-          :hint="t('settings.enableMetadataBackupsHint')"
-          persistent-hint
-        />
-        <div class="d-flex align-start ga-2 mt-3 backup-path-row">
-          <v-text-field
-            v-model="backupForm.path"
-            :label="t('settings.metadataBackupPath')"
-            :hint="t('settings.metadataBackupPathHint')"
-            persistent-hint
-          />
-          <v-btn
-            class="mt-1"
-            prepend-icon="mdi-folder-open-outline"
-            variant="tonal"
-            @click="backupFolderBrowserDialog = true"
-          >
-            {{ t('settings.browseFolders') }}
-          </v-btn>
-        </div>
-        <v-text-field
-          v-model.number="backupForm.retentionDays"
-          class="backup-retention-field mt-3"
-          inputmode="numeric"
-          :label="t('settings.metadataBackupRetention')"
-          :hint="t('settings.metadataBackupRetentionHint')"
-          min="1"
-          max="3650"
-          persistent-hint
-          type="number"
-        />
-        <div class="d-flex justify-end mt-4">
-          <v-btn
-            color="primary"
-            :disabled="!backupForm.path.trim()"
-            :loading="metadataBackupSettings.saving"
-            prepend-icon="mdi-content-save-outline"
-            variant="flat"
-            @click="saveBackupSettings"
-          >
-            {{ t('settings.saveBackupSettings') }}
-          </v-btn>
-        </div>
-      </template>
-    </v-card-text>
-  </v-card>
-
-  <v-card border rounded="xl" class="mt-6">
+  <v-card v-show="activeSettingsTab === 'media-library'" border rounded="xl" class="mt-6">
     <v-card-item class="pa-6 pb-2">
       <v-card-title>{{ t('settings.recentScans') }}</v-card-title>
       <v-card-subtitle>{{ t('settings.recentScansDescription') }}</v-card-subtitle>
@@ -453,6 +440,7 @@ async function saveBackupSettings() {
               discovered: scan.filesDiscovered,
               added: scan.filesAdded,
               updated: scan.filesUpdated,
+              removed: scan.filesRemoved,
             }) }}
           </v-list-item-subtitle>
           <v-list-item-subtitle v-if="scan.warningCount || scan.errorCount">
@@ -519,14 +507,60 @@ async function saveBackupSettings() {
             {{ t('settings.browseFolders') }}
           </v-btn>
         </div>
-        <v-text-field
-          v-model="form.coverImagePath"
-          :error-messages="fieldErrors.coverImagePath"
-          :hint="t('settings.coverPathHint')"
-          :label="t('settings.coverPath')"
-          persistent-hint
-          placeholder="cover.jpg"
-        />
+        <div class="text-subtitle-2 mb-2">{{ t('settings.coverPaths') }}</div>
+        <div
+          v-for="(_coverPath, index) in form.coverImagePaths"
+          :key="index"
+          class="d-flex align-start ga-2"
+        >
+          <v-text-field
+            v-model="form.coverImagePaths[index]"
+            :error-messages="index === 0 ? fieldErrors.coverImagePaths : []"
+            :hint="index === 0 ? t('settings.coverPathsHint') : undefined"
+            :label="t('settings.coverPathNumber', { number: index + 1 })"
+            persistent-hint
+            placeholder="cover.jpg"
+          />
+          <v-btn
+            class="mt-1"
+            :disabled="form.coverImagePaths.length === 1"
+            :aria-label="t('settings.removeCoverPath', { number: index + 1 })"
+            icon="mdi-delete-outline"
+            variant="text"
+            @click="removeCoverPath(index)"
+          />
+        </div>
+        <v-btn class="mb-5" prepend-icon="mdi-plus" size="small" variant="tonal" @click="addCoverPath">
+          {{ t('settings.addCoverPath') }}
+        </v-btn>
+
+        <div class="text-subtitle-2 mb-2">{{ t('settings.excludedFolders') }}</div>
+        <div class="d-flex flex-wrap ga-2 mb-3">
+          <v-chip
+            v-for="directory in form.excludedDirectories"
+            :key="directory"
+            closable
+            @click:close="removeExcludedFolder(directory)"
+          >
+            {{ directory }}
+          </v-chip>
+          <span v-if="!form.excludedDirectories.length" class="text-body-2 text-medium-emphasis">
+            {{ t('settings.noExcludedFolders') }}
+          </span>
+        </div>
+        <v-btn
+          prepend-icon="mdi-folder-remove-outline"
+          size="small"
+          variant="tonal"
+          :disabled="!form.path"
+          @click="excludeFolderBrowserDialog = true"
+        >
+          {{ t('settings.addExcludedFolder') }}
+        </v-btn>
+        <div class="text-caption text-medium-emphasis mt-2">{{ t('settings.excludedFoldersHint') }}</div>
+        <div v-if="fieldErrors.excludedDirectories?.length" class="text-caption text-error mt-1">
+          {{ fieldErrors.excludedDirectories.join(' ') }}
+        </div>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
@@ -545,10 +579,10 @@ async function saveBackupSettings() {
   />
 
   <FolderBrowserDialog
-    v-model="backupFolderBrowserDialog"
-    :initial-path="backupForm.path"
-    :title="t('settings.metadataBackupFolderBrowserTitle')"
-    @select="selectBackupFolder"
+    v-model="excludeFolderBrowserDialog"
+    :initial-path="form.path"
+    :title="t('settings.excludedFolderBrowserTitle')"
+    @select="selectExcludedFolder"
   />
 
   <v-dialog v-model="scanDetailsDialog" max-width="760" scrollable>
@@ -602,9 +636,6 @@ async function saveBackupSettings() {
     </v-card>
   </v-dialog>
 
-  <v-snackbar v-model="backupSaved" color="success" timeout="3000">
-    {{ t('settings.metadataBackupSettingsSaved') }}
-  </v-snackbar>
 </template>
 
 <style scoped>
@@ -627,19 +658,4 @@ async function saveBackupSettings() {
   margin-inline-end: 0.35rem;
 }
 
-.backup-retention-field {
-  max-width: 18rem;
-}
-
-@media (max-width: 600px) {
-  .backup-path-row {
-    align-items: stretch !important;
-    flex-direction: column;
-  }
-
-  .backup-path-row .v-btn {
-    align-self: flex-start;
-    margin-top: 0 !important;
-  }
-}
 </style>

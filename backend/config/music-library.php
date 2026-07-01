@@ -1,7 +1,12 @@
 <?php
 
+$trustedHosts = array_values(array_filter(array_map(
+    static fn (string $host): string => trim($host),
+    explode(',', (string) env('MUSIC_LIBRARY_TRUSTED_HOSTS', 'localhost,127.0.0.1,::1')),
+)));
+
 return [
-    'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '256M'),
+    'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '1024M'),
     'scan_stale_after_minutes' => (int) env('SCAN_STALE_AFTER_MINUTES', 15),
     'counted_play_threshold_seconds' => (int) env('PLAY_STATISTICS_COUNTED_PLAY_THRESHOLD_SECONDS', 15),
     'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
@@ -14,6 +19,10 @@ return [
     'lan' => [
         'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),
         'admin_token' => env('MUSIC_LIBRARY_ADMIN_TOKEN'),
+        'trusted_hosts' => array_map(
+            static fn (string $host): string => '^'.preg_quote($host, '/').'$',
+            $trustedHosts,
+        ),
         'protected_paths' => [
             'api/folders*',
             'api/library_roots*',

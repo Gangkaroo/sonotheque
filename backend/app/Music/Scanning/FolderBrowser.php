@@ -36,19 +36,13 @@ class FolderBrowser
 
             foreach ($iterator as $entry) {
                 try {
-                    if (! $entry->isDir() || $entry->isLink() || ! $entry->isReadable()) {
-                        continue;
-                    }
-
-                    $resolved = realpath($entry->getPathname());
-
-                    if ($resolved === false) {
+                    if (! $entry->isDir() || $entry->isLink()) {
                         continue;
                     }
 
                     $directories[] = [
                         'name' => $entry->getFilename(),
-                        'path' => $this->normalize($resolved),
+                        'path' => $this->normalize($entry->getPathname()),
                     ];
                 } catch (Throwable) {
                     continue;

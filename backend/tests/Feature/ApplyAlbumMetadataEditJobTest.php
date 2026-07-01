@@ -47,6 +47,12 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         Queue::fake();
         $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter);
         $album = $this->createAlbum();
+        $albumOnlyArtist = Artist::create([
+            'name' => 'Album-only artist',
+            'sort_name' => 'Album-only artist',
+            'browse_initial' => 'A',
+        ]);
+        $album->update(['primary_artist_id' => $albumOnlyArtist->id]);
         ApplicationSetting::current()->update([
             'metadata_backups_enabled' => true,
             'metadata_backup_path' => $this->backupPath,
@@ -73,9 +79,11 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertSame(0, $edit->failed_items);
         $this->assertSame('Changed album', $album->title);
         $this->assertSame('Changed artist', $album->primaryArtist->name);
+        $this->assertDatabaseMissing(Artist::class, ['name' => 'Album-only artist']);
         $this->assertSame(2025, $album->original_release_year);
         $this->assertSame(2, $album->disc_total);
         $this->assertEqualsCanonicalizing(['Doom', 'Metal'], $album->tracks->first()->genres()->pluck('name')->all());
+        $this->assertDatabaseMissing(Genre::class, ['name' => 'Old genre']);
         $this->assertSame(['Track 1', 'Track 2'], $album->tracks()->orderBy('track_number')->pluck('title')->all());
         $this->assertSame([1, 2], $album->tracks()->orderBy('track_number')->pluck('track_number')->all());
         $this->assertSame(2, MetadataBackup::count());

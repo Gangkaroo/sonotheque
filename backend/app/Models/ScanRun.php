@@ -25,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'files_processed',
     'files_added',
     'files_updated',
-    'files_missing',
+    'files_removed',
     'warning_count',
     'error_count',
     'started_at',

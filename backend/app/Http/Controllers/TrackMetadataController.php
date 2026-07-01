@@ -31,7 +31,7 @@ class TrackMetadataController extends Controller
         return response()->json($this->payloads->job($metadataEditJob));
     }
 
-    /** @return array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int} */
+    /** @return array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int} */
     private function values(Request $request): array
     {
         $validated = $request->validate([
@@ -42,6 +42,8 @@ class TrackMetadataController extends Controller
             'composers.*' => ['string', 'max:512', 'not_regex:/^\s*$/'],
             'performers' => ['present', 'array', 'max:64'],
             'performers.*' => ['string', 'max:512', 'not_regex:/^\s*$/'],
+            'genres' => ['present', 'array', 'max:64'],
+            'genres.*' => ['string', 'max:512', 'not_regex:/^\s*$/'],
             'comment' => ['present', 'nullable', 'string', 'max:10000'],
             'trackNumber' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
             'discNumber' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
@@ -53,6 +55,7 @@ class TrackMetadataController extends Controller
             'artistNames' => $this->names($validated['artistNames']),
             'composers' => $this->names($validated['composers']),
             'performers' => $this->names($validated['performers']),
+            'genres' => $this->names($validated['genres']),
             'comment' => filled($validated['comment']) ? trim($validated['comment']) : null,
             'trackNumber' => $validated['trackNumber'],
             'discNumber' => $validated['discNumber'],

@@ -22,7 +22,7 @@ export interface ScanRun {
   filesProcessed: number
   filesAdded: number
   filesUpdated: number
-  filesMissing: number
+  filesRemoved: number
   warningCount: number
   errorCount: number
   startedAt: string | null
@@ -43,7 +43,7 @@ function normalize(scan: ScanRun): ScanRun {
     filesProcessed: Number(scan.filesProcessed),
     filesAdded: Number(scan.filesAdded),
     filesUpdated: Number(scan.filesUpdated),
-    filesMissing: Number(scan.filesMissing),
+    filesRemoved: Number(scan.filesRemoved),
     warningCount: Number(scan.warningCount),
     errorCount: Number(scan.errorCount),
   }
@@ -111,6 +111,11 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     return scans.value.find((scan) => scan.libraryRootId === rootId) ?? null
   }
 
+  function clear() {
+    scans.value = []
+    error.value = null
+  }
+
   return {
     scans,
     loading,
@@ -123,5 +128,6 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     start,
     cancel,
     latestForRoot,
+    clear,
   }
 })

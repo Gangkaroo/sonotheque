@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'source_type',
     'source_relative_path',
-    'cache_path',
     'thumbnail_path',
     'mime_type',
     'width',

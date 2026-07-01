@@ -19,7 +19,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             throw new RuntimeException(implode(' ', (array) $information['error']));
         }
 
-        $comments = $information['comments'] ?? [];
+        $comments = $this->preferredComments($information);
         [$trackNumber] = $this->fraction($this->first($comments, ['track_number', 'tracknumber']));
         [$discNumber, $discTotal] = $this->fraction($this->first($comments, ['part_of_a_set', 'discnumber', 'disc_number']));
         $year = $this->year($this->first($comments, ['year', 'date']));
@@ -33,7 +33,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             composers: $this->values($comments, ['composer']),
             performers: $this->values($comments, ['performer', 'conductor']),
             comment: $this->first($comments, ['comment']),
-            genres: $this->values($comments, ['genre']),
+            genres: $this->id3v2TextValues($information, 'TCON') ?: $this->values($comments, ['genre']),
             year: $year,
             originalReleaseYear: $originalReleaseYear,
             trackNumber: $trackNumber,
@@ -81,6 +81,34 @@ class GetId3MetadataReader implements AudioMetadataReader
         return [];
     }
 
+    /** @param array<string, mixed> $information
+     * @return list<string>
+     */
+    private function id3v2TextValues(array $information, string $frameId): array
+    {
+        $frames = $information['id3v2'][$frameId] ?? null;
+        if (! is_array($frames)) {
+            return [];
+        }
+
+        $values = [];
+        foreach ($frames as $frame) {
+            if (! is_array($frame) || ! is_string($frame['data'] ?? null) || ! is_string($frame['encoding'] ?? null)) {
+                continue;
+            }
+
+            $decoded = mb_convert_encoding($frame['data'], 'UTF-8', $frame['encoding']);
+            foreach (preg_split('/\x00+/', $decoded) ?: [] as $value) {
+                $value = trim($value);
+                if ($value !== '') {
+                    $values[] = $value;
+                }
+            }
+        }
+
+        return array_values(array_unique($values));
+    }
+
     /** @return array{0: ?int, 1: ?int} */
     private function fraction(?string $value): array
     {
@@ -96,6 +124,19 @@ class GetId3MetadataReader implements AudioMetadataReader
         return $value !== null && preg_match('/\b(\d{4})\b/', $value, $matches) === 1
             ? (int) $matches[1]
             : null;
+    }
+
+    /** @param array<string, mixed> $information
+     * @return array<string, mixed>
+     */
+    private function preferredComments(array $information): array
+    {
+        $comments = is_array($information['comments'] ?? null) ? $information['comments'] : [];
+        $id3v2Comments = is_array($information['id3v2']['comments'] ?? null)
+            ? $information['id3v2']['comments']
+            : [];
+
+        return array_replace($comments, $id3v2Comments);
     }
 
     /** @param array<string, mixed> $information

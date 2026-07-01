@@ -21,6 +21,16 @@ class LibraryPathGuard
 
     public function normalizeRelativePath(string $path): string
     {
+        return $this->normalizeRelativePathSegments($path, allowParentSegments: false);
+    }
+
+    public function normalizeNavigableRelativePath(string $path): string
+    {
+        return $this->normalizeRelativePathSegments($path, allowParentSegments: true);
+    }
+
+    private function normalizeRelativePathSegments(string $path, bool $allowParentSegments): string
+    {
         $normalized = str_replace('\\', '/', trim($path));
 
         if ($normalized === '' || str_contains($normalized, "\0")) {
@@ -33,7 +43,9 @@ class LibraryPathGuard
 
         $segments = explode('/', $normalized);
 
-        if (in_array('', $segments, true) || in_array('.', $segments, true) || in_array('..', $segments, true)) {
+        if (in_array('', $segments, true)
+            || in_array('.', $segments, true)
+            || (! $allowParentSegments && in_array('..', $segments, true))) {
             throw new InvalidLibraryPath("Path [{$path}] contains an unsafe segment.");
         }
 
@@ -62,10 +74,35 @@ class LibraryPathGuard
 
         $resolved = str_replace('\\', '/', $resolved);
         if (! $this->containsDirectory($base, $resolved)) {
-            throw new InvalidLibraryPath("File [{$relativePath}] escapes its album directory.");
+            throw new InvalidLibraryPath("File [{$relativePath}] escapes the library root.");
         }
 
         return $resolved;
+    }
+
+    public function resolveExistingFileWithinFrom(
+        string $rootDirectory,
+        string $baseRelativeDirectory,
+        string $relativePath,
+    ): ?string {
+        $baseSegments = explode('/', $this->normalizeRelativePath($baseRelativeDirectory));
+        $relative = $this->normalizeNavigableRelativePath($relativePath);
+
+        foreach (explode('/', $relative) as $segment) {
+            if ($segment === '..') {
+                if ($baseSegments === []) {
+                    throw new InvalidLibraryPath("Path [{$relativePath}] escapes the library root.");
+                }
+
+                array_pop($baseSegments);
+
+                continue;
+            }
+
+            $baseSegments[] = $segment;
+        }
+
+        return $this->resolveExistingFileWithin($rootDirectory, implode('/', $baseSegments));
     }
 
     public function containsDirectory(string $parent, string $candidate): bool

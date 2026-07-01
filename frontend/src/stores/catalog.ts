@@ -65,6 +65,8 @@ export interface TrackDetail extends Track {
     mimeType?: string | null
     container?: string | null
     codec?: string | null
+    encoder?: string | null
+    encoderSettings?: string | null
     bitrate?: number | null
     sampleRate?: number | null
     channels?: number | null
@@ -108,6 +110,7 @@ interface CatalogQuery {
   initial?: string | null
   year?: number | string | null
   genre?: number | string | null
+  artist?: number | string | null
   playStatus?: string | null
 }
 
@@ -124,6 +127,9 @@ function queryPath(path: string, query: CatalogQuery): string {
   }
   if (query.genre !== undefined && query.genre !== null && String(query.genre).trim() !== '') {
     parameters.set('genre', String(query.genre).trim())
+  }
+  if (query.artist !== undefined && query.artist !== null && String(query.artist).trim() !== '') {
+    parameters.set('artist', String(query.artist).trim())
   }
   if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
   return `${path}?${parameters}`
@@ -152,7 +158,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   const metricsLoading = ref(false)
   const metricsLoaded = ref(false)
   const metricsError = ref<string | null>(null)
-  let metricsPromise: Promise<void> | null = null
+  let metricsRequest = 0
   let artistsRequest = 0
   let albumsRequest = 0
   let albumDetailRequest = 0
@@ -164,23 +170,27 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadMetrics(force = false) {
     if (metricsLoaded.value && !force) return
-    if (metricsPromise) return metricsPromise
 
+    const request = ++metricsRequest
     metricsLoading.value = true
     metricsError.value = null
-    metricsPromise = (async () => {
-      try {
-        metrics.value = await apiRequest<CatalogMetrics>('/dashboard-metrics')
+    try {
+      const result = await apiRequest<CatalogMetrics>('/dashboard-metrics', { cache: 'no-store' })
+      if (request === metricsRequest) {
+        metrics.value = result
         metricsLoaded.value = true
-      } catch (cause) {
-        metricsError.value = cause instanceof Error ? cause.message : 'Unable to load dashboard metrics.'
-      } finally {
-        metricsLoading.value = false
-        metricsPromise = null
       }
-    })()
+    } catch (cause) {
+      if (request === metricsRequest) {
+        metricsError.value = cause instanceof Error ? cause.message : 'Unable to load dashboard metrics.'
+      }
+    } finally {
+      if (request === metricsRequest) metricsLoading.value = false
+    }
+  }
 
-    return metricsPromise
+  function invalidateMetrics() {
+    metricsLoaded.value = false
   }
 
   async function loadArtists(query: CatalogQuery = {}) {
@@ -316,6 +326,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     metricsError,
     metricsHaveCatalog,
     loadMetrics,
+    invalidateMetrics,
     loadArtists,
     loadAlbums,
     loadAlbum,

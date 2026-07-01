@@ -24,6 +24,13 @@ class LibraryPathGuardTest extends TestCase
         $this->assertSame('artwork/front.jpg', $guard->normalizeRelativePath('artwork\\front.jpg'));
     }
 
+    public function test_it_normalizes_parent_relative_cover_paths(): void
+    {
+        $guard = new LibraryPathGuard;
+
+        $this->assertSame('../Cover/Front.jpg', $guard->normalizeNavigableRelativePath('..\\Cover\\Front.jpg'));
+    }
+
     public function test_it_resolves_an_existing_file_within_the_album_directory(): void
     {
         $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'path-guard-'.uniqid();
@@ -39,6 +46,50 @@ class LibraryPathGuardTest extends TestCase
             );
         } finally {
             unlink($directory.DIRECTORY_SEPARATOR.'cover.jpg');
+            rmdir($directory);
+        }
+    }
+
+    public function test_it_resolves_a_parent_relative_file_that_remains_within_the_library_root(): void
+    {
+        $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'path-guard-'.uniqid();
+        $coverDirectory = $directory.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Cover';
+        mkdir($coverDirectory, recursive: true);
+        file_put_contents($coverDirectory.DIRECTORY_SEPARATOR.'Front.jpg', 'cover');
+
+        try {
+            $resolved = (new LibraryPathGuard)->resolveExistingFileWithinFrom(
+                $directory,
+                'Artist/Album',
+                '../Cover/Front.jpg',
+            );
+
+            $this->assertSame(
+                str_replace('\\', '/', realpath($coverDirectory.DIRECTORY_SEPARATOR.'Front.jpg')),
+                $resolved,
+            );
+        } finally {
+            unlink($coverDirectory.DIRECTORY_SEPARATOR.'Front.jpg');
+            rmdir($coverDirectory);
+            rmdir($directory.DIRECTORY_SEPARATOR.'Artist');
+            rmdir($directory);
+        }
+    }
+
+    public function test_it_rejects_a_parent_relative_file_that_escapes_the_library_root(): void
+    {
+        $directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'path-guard-'.uniqid();
+        mkdir($directory);
+
+        try {
+            $this->expectException(InvalidLibraryPath::class);
+
+            (new LibraryPathGuard)->resolveExistingFileWithinFrom(
+                $directory,
+                'Artist/Album',
+                '../../../Front.jpg',
+            );
+        } finally {
             rmdir($directory);
         }
     }

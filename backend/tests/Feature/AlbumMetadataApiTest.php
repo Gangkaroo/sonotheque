@@ -63,6 +63,28 @@ class AlbumMetadataApiTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_it_reports_id3v2_unsynchronization_before_queueing_a_batch(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $album->tracks->first()->mediaFile->update([
+            'raw_metadata' => ['id3v2' => ['majorversion' => 3, 'flags' => ['unsynch' => true]]],
+        ]);
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $this->values())
+            ->assertOk()
+            ->assertJsonPath('unsupportedFiles', 1)
+            ->assertJsonPath('files.0.supportIssue', 'id3v2_unsynchronization')
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$this->values(),
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('album');
+        Queue::assertNothingPushed();
+    }
+
     public function test_it_only_writes_shared_fields_that_actually_changed(): void
     {
         Queue::fake();
