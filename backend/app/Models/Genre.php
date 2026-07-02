@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 #[Fillable(['name'])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['name' => 'ASC'],
             parameters: [

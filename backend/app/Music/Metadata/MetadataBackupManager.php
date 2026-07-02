@@ -16,7 +16,9 @@ use Throwable;
 
 class MetadataBackupManager
 {
-    public function __construct(private readonly LibraryPathGuard $pathGuard) {}
+    public function __construct(private readonly LibraryPathGuard $pathGuard)
+    {
+    }
 
     public function prepareRoot(string $path): string
     {

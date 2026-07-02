@@ -14,8 +14,8 @@ use App\Models\MetadataEditJob;
 use App\Models\Track;
 use App\Music\Metadata\TrackMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
-use App\Music\Scanning\AudioMetadata;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Fakes\FakeTrackMetadataWriter;
 use Tests\TestCase;
 
 class ApplyTrackMetadataEditJobTest extends TestCase
@@ -44,7 +44,7 @@ class ApplyTrackMetadataEditJobTest extends TestCase
 
     public function test_the_job_updates_the_file_fingerprint_catalog_and_status(): void
     {
-        $writer = new FakeTrackMetadataWriter;
+        $writer = new FakeTrackMetadataWriter();
         $this->app->instance(TrackMetadataWriter::class, $writer);
         $track = $this->createTrack();
         $trackOnlyArtist = Artist::create([
@@ -163,31 +163,5 @@ class ApplyTrackMetadataEditJobTest extends TestCase
             is_dir($child) ? $this->deleteDirectory($child) : @unlink($child);
         }
         @rmdir($path);
-    }
-}
-
-class FakeTrackMetadataWriter implements TrackMetadataWriter
-{
-    public function supports(string $path): bool
-    {
-        return str_ends_with(mb_strtolower($path), '.mp3');
-    }
-
-    public function write(string $path, array $values): AudioMetadata
-    {
-        file_put_contents($path, 'written');
-
-        return new AudioMetadata(
-            title: $values['title'],
-            artists: $values['artistNames'],
-            composers: $values['composers'],
-            performers: $values['performers'],
-            genres: $values['genres'],
-            comment: $values['comment'],
-            year: $values['year'],
-            trackNumber: $values['trackNumber'],
-            discNumber: $values['discNumber'],
-            rawMetadata: ['verified' => true],
-        );
     }
 }

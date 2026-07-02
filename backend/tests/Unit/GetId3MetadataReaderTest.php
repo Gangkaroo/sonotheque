@@ -77,7 +77,7 @@ class GetId3MetadataReaderTest extends TestCase
 
     private function reader(): GetId3MetadataReader
     {
-        return new GetId3MetadataReader(new RawMetadataSanitizer);
+        return new GetId3MetadataReader(new RawMetadataSanitizer());
     }
 
     private function frame(string $name, string $payload): string
@@ -87,7 +87,8 @@ class GetId3MetadataReaderTest extends TestCase
 
     private function synchsafe(int $value): string
     {
-        return pack('C4',
+        return pack(
+            'C4',
             ($value >> 21) & 0x7F,
             ($value >> 14) & 0x7F,
             ($value >> 7) & 0x7F,

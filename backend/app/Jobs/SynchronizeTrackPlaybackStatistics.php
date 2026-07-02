@@ -19,7 +19,9 @@ class SynchronizeTrackPlaybackStatistics implements ShouldBeUniqueUntilProcessin
 
     public int $uniqueFor = 3600;
 
-    public function __construct(public readonly int $trackId) {}
+    public function __construct(public readonly int $trackId)
+    {
+    }
 
     public function uniqueId(): string
     {

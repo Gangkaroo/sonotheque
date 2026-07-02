@@ -12,7 +12,8 @@ class AlbumMetadataEditing
 {
     public function __construct(
         private readonly TrackMetadataEditing $trackEditing,
-    ) {}
+    ) {
+    }
 
     /**
      * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>}  $values

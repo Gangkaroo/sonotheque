@@ -61,6 +61,48 @@ class LanProtectionMiddlewareTest extends TestCase
             ->assertExactJson(['authorized' => true]);
     }
 
+    public function test_loopback_vite_proxy_preserves_lan_client_protection(): void
+    {
+        config([
+            'music-library.lan.enabled' => true,
+            'music-library.lan.admin_token' => 'secret-token',
+        ]);
+
+        $server = [
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_X_FORWARDED_FOR' => '192.168.1.20',
+            'HTTP_ACCEPT' => 'application/json',
+        ];
+
+        $this->call('GET', '/api/settings/access', server: $server)
+            ->assertForbidden();
+
+        $this->call('GET', '/api/settings/access', server: [
+            ...$server,
+            'HTTP_X_MUSIC_LIBRARY_ADMIN_TOKEN' => 'secret-token',
+        ])
+            ->assertOk()
+            ->assertExactJson(['authorized' => true]);
+    }
+
+    public function test_direct_lan_client_cannot_spoof_a_loopback_forwarded_address(): void
+    {
+        config([
+            'music-library.lan.enabled' => true,
+            'music-library.lan.admin_token' => 'secret-token',
+        ]);
+
+        $this->call(
+            'GET',
+            '/api/settings/access',
+            server: [
+                'REMOTE_ADDR' => '192.168.1.20',
+                'HTTP_X_FORWARDED_FOR' => '127.0.0.1',
+                'HTTP_ACCEPT' => 'application/json',
+            ],
+        )->assertForbidden();
+    }
+
     public function test_public_catalog_routes_remain_available_from_lan(): void
     {
         $this->call(

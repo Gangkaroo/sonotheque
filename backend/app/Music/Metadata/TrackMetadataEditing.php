@@ -12,7 +12,8 @@ class TrackMetadataEditing
     public function __construct(
         private readonly TrackMetadataWriter $writer,
         private readonly Mp3Id3v2TagEditor $editor,
-    ) {}
+    ) {
+    }
 
     /**
      * @param  array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int}  $values

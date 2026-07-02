@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['name', 'sort_name', 'browse_initial'])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['sort_name' => 'ASC', 'name' => 'ASC'],
             parameters: [

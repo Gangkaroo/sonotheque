@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 #[Fillable(['name', 'description'])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(order: ['name' => 'ASC']),
     ],
     paginationItemsPerPage: 50,

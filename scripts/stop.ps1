@@ -16,6 +16,8 @@ try {
         }
     }
 
+    Remove-RuntimeModeState
+
     if ($KeepDatabase) {
         Write-Host 'PostgreSQL left running because -KeepDatabase was specified.'
     }
@@ -31,4 +33,3 @@ catch {
     Write-Error $_
     exit 1
 }
-

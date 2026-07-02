@@ -30,12 +30,17 @@ For daily use, start the complete stack from the repository root:
 .\scripts\status.ps1
 ```
 
+Explicit LAN startup is available with `scripts\start.ps1 -Lan` after a
+32-character-or-longer `MUSIC_LIBRARY_ADMIN_TOKEN` is configured in `.env`.
+See `../docs/runtime.md` for address selection, token verification, and the
+narrow Windows Firewall rule.
+
 For manual diagnostics, run the API and queue listener in separate terminals.
 Prefer the PHP 8.5 binary if an older PHP appears first on `PATH`:
 
 ```powershell
 php artisan serve --host=127.0.0.1 --port=8000
-php artisan queue:listen --tries=1 --timeout=1800 --memory=512
+php artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
 ```
 
 Queue a scan for a configured library-root ID:
@@ -62,7 +67,12 @@ troubleshooting, and backup guide.
 
 ```powershell
 vendor/bin/pint --test
+composer check:autoload
 php artisan test
 ```
+
+PHP code follows PSR-12, enforced by the repository Pint configuration. PHP
+namespaces, class names, and file locations follow the PSR-4 mappings in
+`composer.json`.
 
 The tests use the isolated PostgreSQL database `music_library_test` on port `5433`.

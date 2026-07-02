@@ -46,7 +46,7 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
         $originalSize = filesize($path);
 
-        (new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor, new PlaybackStatisticsTagReader))->write(
+        (new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor(), new PlaybackStatisticsTagReader()))->write(
             $path,
             17,
             CarbonImmutable::parse('2020-01-02T03:04:05.123456Z'),
@@ -60,9 +60,9 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
         $this->assertStringContainsString($replayGainFrame, $writtenFile);
         $this->assertStringEndsWith($audio, $writtenFile);
 
-        $information = (new \getID3)->analyze($path);
+        $information = (new \getID3())->analyze($path);
         \getid3_lib::CopyTagsToComments($information);
-        $statistics = (new PlaybackStatisticsTagReader)->read($information);
+        $statistics = (new PlaybackStatisticsTagReader())->read($information);
         $this->assertSame(17, $statistics->playCount);
         $this->assertSame('2020-01-02T03:04:05.123456Z', $statistics->firstPlayedAt?->toJSON());
         $this->assertSame('2026-06-29T09:10:11.654321Z', $statistics->lastPlayedAt?->toJSON());
@@ -73,7 +73,7 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'track.m4a';
         file_put_contents($path, 'unchanged');
 
-        $writer = new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor, new PlaybackStatisticsTagReader);
+        $writer = new Mp3PlaybackStatisticsTagWriter(new Mp3Id3v2TagEditor(), new PlaybackStatisticsTagReader());
 
         try {
             $writer->write($path, 1, null, null);
@@ -95,7 +95,8 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
 
     private function synchsafe(int $value): string
     {
-        return pack('C4',
+        return pack(
+            'C4',
             ($value >> 21) & 0x7F,
             ($value >> 14) & 0x7F,
             ($value >> 7) & 0x7F,

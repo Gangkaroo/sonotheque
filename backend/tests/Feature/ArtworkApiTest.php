@@ -94,9 +94,10 @@ class ArtworkApiTest extends TestCase
             'modified_at' => now(),
             'last_seen_at' => now(),
         ]);
-        $this->app->instance(AudioMetadataReader::class, new class($bytes) implements AudioMetadataReader
-        {
-            public function __construct(private readonly string $bytes) {}
+        $this->app->instance(AudioMetadataReader::class, new class ($bytes) implements AudioMetadataReader {
+            public function __construct(private readonly string $bytes)
+            {
+            }
 
             public function read(string $absolutePath): AudioMetadata
             {

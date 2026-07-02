@@ -14,7 +14,8 @@ class UpdateLibraryRootProcessor implements ProcessorInterface
 
     public function __construct(
         private readonly LibraryRootConfiguration $configuration,
-    ) {}
+    ) {
+    }
 
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): LibraryRoot
     {

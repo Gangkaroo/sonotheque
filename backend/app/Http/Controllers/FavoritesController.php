@@ -11,7 +11,9 @@ use Illuminate\Http\JsonResponse;
 
 class FavoritesController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads) {}
+    public function __construct(private readonly CatalogPayloads $payloads)
+    {
+    }
 
     public function ids(): JsonResponse
     {

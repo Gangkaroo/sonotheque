@@ -338,7 +338,7 @@ In progress or still required for the first milestone:
 
 - Local runtime integration for starting, stopping, and checking Docker,
   Laravel, the queue listener, and Vite together. (Complete)
-- Explicit opt-in LAN binding in the manual startup scripts, including clear Windows Firewall guidance
+- Explicit opt-in LAN binding in the manual startup scripts, including clear Windows Firewall guidance. (Complete)
 - Broader end-to-end and packaging coverage
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. The app is now past the first playable browsing milestone; the next work should make local operation, startup, and recovery boringly repeatable.
@@ -460,6 +460,9 @@ File writes remain queued and require a preview and explicit confirmation.
   actual file contents. (Complete for MP3 track and album edits)
 - Add tests with small representative files for the supported audio/tag formats.
   (MP3 preservation and queued workflow fixtures complete)
+- Optimize padded MP3 tag updates without copying the audio payload, while
+  retaining recovery, verification, rollback, and full-copy fallback behavior.
+  (Complete)
 
 ### 5c. Listening History And Scrobbling
 
@@ -516,6 +519,9 @@ Last.fm integration.
 - Restrict folder browsing to configured drives or parent directories. (Basic server-side browser complete; policy can be tightened before LAN exposure)
 - Configure CORS and trusted hosts narrowly. (Complete; both use exact environment-driven allowlists)
 - Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost. (Complete)
+- Add explicit `start.ps1 -Lan` address selection, proxy-aware client IP
+  protection, runtime status, and restricted Windows Firewall guidance.
+  (Complete)
 
 ### 8. Testing and Packaging
 
@@ -539,8 +545,10 @@ genre editing completes the planned per-track MP3 field set; a browsable backup
 audit in Settings remains as a later metadata workflow refinement.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
-and CORS allowlist are complete. The next LAN step is an explicit startup bind
-setting with Windows Firewall guidance and verification from a second device.
+CORS allowlist, explicit startup mode, proxy-aware client IP handling, and
+Windows Firewall guidance are complete. The next infrastructure step is broader
+end-to-end coverage and repeatable packaging; LAN behavior should also be
+verified from a second physical device on the local network.
 
 ## First Milestone Definition
 

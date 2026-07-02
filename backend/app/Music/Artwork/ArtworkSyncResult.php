@@ -11,5 +11,6 @@ final readonly class ArtworkSyncResult
         public ?Artwork $artwork,
         public array $warnings = [],
         public bool $requiresEmbeddedFallback = false,
-    ) {}
+    ) {
+    }
 }

@@ -13,7 +13,9 @@ use App\Music\Scanning\ScanDispatchException;
 /** @implements ProcessorInterface<ScanRun, ScanRun> */
 class StartScanRunProcessor implements ProcessorInterface
 {
-    public function __construct(private readonly ScanDispatcher $dispatcher) {}
+    public function __construct(private readonly ScanDispatcher $dispatcher)
+    {
+    }
 
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): ScanRun
     {

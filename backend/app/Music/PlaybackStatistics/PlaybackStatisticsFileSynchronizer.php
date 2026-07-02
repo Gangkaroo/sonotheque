@@ -17,7 +17,8 @@ class PlaybackStatisticsFileSynchronizer
         private readonly PlaybackStatisticsTagWriter $writer,
         private readonly PlaybackStatisticsTagReader $reader,
         private readonly AudioMetadataReader $metadataReader,
-    ) {}
+    ) {
+    }
 
     public function synchronize(Track $track): void
     {

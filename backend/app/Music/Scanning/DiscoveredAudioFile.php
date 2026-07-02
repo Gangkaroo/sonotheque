@@ -12,5 +12,6 @@ final readonly class DiscoveredAudioFile
         public string $albumFolder,
         public int $fileSize,
         public int $modifiedAt,
-    ) {}
+    ) {
+    }
 }

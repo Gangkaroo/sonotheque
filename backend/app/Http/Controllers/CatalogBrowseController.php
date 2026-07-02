@@ -15,7 +15,9 @@ use Illuminate\Support\Carbon;
 
 class CatalogBrowseController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads) {}
+    public function __construct(private readonly CatalogPayloads $payloads)
+    {
+    }
 
     public function artists(Request $request): JsonResponse
     {

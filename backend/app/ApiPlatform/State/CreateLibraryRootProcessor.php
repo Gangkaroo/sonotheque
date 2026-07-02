@@ -20,7 +20,8 @@ class CreateLibraryRootProcessor implements ProcessorInterface
         private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryRootPathValidator $rootPathValidator,
         private readonly LibraryRootConfiguration $configuration,
-    ) {}
+    ) {
+    }
 
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): LibraryRoot
     {

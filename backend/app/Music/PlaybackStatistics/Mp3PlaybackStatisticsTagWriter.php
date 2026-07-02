@@ -15,7 +15,8 @@ class Mp3PlaybackStatisticsTagWriter implements PlaybackStatisticsTagWriter
     public function __construct(
         private readonly Mp3Id3v2TagEditor $editor,
         private readonly PlaybackStatisticsTagReader $reader,
-    ) {}
+    ) {
+    }
 
     public function supports(string $path): bool
     {
@@ -39,7 +40,7 @@ class Mp3PlaybackStatisticsTagWriter implements PlaybackStatisticsTagWriter
             $firstPlayedAt,
             $lastPlayedAt,
         ): void {
-            $information = (new \getID3)->analyze($temporaryPath);
+            $information = (new \getID3())->analyze($temporaryPath);
             \getid3_lib::CopyTagsToComments($information);
             $statistics = $this->reader->read($information);
             if ($statistics->playCount !== max(0, $playCount)

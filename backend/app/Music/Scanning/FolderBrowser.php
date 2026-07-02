@@ -7,7 +7,9 @@ use Throwable;
 
 class FolderBrowser
 {
-    public function __construct(private readonly LibraryPathGuard $pathGuard) {}
+    public function __construct(private readonly LibraryPathGuard $pathGuard)
+    {
+    }
 
     /**
      * @return array{

@@ -11,7 +11,9 @@ use Illuminate\Http\Request;
 
 class TrackMetadataController extends Controller
 {
-    public function __construct(private readonly MetadataEditPayloads $payloads) {}
+    public function __construct(private readonly MetadataEditPayloads $payloads)
+    {
+    }
 
     public function preview(Request $request, Track $track, TrackMetadataEditing $editing): JsonResponse
     {

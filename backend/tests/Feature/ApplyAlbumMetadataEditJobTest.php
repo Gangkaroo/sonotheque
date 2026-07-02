@@ -13,9 +13,10 @@ use App\Models\MetadataBackup;
 use App\Models\Track;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
-use App\Music\Scanning\AudioMetadata;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Tests\Fakes\FailingAlbumTrackMetadataWriter;
+use Tests\Fakes\FakeAlbumTrackMetadataWriter;
 use Tests\TestCase;
 
 class ApplyAlbumMetadataEditJobTest extends TestCase
@@ -45,7 +46,7 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
     public function test_the_batch_updates_files_progress_and_album_only_after_every_file_succeeds(): void
     {
         Queue::fake();
-        $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter);
+        $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter());
         $album = $this->createAlbum();
         $albumOnlyArtist = Artist::create([
             'name' => 'Album-only artist',
@@ -95,7 +96,7 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
     public function test_a_partial_failure_keeps_the_shared_album_catalog_unchanged(): void
     {
         Queue::fake();
-        $this->app->instance(TrackMetadataWriter::class, new FailingAlbumTrackMetadataWriter);
+        $this->app->instance(TrackMetadataWriter::class, new FailingAlbumTrackMetadataWriter());
         $album = $this->createAlbum();
         $editing = $this->app->make(AlbumMetadataEditing::class);
         $values = [
@@ -187,43 +188,5 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
             is_dir($child) ? $this->deleteDirectory($child) : @unlink($child);
         }
         @rmdir($path);
-    }
-}
-
-class FakeAlbumTrackMetadataWriter implements TrackMetadataWriter
-{
-    public function supports(string $path): bool
-    {
-        return str_ends_with(mb_strtolower($path), '.mp3');
-    }
-
-    public function write(string $path, array $values): AudioMetadata
-    {
-        file_put_contents($path, 'written');
-
-        return new AudioMetadata(
-            album: $values['albumTitle'],
-            albumArtist: $values['albumArtist'],
-            genres: $values['genres'],
-            year: $values['releaseYear'],
-            originalReleaseYear: $values['releaseYear'],
-            discTotal: $values['totalDiscs'],
-            rawMetadata: ['verified' => true],
-        );
-    }
-}
-
-class FailingAlbumTrackMetadataWriter extends FakeAlbumTrackMetadataWriter
-{
-    private int $writes = 0;
-
-    public function write(string $path, array $values): AudioMetadata
-    {
-        $this->writes++;
-        if ($this->writes === 2) {
-            throw new \RuntimeException('Simulated write failure.');
-        }
-
-        return parent::write($path, $values);
     }
 }

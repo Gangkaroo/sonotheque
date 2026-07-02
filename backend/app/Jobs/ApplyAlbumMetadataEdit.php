@@ -26,7 +26,9 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
 
     public int $timeout = 1800;
 
-    public function __construct(public readonly int $metadataEditJobId) {}
+    public function __construct(public readonly int $metadataEditJobId)
+    {
+    }
 
     public function handle(
         AlbumMetadataEditing $albumEditing,

@@ -12,7 +12,9 @@ use Illuminate\Support\Carbon;
 
 class PlaybackStatisticsController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads) {}
+    public function __construct(private readonly CatalogPayloads $payloads)
+    {
+    }
 
     public function recentPlays(Request $request): JsonResponse
     {

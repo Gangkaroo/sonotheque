@@ -9,7 +9,9 @@ use App\Music\Metadata\MetadataBackupManager;
 
 class MetadataEditPayloads
 {
-    public function __construct(private readonly MetadataBackupManager $backups) {}
+    public function __construct(private readonly MetadataBackupManager $backups)
+    {
+    }
 
     /** @return array<string, mixed> */
     public function job(MetadataEditJob $job): array

@@ -12,7 +12,7 @@ class ByteRangeParserTest extends TestCase
     #[DataProvider('ranges')]
     public function test_it_parses_supported_byte_ranges(string $header, int $start, int $end): void
     {
-        $range = (new ByteRangeParser)->parse($header, 10);
+        $range = (new ByteRangeParser())->parse($header, 10);
 
         $this->assertSame($start, $range?->start);
         $this->assertSame($end, $range?->end);
@@ -34,7 +34,7 @@ class ByteRangeParserTest extends TestCase
     {
         $this->expectException(InvalidByteRange::class);
 
-        (new ByteRangeParser)->parse($header, 10);
+        (new ByteRangeParser())->parse($header, 10);
     }
 
     public static function invalidRanges(): array

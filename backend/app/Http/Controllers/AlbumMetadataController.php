@@ -10,7 +10,9 @@ use Illuminate\Http\Request;
 
 class AlbumMetadataController extends Controller
 {
-    public function __construct(private readonly MetadataEditPayloads $payloads) {}
+    public function __construct(private readonly MetadataEditPayloads $payloads)
+    {
+    }
 
     public function preview(Request $request, Album $album, AlbumMetadataEditing $editing): JsonResponse
     {

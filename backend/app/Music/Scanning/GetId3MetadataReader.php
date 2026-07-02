@@ -7,11 +7,13 @@ use RuntimeException;
 
 class GetId3MetadataReader implements AudioMetadataReader
 {
-    public function __construct(private readonly RawMetadataSanitizer $metadataSanitizer) {}
+    public function __construct(private readonly RawMetadataSanitizer $metadataSanitizer)
+    {
+    }
 
     public function read(string $absolutePath): AudioMetadata
     {
-        $getId3 = new \getID3;
+        $getId3 = new \getID3();
         $information = $getId3->analyze($absolutePath);
         \getid3_lib::CopyTagsToComments($information);
 

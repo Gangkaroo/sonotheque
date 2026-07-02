@@ -4,7 +4,9 @@ namespace App\Music\Scanning;
 
 class LibraryRootConfiguration
 {
-    public function __construct(private readonly LibraryPathGuard $pathGuard) {}
+    public function __construct(private readonly LibraryPathGuard $pathGuard)
+    {
+    }
 
     /** @param list<string>|null $paths
      * @return list<string>

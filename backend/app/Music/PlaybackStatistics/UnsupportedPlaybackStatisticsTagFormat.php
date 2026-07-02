@@ -4,4 +4,6 @@ namespace App\Music\PlaybackStatistics;
 
 use RuntimeException;
 
-class UnsupportedPlaybackStatisticsTagFormat extends RuntimeException {}
+class UnsupportedPlaybackStatisticsTagFormat extends RuntimeException
+{
+}

@@ -6,7 +6,6 @@ use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\Library;
-use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;

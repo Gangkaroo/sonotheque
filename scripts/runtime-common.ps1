@@ -4,6 +4,7 @@ $script:RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $script:RuntimeLogDirectory = Join-Path $script:RepositoryRoot 'runtime-logs'
 $script:BackendDirectory = Join-Path $script:RepositoryRoot 'backend'
 $script:FrontendDirectory = Join-Path $script:RepositoryRoot 'frontend'
+$script:RuntimeModeStatePath = Join-Path $script:RuntimeLogDirectory 'runtime-mode.json'
 
 function Initialize-RuntimeDirectory {
     New-Item -ItemType Directory -Path $script:RuntimeLogDirectory -Force | Out-Null
@@ -13,6 +14,174 @@ function Get-ProcessStatePath {
     param([Parameter(Mandatory)][string]$Name)
 
     return Join-Path $script:RuntimeLogDirectory "$Name.process.json"
+}
+
+function Get-RuntimeModeState {
+    if (-not (Test-Path -LiteralPath $script:RuntimeModeStatePath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $script:RuntimeModeStatePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
+function Set-RuntimeModeState {
+    param(
+        [Parameter(Mandatory)][ValidateSet('local', 'lan')][string]$Mode,
+        [Parameter(Mandatory)][string]$FrontendHost
+    )
+
+    @{
+        mode = $Mode
+        frontendHost = $FrontendHost
+        frontendUrl = "http://${FrontendHost}:5173/"
+        apiUrl = 'http://127.0.0.1:8000/'
+        startedAt = (Get-Date).ToUniversalTime().ToString('o')
+    } | ConvertTo-Json | Set-Content -LiteralPath $script:RuntimeModeStatePath -Encoding utf8
+}
+
+function Remove-RuntimeModeState {
+    Remove-Item -LiteralPath $script:RuntimeModeStatePath -Force -ErrorAction SilentlyContinue
+}
+
+function Get-RuntimeSetting {
+    param([Parameter(Mandatory)][string]$Name)
+
+    $processValue = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+        return $processValue
+    }
+
+    $environmentPath = Join-Path $script:BackendDirectory '.env'
+    if (-not (Test-Path -LiteralPath $environmentPath)) {
+        return $null
+    }
+
+    $pattern = '^\s*' + [regex]::Escape($Name) + '\s*=\s*(.*)$'
+    foreach ($line in Get-Content -LiteralPath $environmentPath) {
+        if ($line -notmatch $pattern) {
+            continue
+        }
+
+        $value = $Matches[1].Trim()
+        if ($value.Length -ge 2 -and (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        )) {
+            return $value.Substring(1, $value.Length - 2)
+        }
+
+        return ($value -replace '\s+#.*$', '').Trim()
+    }
+
+    return $null
+}
+
+function Test-PrivateIpv4Address {
+    param([Parameter(Mandatory)][string]$Address)
+
+    $parsedAddress = $null
+    if (-not [System.Net.IPAddress]::TryParse($Address, [ref]$parsedAddress) -or
+        $parsedAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        return $false
+    }
+
+    $bytes = $parsedAddress.GetAddressBytes()
+    return $bytes[0] -eq 10 -or
+        ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) -or
+        ($bytes[0] -eq 192 -and $bytes[1] -eq 168)
+}
+
+function Get-LocalLanIpv4Addresses {
+    $addresses = foreach ($networkInterface in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($networkInterface.OperationalStatus -ne [System.Net.NetworkInformation.OperationalStatus]::Up -or
+            $networkInterface.NetworkInterfaceType -in @(
+                [System.Net.NetworkInformation.NetworkInterfaceType]::Loopback,
+                [System.Net.NetworkInformation.NetworkInterfaceType]::Tunnel
+            )) {
+            continue
+        }
+
+        $properties = $networkInterface.GetIPProperties()
+        $hasIpv4Gateway = @($properties.GatewayAddresses | Where-Object {
+            $_.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and
+            -not $_.Address.Equals([System.Net.IPAddress]::Any)
+        }).Count -gt 0
+        if (-not $hasIpv4Gateway) {
+            continue
+        }
+
+        foreach ($unicastAddress in $properties.UnicastAddresses) {
+            $address = $unicastAddress.Address.ToString()
+            if (Test-PrivateIpv4Address -Address $address) {
+                $address
+            }
+        }
+    }
+
+    return @($addresses | Select-Object -Unique)
+}
+
+function Resolve-LanIpv4Address {
+    param([string]$RequestedAddress)
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedAddress)) {
+        if (-not (Test-PrivateIpv4Address -Address $RequestedAddress)) {
+            throw "LAN address '$RequestedAddress' is not a private IPv4 address."
+        }
+
+        if ($RequestedAddress -notin (Get-LocalLanIpv4Addresses)) {
+            throw "LAN address '$RequestedAddress' is not assigned to this computer."
+        }
+
+        return $RequestedAddress
+    }
+
+    $addresses = Get-LocalLanIpv4Addresses
+
+    if (@($addresses).Count -eq 0) {
+        throw 'No private IPv4 address with a default gateway was found. Pass -LanAddress explicitly.'
+    }
+
+    if (@($addresses).Count -gt 1) {
+        throw "Several private IPv4 addresses were found ($($addresses -join ', ')). Pass -LanAddress explicitly."
+    }
+
+    return [string]$addresses
+}
+
+function Get-LanTrustedHosts {
+    param([Parameter(Mandatory)][string]$LanAddress)
+
+    $configuredValue = Get-RuntimeSetting -Name 'MUSIC_LIBRARY_TRUSTED_HOSTS'
+    $configuredHosts = if ([string]::IsNullOrWhiteSpace($configuredValue)) {
+        @()
+    }
+    else {
+        $configuredValue -split ','
+    }
+
+    return @(
+        'localhost'
+        '127.0.0.1'
+        '::1'
+        $LanAddress
+        [System.Net.Dns]::GetHostName()
+        $configuredHosts
+    ) | Where-Object { $null -ne $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' } | Select-Object -Unique
+}
+
+function Get-LanAdminToken {
+    $token = Get-RuntimeSetting -Name 'MUSIC_LIBRARY_ADMIN_TOKEN'
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) {
+        throw 'LAN mode requires MUSIC_LIBRARY_ADMIN_TOKEN in backend/.env with at least 32 characters.'
+    }
+
+    return $token
 }
 
 function Get-ManagedProcess {
@@ -52,7 +221,8 @@ function Start-ManagedProcess {
         [Parameter(Mandatory)][string[]]$ArgumentList,
         [Parameter(Mandatory)][string]$WorkingDirectory,
         [Parameter(Mandatory)][string]$StandardOutputPath,
-        [Parameter(Mandatory)][string]$StandardErrorPath
+        [Parameter(Mandatory)][string]$StandardErrorPath,
+        [hashtable]$EnvironmentVariables = @{}
     )
 
     $existing = Get-ManagedProcess -Name $Name
@@ -61,14 +231,27 @@ function Start-ManagedProcess {
     }
 
     Remove-StaleProcessState -Name $Name
-    $process = Start-Process `
-        -FilePath $FilePath `
-        -ArgumentList $ArgumentList `
-        -WorkingDirectory $WorkingDirectory `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $StandardOutputPath `
-        -RedirectStandardError $StandardErrorPath `
-        -PassThru
+    $previousEnvironment = @{}
+    try {
+        foreach ($name in $EnvironmentVariables.Keys) {
+            $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+            [Environment]::SetEnvironmentVariable($name, [string]$EnvironmentVariables[$name], 'Process')
+        }
+
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $ArgumentList `
+            -WorkingDirectory $WorkingDirectory `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $StandardOutputPath `
+            -RedirectStandardError $StandardErrorPath `
+            -PassThru
+    }
+    finally {
+        foreach ($name in $EnvironmentVariables.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+        }
+    }
 
     Start-Sleep -Milliseconds 750
     if ($process.HasExited) {
@@ -195,14 +378,35 @@ function Get-PortOwner {
 }
 
 function Test-HttpEndpoint {
-    param([Parameter(Mandatory)][string]$Uri)
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [hashtable]$Headers = @{}
+    )
 
     try {
-        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 3
+        $response = Invoke-WebRequest -Uri $Uri -Headers $Headers -UseBasicParsing -TimeoutSec 3
         return $response.StatusCode -ge 200 -and $response.StatusCode -lt 500
     }
     catch {
         return $false
+    }
+}
+
+function Get-HttpStatusCode {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    try {
+        return [int](Invoke-WebRequest -Uri $Uri -Headers $Headers -UseBasicParsing -TimeoutSec 5).StatusCode
+    }
+    catch {
+        if ($null -ne $_.Exception.Response) {
+            return [int]$_.Exception.Response.StatusCode
+        }
+
+        return $null
     }
 }
 
@@ -281,6 +485,14 @@ function Find-ExternalQueueWorker {
 }
 
 function Get-RuntimeStatus {
+    $runtimeMode = Get-RuntimeModeState
+    $frontendHost = if ($null -ne $runtimeMode -and $runtimeMode.mode -eq 'lan') {
+        [string]$runtimeMode.frontendHost
+    }
+    else {
+        '127.0.0.1'
+    }
+    $frontendUri = "http://${frontendHost}:5173/"
     $postgresStatus = Get-PostgresStatus
     $apiProcess = Get-ManagedProcess -Name 'api'
     $apiOwner = Get-PortOwner -Port 8000
@@ -289,7 +501,7 @@ function Get-RuntimeStatus {
     $externalQueue = if ($null -eq $queueProcess) { Find-ExternalQueueWorker } else { $null }
     $frontendProcess = Get-ManagedProcess -Name 'frontend'
     $frontendOwner = Get-PortOwner -Port 5173
-    $frontendHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:5173/'
+    $frontendHealthy = Test-HttpEndpoint -Uri $frontendUri
 
     return @(
         [pscustomobject]@{
@@ -310,7 +522,7 @@ function Get-RuntimeStatus {
         [pscustomobject]@{
             Service = 'Vue frontend'
             Status = if ($frontendHealthy) { 'Healthy' } else { 'Stopped' }
-            Details = if ($null -ne $frontendProcess) { "managed PID $($frontendProcess.Id)" } elseif ($null -ne $frontendOwner) { "external PID $frontendOwner" } else { '-' }
+            Details = if ($null -ne $frontendProcess) { "managed PID $($frontendProcess.Id), $frontendUri" } elseif ($null -ne $frontendOwner) { "external PID $frontendOwner" } else { $frontendUri }
         }
     )
 }

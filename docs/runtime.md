@@ -65,6 +65,29 @@ From the repository root, start the complete local stack with:
 .\scripts\start.ps1
 ```
 
+To opt into LAN access, first configure a long admin token in `backend/.env`,
+stop any currently running local instance, and start LAN mode:
+
+```text
+MUSIC_LIBRARY_ADMIN_TOKEN=replace-with-at-least-32-random-characters
+```
+
+```powershell
+.\scripts\stop.ps1 -KeepDatabase
+.\scripts\start.ps1 -Lan
+```
+
+The script detects the active private IPv4 address. If the computer has several
+eligible adapters, or a particular address should be used, select it explicitly:
+
+```powershell
+.\scripts\start.ps1 -Lan -LanAddress 192.168.1.10
+```
+
+Local and LAN modes cannot be switched while the managed web processes are
+running. This prevents an apparently successful restart from leaving the old
+bind address or security configuration active.
+
 This is always a manual action. The scripts do not register a Windows startup
 task, service, or scheduled job.
 
@@ -105,7 +128,7 @@ For manual diagnostics, the equivalent commands remain:
 docker compose up -d postgres
 cd backend
 & $php85 artisan serve --host=127.0.0.1 --port=8000
-& $php85 artisan queue:listen --tries=1 --timeout=1800 --memory=512
+& $php85 artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
 cd ..\frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
@@ -207,6 +230,12 @@ playback-statistics fields, track/disc totals, and audio bytes are preserved.
 Unusual ID3 layouts and non-MP3 formats are rejected rather than rewritten.
 Metadata edits require the queue listener and are protected by the same
 local/LAN administrative middleware as Settings.
+
+When an existing ID3v2 tag has enough padding for the updated frames, only its
+fixed-size tag block is rewritten. The editor stores and flushes recovery bytes,
+verifies the result, and restores the original tag if verification fails. If a
+tag must grow or does not yet exist, the editor retains the full-file temporary
+copy and replacement path.
 
 Album detail pages can edit album title, album artist, release year, total
 discs, and shared genres across all tracks in an MP3-only album. The preview
@@ -379,8 +408,15 @@ php artisan music:artwork:remove-original-cache
 
 ## LAN Access
 
-The current development setup binds the Laravel and Vite servers to
-`127.0.0.1`. That is intentional.
+Local startup remains bound to `127.0.0.1`. LAN startup is always an explicit
+manual action using `scripts/start.ps1 -Lan`; nothing is registered to start
+with Windows.
+
+LAN mode binds Vite to one selected private IPv4 address while Laravel remains
+on loopback. Browsers therefore need only TCP port `5173`; Vite proxies `/api`
+to Laravel and supplies the original client address. Laravel trusts forwarded
+client addresses only from its loopback proxy, so remote clients still pass
+through the LAN admin-token boundary and cannot make themselves appear local.
 
 Settings-like API operations are protected by Laravel middleware:
 
@@ -388,14 +424,20 @@ Settings-like API operations are protected by Laravel middleware:
 - all `/api/library_roots*` operations
 - all `/api/scan_runs*` operations
 
-These endpoints are always allowed from `127.0.0.1` and `::1`. From another LAN
-address they are rejected unless LAN mode is enabled and the request includes
-the configured admin token:
+These endpoints are always allowed from a direct `127.0.0.1` or `::1` request.
+From another LAN address they are rejected unless LAN mode is enabled and the
+request includes the configured admin token. `start.ps1 -Lan` enables LAN mode
+for its managed backend process and automatically trusts the selected address
+and computer hostname. Only the token needs to be stored in `backend/.env`:
 
 ```text
-MUSIC_LIBRARY_LAN_ENABLED=true
 MUSIC_LIBRARY_ADMIN_TOKEN=choose-a-long-random-token
-MUSIC_LIBRARY_TRUSTED_HOSTS=localhost,127.0.0.1,::1,music-pc,192.168.1.10
+```
+
+Generate a suitable token with PHP if needed:
+
+```powershell
+php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
 ```
 
 Remote admin requests must include:
@@ -414,9 +456,9 @@ to same-origin `/api` requests and is never returned by the backend. Clearing
 it also clears protected library-root and scan data from the current page.
 
 `MUSIC_LIBRARY_TRUSTED_HOSTS` is a comma-separated list of exact hostnames and
-IP addresses accepted in HTTP `Host` headers. Add the computer's chosen LAN
-hostname and/or static LAN address before exposing the services. Requests with
-any other host are rejected.
+IP addresses accepted in HTTP `Host` headers. LAN startup combines any entries
+already configured there with localhost, the selected address, and the computer
+hostname. Requests with any other host are rejected.
 
 Cross-origin API access is denied by default. The Vue development proxy and a
 normal same-origin deployment do not need CORS. If the frontend is deliberately
@@ -426,6 +468,24 @@ served from a different origin, list only those exact origins:
 MUSIC_LIBRARY_ALLOWED_ORIGINS=http://192.168.1.10:5173
 ```
 
-The manual startup scripts still bind Laravel and Vite to `127.0.0.1`. An
-explicit opt-in bind setting and Windows Firewall guidance remain to be added
-before normal LAN startup is enabled.
+### Windows Firewall
+
+If another device cannot open the URL printed by `start.ps1 -Lan`, first make
+sure the active Windows network profile is `Private`. Then run this once from
+an elevated PowerShell window, replacing the address with the one printed by
+the startup script:
+
+```powershell
+New-NetFirewallRule -DisplayName 'Music Library LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress 192.168.1.10 -RemoteAddress LocalSubnet -Profile Private
+```
+
+The rule deliberately permits only the Vite port, only on Private networks,
+only on the selected local address, and only from the local subnet. Do not add
+a public-profile rule or expose PostgreSQL port `5433` or Laravel port `8000`.
+
+Verify from a second device by opening the LAN URL shown by the startup script.
+Catalog browsing should work without a token. Settings operations should remain
+blocked until the same token is entered and verified in the Security tab.
+
+Use `scripts/status.ps1` to see the recorded runtime mode and active app URL.
+If DHCP assigns a different address later, stop the app and start LAN mode again.

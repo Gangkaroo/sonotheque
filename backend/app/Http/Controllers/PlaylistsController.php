@@ -15,7 +15,9 @@ use Illuminate\Validation\ValidationException;
 
 class PlaylistsController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads) {}
+    public function __construct(private readonly CatalogPayloads $payloads)
+    {
+    }
 
     public function folders(): JsonResponse
     {

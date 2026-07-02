@@ -16,7 +16,8 @@ final readonly class ImportedPlayStatistics
         public ?CarbonImmutable $lastPlayedAt = null,
         public array $sourceFields = [],
         public array $warnings = [],
-    ) {}
+    ) {
+    }
 
     public function hasValues(): bool
     {

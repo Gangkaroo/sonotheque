@@ -1,8 +1,12 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Lan,
+    [string]$LanAddress
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'runtime-common.ps1')
+$startedServices = [System.Collections.Generic.List[string]]::new()
 
 try {
     Initialize-RuntimeDirectory
@@ -10,11 +14,70 @@ try {
     $php = Resolve-Php85
     $node = Resolve-Node
 
+    if (-not $Lan -and -not [string]::IsNullOrWhiteSpace($LanAddress)) {
+        throw '-LanAddress can only be used together with -Lan.'
+    }
+
+    $mode = if ($Lan) { 'lan' } else { 'local' }
+    $frontendHost = if ($Lan) {
+        Resolve-LanIpv4Address -RequestedAddress $LanAddress
+    }
+    else {
+        '127.0.0.1'
+    }
+    $frontendUri = "http://${frontendHost}:5173/"
+    $apiHealthUri = 'http://127.0.0.1:8000/api/dashboard-metrics'
+    $existingMode = Get-RuntimeModeState
+    $apiOwner = Get-PortOwner -Port 8000
+    $frontendOwner = Get-PortOwner -Port 5173
+
+    if ($null -eq $apiOwner -and $null -eq $frontendOwner) {
+        Remove-RuntimeModeState
+        $existingMode = $null
+    }
+    elseif ($null -ne $existingMode -and $existingMode.mode -ne $mode) {
+        throw "The app is already running in $($existingMode.mode) mode. Run scripts/stop.ps1 before switching to $mode mode."
+    }
+    elseif ($Lan -and $null -eq $existingMode) {
+        throw 'Ports 8000 or 5173 are already in use by a runtime with an unknown mode. Stop it before starting LAN mode.'
+    }
+
+    $backendEnvironment = @{
+        MUSIC_LIBRARY_LAN_ENABLED = if ($Lan) { 'true' } else { 'false' }
+        MUSIC_LIBRARY_TRUSTED_HOSTS = 'localhost,127.0.0.1,::1'
+    }
+    $frontendEnvironment = @{}
+    $adminToken = $null
+
+    if ($Lan) {
+        $adminToken = Get-LanAdminToken
+        $trustedHosts = Get-LanTrustedHosts -LanAddress $frontendHost
+        $backendEnvironment.MUSIC_LIBRARY_ADMIN_TOKEN = $adminToken
+        $backendEnvironment.MUSIC_LIBRARY_TRUSTED_HOSTS = $trustedHosts -join ','
+        $frontendEnvironment.MUSIC_LIBRARY_VITE_ALLOWED_HOSTS = [System.Net.Dns]::GetHostName()
+
+        Write-Host "Preparing explicit LAN mode on $frontendHost..."
+    }
+
+    $configurationCache = Join-Path $script:BackendDirectory 'bootstrap\cache\config.php'
+    if ($null -eq $apiOwner -and (Test-Path -LiteralPath $configurationCache)) {
+        Write-Host 'Clearing cached Laravel configuration for runtime-specific settings...'
+        Push-Location $script:BackendDirectory
+        try {
+            & $php artisan config:clear --no-ansi
+            if ($LASTEXITCODE -ne 0) {
+                throw "Laravel config:clear exited with code $LASTEXITCODE."
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
     Write-Host 'Starting PostgreSQL...'
     Invoke-DockerCompose -Arguments @('up', '-d', 'postgres')
     Wait-Postgres
 
-    $apiOwner = Get-PortOwner -Port 8000
     if ($null -eq $apiOwner) {
         Write-Host 'Starting Laravel API...'
         Start-ManagedProcess `
@@ -23,9 +86,11 @@ try {
             -ArgumentList @('artisan', 'serve', '--host=127.0.0.1', '--port=8000') `
             -WorkingDirectory $script:BackendDirectory `
             -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'backend-server.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'backend-server.err.log') | Out-Null
+            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'backend-server.err.log') `
+            -EnvironmentVariables $backendEnvironment | Out-Null
+        $startedServices.Add('api')
     }
-    elseif (-not (Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/api/dashboard-metrics')) {
+    elseif (-not (Test-HttpEndpoint -Uri $apiHealthUri)) {
         throw "Port 8000 is already in use by PID $apiOwner, but the API health check failed."
     }
     else {
@@ -37,42 +102,78 @@ try {
         Start-ManagedProcess `
             -Name 'queue-worker' `
             -FilePath $php `
-            -ArgumentList @('artisan', 'queue:listen', '--tries=1', '--timeout=0', '--memory=512') `
+            -ArgumentList @('artisan', 'queue:listen', '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
             -WorkingDirectory $script:BackendDirectory `
             -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'queue-worker.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'queue-worker.err.log') | Out-Null
+            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'queue-worker.err.log') `
+            -EnvironmentVariables $backendEnvironment | Out-Null
+        $startedServices.Add('queue-worker')
     }
     else {
         Write-Host 'Queue worker is already running.'
     }
 
-    $frontendOwner = Get-PortOwner -Port 5173
     if ($null -eq $frontendOwner) {
-        Write-Host 'Starting Vue frontend...'
+        Write-Host "Starting Vue frontend on $frontendHost..."
         $viteScript = Join-Path $script:FrontendDirectory 'node_modules\vite\bin\vite.js'
         Start-ManagedProcess `
             -Name 'frontend' `
             -FilePath $node `
-            -ArgumentList @("`"$viteScript`"", '--host', '127.0.0.1', '--port', '5173') `
+            -ArgumentList @("`"$viteScript`"", '--host', $frontendHost, '--port', '5173') `
             -WorkingDirectory $script:FrontendDirectory `
             -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'frontend-vite.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'frontend-vite.err.log') | Out-Null
+            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'frontend-vite.err.log') `
+            -EnvironmentVariables $frontendEnvironment | Out-Null
+        $startedServices.Add('frontend')
     }
-    elseif (-not (Test-HttpEndpoint -Uri 'http://127.0.0.1:5173/')) {
+    elseif (-not (Test-HttpEndpoint -Uri $frontendUri)) {
         throw "Port 5173 is already in use by PID $frontendOwner, but the frontend health check failed."
     }
     else {
         Write-Host "Vue frontend is already available on port 5173 (external PID $frontendOwner)."
     }
 
-    Wait-HttpEndpoint -Name 'Laravel API' -Uri 'http://127.0.0.1:8000/api/dashboard-metrics'
-    Wait-HttpEndpoint -Name 'Vue frontend' -Uri 'http://127.0.0.1:5173/'
+    Wait-HttpEndpoint -Name 'Laravel API' -Uri $apiHealthUri
+    Wait-HttpEndpoint -Name 'Vue frontend' -Uri $frontendUri
+
+    if ($Lan) {
+        $accessUri = "${frontendUri}api/settings/access"
+        $unauthorizedStatus = Get-HttpStatusCode -Uri $accessUri
+        if ($unauthorizedStatus -ne 403) {
+            throw "LAN authorization check failed: an unauthenticated request returned HTTP $unauthorizedStatus instead of 403."
+        }
+
+        $authorizedStatus = Get-HttpStatusCode `
+            -Uri $accessUri `
+            -Headers @{ 'X-Music-Library-Admin-Token' = $adminToken }
+        if ($authorizedStatus -ne 200) {
+            throw "LAN authorization check failed: the configured admin token returned HTTP $authorizedStatus."
+        }
+    }
+
+    Set-RuntimeModeState -Mode $mode -FrontendHost $frontendHost
 
     Write-Host ''
     Get-RuntimeStatus | Format-Table -AutoSize
-    Write-Host 'Music Library is available at http://127.0.0.1:5173/'
+    Write-Host "Music Library is available at $frontendUri"
+
+    if ($Lan) {
+        Write-Host ''
+        Write-Host 'If another device cannot connect, allow only TCP 5173 for Private networks and LocalSubnet:'
+        Write-Host "New-NetFirewallRule -DisplayName 'Music Library LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress $frontendHost -RemoteAddress LocalSubnet -Profile Private"
+        Write-Host 'Run that command once from an elevated PowerShell window.'
+    }
 }
 catch {
+    if ($Lan) {
+        foreach ($service in @('frontend', 'queue-worker', 'api')) {
+            if ($startedServices.Contains($service)) {
+                Stop-ManagedProcess -Name $service | Out-Null
+            }
+        }
+        Remove-RuntimeModeState
+    }
+
     Write-Error $_
     exit 1
 }

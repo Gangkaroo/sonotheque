@@ -32,7 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['sort_title' => 'ASC', 'title' => 'ASC'],
             parameters: [

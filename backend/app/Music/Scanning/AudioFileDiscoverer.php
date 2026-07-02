@@ -16,12 +16,13 @@ class AudioFileDiscoverer
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
         private readonly array $extensions,
-    ) {}
+    ) {
+    }
 
     /** @return Generator<int, DiscoveredAudioFile> */
     public function discover(LibraryRoot $libraryRoot, ?DiscoveryDiagnostics $diagnostics = null): Generator
     {
-        $diagnostics ??= new DiscoveryDiagnostics;
+        $diagnostics ??= new DiscoveryDiagnostics();
         $rootPath = $this->pathGuard->canonicalizeDirectory($libraryRoot->path);
 
         yield from $this->walk($rootPath, $rootPath, $libraryRoot, $diagnostics);

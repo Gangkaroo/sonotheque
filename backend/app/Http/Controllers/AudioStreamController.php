@@ -18,7 +18,8 @@ class AudioStreamController extends Controller
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
         private readonly ByteRangeParser $rangeParser,
-    ) {}
+    ) {
+    }
 
     public function __invoke(Request $request, Track $track): StreamedResponse
     {

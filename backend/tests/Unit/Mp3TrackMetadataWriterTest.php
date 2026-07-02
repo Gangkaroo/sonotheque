@@ -4,11 +4,11 @@ namespace Tests\Unit;
 
 use App\Music\Metadata\Mp3Id3v2TagEditor;
 use App\Music\Metadata\Mp3TrackMetadataWriter;
-use App\Music\Scanning\AudioMetadata;
-use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\GetId3MetadataReader;
 use App\Music\Scanning\RawMetadataSanitizer;
 use PHPUnit\Framework\TestCase;
+use Tests\Fakes\ExtensionSensitiveId3MetadataReader;
+use Tests\Fakes\TestId3MetadataReader;
 
 class Mp3TrackMetadataWriterTest extends TestCase
 {
@@ -51,7 +51,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $payload .= str_repeat("\0", 2048 - strlen($payload));
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
 
-        $metadata = (new Mp3TrackMetadataWriter(new Mp3Id3v2TagEditor, new TestId3MetadataReader))->write($path, [
+        $metadata = (new Mp3TrackMetadataWriter(new Mp3Id3v2TagEditor(), new TestId3MetadataReader()))->write($path, [
             'title' => 'Änderung',
             'artistNames' => ['New artist', 'Guest'],
             'composers' => ['New composer'],
@@ -97,7 +97,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $legacyLameGap = str_repeat("\x01", 1044);
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$legacyLameGap.str_repeat("\xFF\xFB\x90\x64", 64));
 
-        $metadata = (new Mp3TrackMetadataWriter(new Mp3Id3v2TagEditor, new TestId3MetadataReader))->write($path, [
+        $metadata = (new Mp3TrackMetadataWriter(new Mp3Id3v2TagEditor(), new TestId3MetadataReader()))->write($path, [
             'albumTitle' => 'New album',
             'albumArtist' => 'New artist',
             'releaseYear' => 2025,
@@ -117,6 +117,75 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertEqualsCanonicalizing(['Heavy Metal', 'Doom'], $metadata->genres);
     }
 
+    public function test_it_rewrites_a_padded_id3_tag_without_copying_the_audio_payload(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'padded.mp3';
+        $audio = str_repeat("\xFF\xFB\x90\x64", 1024);
+        $payload = $this->frame('TIT2', "\0Old title");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
+        $verifiedPath = null;
+
+        (new Mp3Id3v2TagEditor())->write(
+            $path,
+            ['TIT2' => 'New title'],
+            [],
+            function (string $candidatePath) use (&$verifiedPath): void {
+                $verifiedPath = $candidatePath;
+            },
+        );
+
+        $this->assertSame($path, $verifiedPath);
+        $this->assertStringEndsWith($audio, (string) file_get_contents($path));
+        $this->assertSame([], glob($path.'.music-library-tag-*.bak') ?: []);
+    }
+
+    public function test_it_restores_the_original_tag_when_in_place_verification_fails(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'rollback.mp3';
+        $payload = $this->frame('TIT2', "\0Old title");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        $original = 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+            .str_repeat("\xFF\xFB\x90\x64", 64);
+        file_put_contents($path, $original);
+
+        try {
+            (new Mp3Id3v2TagEditor())->write(
+                $path,
+                ['TIT2' => 'Rejected title'],
+                [],
+                static fn () => throw new \RuntimeException('Simulated verification failure.'),
+            );
+            $this->fail('Expected verification failure.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Simulated verification failure.', $exception->getMessage());
+        }
+
+        $this->assertSame($original, file_get_contents($path));
+        $this->assertSame([], glob($path.'.music-library-tag-*.bak') ?: []);
+    }
+
+    public function test_it_uses_the_full_copy_path_when_the_updated_tag_outgrows_existing_padding(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'growing.mp3';
+        $audio = str_repeat("\xFF\xFB\x90\x64", 64);
+        $payload = $this->frame('TIT2', "\0Old title");
+        file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
+        $verifiedPath = null;
+
+        (new Mp3Id3v2TagEditor())->write(
+            $path,
+            ['TIT2' => str_repeat('Larger title ', 300)],
+            [],
+            function (string $candidatePath) use (&$verifiedPath): void {
+                $verifiedPath = $candidatePath;
+            },
+        );
+
+        $this->assertNotSame($path, $verifiedPath);
+        $this->assertStringEndsWith($audio, (string) file_get_contents($path));
+    }
+
     public function test_it_preserves_the_mp3_extension_for_temporary_file_verification(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'track.mp3';
@@ -126,8 +195,8 @@ class Mp3TrackMetadataWriterTest extends TestCase
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.str_repeat("\xFF\xFB\x90\x64", 64));
 
         $metadata = (new Mp3TrackMetadataWriter(
-            new Mp3Id3v2TagEditor,
-            new ExtensionSensitiveId3MetadataReader,
+            new Mp3Id3v2TagEditor(),
+            new ExtensionSensitiveId3MetadataReader(),
         ))->write($path, ['genres' => ['Krautrock']]);
 
         $this->assertSame(['Krautrock'], $metadata->genres);
@@ -145,8 +214,8 @@ class Mp3TrackMetadataWriterTest extends TestCase
         file_put_contents($path, 'ID3'.chr(4).chr(0).chr(0x80).$this->synchsafe(strlen($payload)).$payload.$audio);
 
         $metadata = (new Mp3TrackMetadataWriter(
-            new Mp3Id3v2TagEditor,
-            new TestId3MetadataReader,
+            new Mp3Id3v2TagEditor(),
+            new TestId3MetadataReader(),
         ))->write($path, ['genres' => ['Synthpop']]);
 
         $written = file_get_contents($path);
@@ -158,7 +227,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
 
     public function test_it_identifies_unsupported_id3v2_header_features_from_scanned_metadata(): void
     {
-        $editor = new Mp3Id3v2TagEditor;
+        $editor = new Mp3Id3v2TagEditor();
 
         $this->assertSame(
             Mp3Id3v2TagEditor::ISSUE_UNSYNCHRONIZATION,
@@ -183,8 +252,8 @@ class Mp3TrackMetadataWriterTest extends TestCase
         file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.str_repeat("\xFF\xFB\x90\x64", 64));
 
         $metadata = (new Mp3TrackMetadataWriter(
-            new Mp3Id3v2TagEditor,
-            new GetId3MetadataReader(new RawMetadataSanitizer),
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
         ))->write($path, ['genres' => ['Singer/Songwriter']]);
 
         $this->assertSame(['Singer/Songwriter'], $metadata->genres);
@@ -207,64 +276,12 @@ class Mp3TrackMetadataWriterTest extends TestCase
 
     private function synchsafe(int $value): string
     {
-        return pack('C4',
+        return pack(
+            'C4',
             ($value >> 21) & 0x7F,
             ($value >> 14) & 0x7F,
             ($value >> 7) & 0x7F,
             $value & 0x7F,
         );
-    }
-}
-
-class ExtensionSensitiveId3MetadataReader implements AudioMetadataReader
-{
-    public function read(string $absolutePath): AudioMetadata
-    {
-        if (mb_strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION)) !== 'mp3') {
-            throw new \RuntimeException('unable to determine file format');
-        }
-
-        return (new TestId3MetadataReader)->read($absolutePath);
-    }
-}
-
-class TestId3MetadataReader implements AudioMetadataReader
-{
-    public function read(string $absolutePath): AudioMetadata
-    {
-        $information = (new \getID3)->analyze($absolutePath);
-        \getid3_lib::CopyTagsToComments($information);
-        $comments = $information['comments'] ?? [];
-
-        return new AudioMetadata(
-            title: $comments['title'][0] ?? null,
-            album: $comments['album'][0] ?? null,
-            albumArtist: $comments['album_artist'][0] ?? $comments['band'][0] ?? null,
-            artists: array_values($comments['artist'] ?? []),
-            composers: array_values($comments['composer'] ?? []),
-            performers: array_values($comments['performer'] ?? $comments['conductor'] ?? []),
-            comment: $comments['comment'][0] ?? null,
-            genres: array_values($comments['genre'] ?? []),
-            year: $this->number($comments['year'][0] ?? $comments['date'][0] ?? null),
-            originalReleaseYear: $this->number($comments['original_year'][0] ?? $comments['year'][0] ?? null),
-            trackNumber: $this->number($comments['track_number'][0] ?? null),
-            discNumber: $this->number($comments['part_of_a_set'][0] ?? null),
-            discTotal: $this->total($comments['part_of_a_set'][0] ?? null),
-            rawMetadata: $information,
-        );
-    }
-
-    private function number(mixed $value): ?int
-    {
-        return is_scalar($value) && preg_match('/^\d+/', (string) $value, $matches) === 1
-            ? (int) $matches[0]
-            : null;
-    }
-
-    private function total(mixed $value): ?int
-    {
-        return is_scalar($value) && preg_match('/^\d+\/(\d+)/', (string) $value, $matches) === 1
-            ? (int) $matches[1]
-            : null;
     }
 }

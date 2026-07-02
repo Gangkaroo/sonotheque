@@ -15,7 +15,9 @@ class ScanLibraryRoot implements ShouldQueue
 
     public int $timeout = 0;
 
-    public function __construct(public readonly int $scanRunId) {}
+    public function __construct(public readonly int $scanRunId)
+    {
+    }
 
     public function handle(LibraryScanner $scanner): void
     {

@@ -33,6 +33,7 @@ use Illuminate\Support\Str;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
+use Tests\Fakes\FakeAudioMetadataReader;
 use Tests\TestCase;
 
 class LibraryScannerTest extends TestCase
@@ -775,39 +776,5 @@ class LibraryScannerTest extends TestCase
         }
 
         rmdir($path);
-    }
-}
-
-class FakeAudioMetadataReader implements AudioMetadataReader
-{
-    public int $calls = 0;
-
-    public ?\Closure $beforeRead = null;
-
-    /** @var list<string> */
-    private array $failPaths = [];
-
-    public function __construct(private readonly AudioMetadata $metadata) {}
-
-    public function read(string $absolutePath): AudioMetadata
-    {
-        $this->calls++;
-
-        if ($this->beforeRead !== null) {
-            ($this->beforeRead)();
-        }
-
-        foreach ($this->failPaths as $path) {
-            if (str_contains($absolutePath, $path)) {
-                throw new \RuntimeException('The test audio file is malformed.');
-            }
-        }
-
-        return $this->metadata;
-    }
-
-    public function failOn(string $path): void
-    {
-        $this->failPaths[] = $path;
     }
 }

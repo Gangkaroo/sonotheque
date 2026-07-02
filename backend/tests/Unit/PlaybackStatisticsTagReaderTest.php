@@ -9,7 +9,7 @@ class PlaybackStatisticsTagReaderTest extends TestCase
 {
     public function test_it_reads_foobar_playback_statistics_from_nested_tag_fields(): void
     {
-        $statistics = (new PlaybackStatisticsTagReader)->read([
+        $statistics = (new PlaybackStatisticsTagReader())->read([
             'comments' => [
                 'text' => [
                     'PLAY_COUNT' => '42',
@@ -27,7 +27,7 @@ class PlaybackStatisticsTagReaderTest extends TestCase
 
     public function test_it_reads_standard_play_counter_and_reports_invalid_dates(): void
     {
-        $statistics = (new PlaybackStatisticsTagReader)->read([
+        $statistics = (new PlaybackStatisticsTagReader())->read([
             'id3v2' => [
                 'comments' => [
                     'play_counter' => [7],
@@ -43,7 +43,7 @@ class PlaybackStatisticsTagReaderTest extends TestCase
 
     public function test_it_reads_foobar_windows_filetime_timestamps(): void
     {
-        $statistics = (new PlaybackStatisticsTagReader)->read([
+        $statistics = (new PlaybackStatisticsTagReader())->read([
             'comments' => [
                 'play_count' => ['1'],
                 'first_played_timestamp' => ['132174539906814579'],

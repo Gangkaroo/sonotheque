@@ -11,20 +11,20 @@ class ByteRangeParser
         }
 
         if ($fileSize <= 0 || preg_match('/^bytes=(\d*)-(\d*)$/', trim($header), $matches) !== 1) {
-            throw new InvalidByteRange;
+            throw new InvalidByteRange();
         }
 
         [$startValue, $endValue] = [$matches[1], $matches[2]];
 
         if ($startValue === '' && $endValue === '') {
-            throw new InvalidByteRange;
+            throw new InvalidByteRange();
         }
 
         if ($startValue === '') {
             $suffixLength = (int) $endValue;
 
             if ($suffixLength <= 0) {
-                throw new InvalidByteRange;
+                throw new InvalidByteRange();
             }
 
             return new ByteRange(max(0, $fileSize - $suffixLength), $fileSize - 1);
@@ -34,7 +34,7 @@ class ByteRangeParser
         $end = $endValue === '' ? $fileSize - 1 : (int) $endValue;
 
         if ($start >= $fileSize || $end < $start) {
-            throw new InvalidByteRange;
+            throw new InvalidByteRange();
         }
 
         return new ByteRange($start, min($end, $fileSize - 1));

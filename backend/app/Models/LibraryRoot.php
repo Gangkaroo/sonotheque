@@ -29,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(order: ['name' => 'ASC']),
         new Post(
             rules: [
@@ -52,7 +52,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
             ],
             processor: UpdateLibraryRootProcessor::class,
         ),
-        new Delete,
+        new Delete(),
     ],
     paginationItemsPerPage: 100,
 )]

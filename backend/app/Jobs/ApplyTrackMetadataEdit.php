@@ -24,7 +24,9 @@ class ApplyTrackMetadataEdit implements ShouldQueue
 
     public int $timeout = 180;
 
-    public function __construct(public readonly int $metadataEditJobId) {}
+    public function __construct(public readonly int $metadataEditJobId)
+    {
+    }
 
     /** @return list<int> */
     public function backoff(): array

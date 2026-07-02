@@ -67,7 +67,8 @@ class LibraryScanner
         private readonly AlbumArtworkManager $artworkManager,
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
-    ) {}
+    ) {
+    }
 
     public function scan(ScanRun $scanRun): void
     {
@@ -101,7 +102,7 @@ class LibraryScanner
         $existingFileCount = count($this->existingFiles);
 
         try {
-            $countDiagnostics = new DiscoveryDiagnostics;
+            $countDiagnostics = new DiscoveryDiagnostics();
 
             foreach ($this->discoverer->discover($scanRun->libraryRoot, $countDiagnostics) as $_file) {
                 $progress['files_discovered']++;
@@ -123,7 +124,7 @@ class LibraryScanner
             $scanRun->update(array_merge($progress, [
                 'summary' => $this->summary('scanning', $issues),
             ]));
-            $diagnostics = new DiscoveryDiagnostics;
+            $diagnostics = new DiscoveryDiagnostics();
 
             foreach ($this->discoverer->discover($scanRun->libraryRoot, $diagnostics) as $file) {
                 if ($progress['files_processed'] % self::CANCELLATION_CHECK_INTERVAL === 0

@@ -87,6 +87,18 @@ class Mp3Id3v2TagEditor
             throw new RuntimeException("Audio file [{$path}] is not a writable regular file.");
         }
 
+        $inPlaceReplacement = $this->inPlaceReplacement($path, $textFrames, $userTextFrames, $commentFrames);
+        if ($inPlaceReplacement !== null) {
+            $this->writeTagInPlace(
+                $path,
+                $inPlaceReplacement['original'],
+                $inPlaceReplacement['replacement'],
+                $verify,
+            );
+
+            return;
+        }
+
         $suffix = '.music-library-metadata-'.bin2hex(random_bytes(8));
         $temporaryPath = $path.$suffix.'.tmp.'.pathinfo($path, PATHINFO_EXTENSION);
         $backupPath = $path.$suffix.'.bak';
@@ -100,6 +112,168 @@ class Mp3Id3v2TagEditor
             if (is_file($backupPath) && is_file($path)) {
                 @unlink($backupPath);
             }
+        }
+    }
+
+    /**
+     * @param  array<string, string|list<string>|null>  $textFrames
+     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, ?string>  $commentFrames
+     * @return null|array{original: string, replacement: string}
+     */
+    private function inPlaceReplacement(
+        string $path,
+        array $textFrames,
+        array $userTextFrames,
+        array $commentFrames,
+    ): ?array {
+        $source = fopen($path, 'rb');
+        if ($source === false) {
+            throw new RuntimeException('Could not read the audio file for ID3v2 editing.');
+        }
+
+        try {
+            if (! flock($source, LOCK_SH)) {
+                throw new RuntimeException('Could not lock the source audio file for ID3v2 editing.');
+            }
+
+            $existing = $this->readExistingTag($source);
+            if ($existing === null) {
+                return null;
+            }
+
+            $payload = $this->replaceFrames(
+                $existing['payload'],
+                $existing['majorVersion'],
+                $textFrames,
+                $userTextFrames,
+                $commentFrames,
+            );
+            if (strlen($payload) > $existing['payloadSize']) {
+                return null;
+            }
+
+            $payload .= str_repeat("\0", $existing['payloadSize'] - strlen($payload));
+
+            return [
+                'original' => $existing['header'].$existing['payload'],
+                'replacement' => $existing['header'].$payload,
+            ];
+        } finally {
+            flock($source, LOCK_UN);
+            fclose($source);
+        }
+    }
+
+    private function writeTagInPlace(
+        string $path,
+        string $originalTag,
+        string $replacementTag,
+        Closure $verify,
+    ): void {
+        $backupPath = $path.'.music-library-tag-'.bin2hex(random_bytes(8)).'.bak';
+        $this->writeRecoveryTag($backupPath, $originalTag);
+        $writeStarted = false;
+
+        try {
+            $this->replaceTagPrefix($path, $originalTag, $replacementTag, $writeStarted);
+            $verify($path);
+        } catch (Throwable $exception) {
+            if ($writeStarted) {
+                try {
+                    $this->restoreTagPrefix($path, $originalTag);
+                } catch (Throwable $restoreException) {
+                    throw new RuntimeException(
+                        "Metadata verification failed and the original tag could not be restored. Recovery data remains at [{$backupPath}].",
+                        previous: $exception,
+                    );
+                }
+            }
+
+            @unlink($backupPath);
+            throw $exception;
+        }
+
+        if (! unlink($backupPath)) {
+            throw new RuntimeException("The file was updated, but temporary tag backup [{$backupPath}] could not be removed.");
+        }
+    }
+
+    private function writeRecoveryTag(string $path, string $tag): void
+    {
+        $stream = fopen($path, 'xb');
+        if ($stream === false) {
+            throw new RuntimeException('Could not create the temporary ID3v2 recovery data.');
+        }
+
+        try {
+            $this->writeAll($stream, $tag);
+            fflush($stream);
+            if (function_exists('fsync')) {
+                fsync($stream);
+            }
+        } catch (Throwable $exception) {
+            fclose($stream);
+            @unlink($path);
+            throw $exception;
+        }
+
+        fclose($stream);
+    }
+
+    private function replaceTagPrefix(
+        string $path,
+        string $expectedTag,
+        string $replacementTag,
+        bool &$writeStarted,
+    ): void {
+        $stream = fopen($path, 'r+b');
+        if ($stream === false) {
+            throw new RuntimeException('Could not open the audio file for in-place ID3v2 editing.');
+        }
+
+        try {
+            if (! flock($stream, LOCK_EX)) {
+                throw new RuntimeException('Could not lock the audio file for in-place ID3v2 editing.');
+            }
+
+            if (! hash_equals($expectedTag, $this->read($stream, strlen($expectedTag)))) {
+                throw new RuntimeException('The ID3v2 tag changed before it could be updated.');
+            }
+
+            rewind($stream);
+            $writeStarted = true;
+            $this->writeAll($stream, $replacementTag);
+            fflush($stream);
+            if (function_exists('fsync')) {
+                fsync($stream);
+            }
+        } finally {
+            flock($stream, LOCK_UN);
+            fclose($stream);
+        }
+    }
+
+    private function restoreTagPrefix(string $path, string $originalTag): void
+    {
+        $stream = fopen($path, 'r+b');
+        if ($stream === false) {
+            throw new RuntimeException('Could not reopen the audio file to restore its original ID3v2 tag.');
+        }
+
+        try {
+            if (! flock($stream, LOCK_EX)) {
+                throw new RuntimeException('Could not lock the audio file to restore its original ID3v2 tag.');
+            }
+
+            $this->writeAll($stream, $originalTag);
+            fflush($stream);
+            if (function_exists('fsync')) {
+                fsync($stream);
+            }
+        } finally {
+            flock($stream, LOCK_UN);
+            fclose($stream);
         }
     }
 
@@ -133,24 +307,20 @@ class Mp3Id3v2TagEditor
                 throw new RuntimeException('Could not lock the source audio file for ID3v2 editing.');
             }
 
-            $firstBytes = $this->read($source, 10);
-            if (substr($firstBytes, 0, 3) === 'ID3') {
-                $majorVersion = ord($firstBytes[3]);
-                $revision = ord($firstBytes[4]);
-                $flags = ord($firstBytes[5]);
-                if (! in_array($majorVersion, [3, 4], true)) {
-                    throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$majorVersion} tags are not supported for editing.");
-                }
-                if ($issue = $this->headerSupportIssue($majorVersion, $flags)) {
-                    throw new UnsupportedPlaybackStatisticsTagFormat($this->supportIssueMessage($issue));
-                }
-
-                $existingSize = $this->decodeSynchsafe(substr($firstBytes, 6, 4));
-                $existingPayload = $this->read($source, $existingSize);
-                $payload = $this->replaceFrames($existingPayload, $majorVersion, $textFrames, $userTextFrames, $commentFrames);
-                $payloadSize = max($existingSize, strlen($payload) + 1024);
+            $existing = $this->readExistingTag($source);
+            if ($existing !== null) {
+                $majorVersion = $existing['majorVersion'];
+                $revision = $existing['revision'];
+                $flags = $existing['flags'];
+                $payload = $this->replaceFrames(
+                    $existing['payload'],
+                    $majorVersion,
+                    $textFrames,
+                    $userTextFrames,
+                    $commentFrames,
+                );
+                $payloadSize = max($existing['payloadSize'], strlen($payload) + 1024);
             } else {
-                rewind($source);
                 $majorVersion = 4;
                 $revision = 0;
                 $flags = 0;
@@ -188,6 +358,41 @@ class Mp3Id3v2TagEditor
         if ($permissions !== false) {
             @chmod($temporaryPath, $permissions & 0777);
         }
+    }
+
+    /**
+     * @param  resource  $source
+     * @return null|array{header: string, majorVersion: int, revision: int, flags: int, payloadSize: int, payload: string}
+     */
+    private function readExistingTag($source): ?array
+    {
+        $header = $this->read($source, 10);
+        if (substr($header, 0, 3) !== 'ID3') {
+            rewind($source);
+
+            return null;
+        }
+
+        $majorVersion = ord($header[3]);
+        $revision = ord($header[4]);
+        $flags = ord($header[5]);
+        if (! in_array($majorVersion, [3, 4], true)) {
+            throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$majorVersion} tags are not supported for editing.");
+        }
+        if ($issue = $this->headerSupportIssue($majorVersion, $flags)) {
+            throw new UnsupportedPlaybackStatisticsTagFormat($this->supportIssueMessage($issue));
+        }
+
+        $payloadSize = $this->decodeSynchsafe(substr($header, 6, 4));
+
+        return [
+            'header' => $header,
+            'majorVersion' => $majorVersion,
+            'revision' => $revision,
+            'flags' => $flags,
+            'payloadSize' => $payloadSize,
+            'payload' => $this->read($source, $payloadSize),
+        ];
     }
 
     /**
@@ -438,7 +643,8 @@ class Mp3Id3v2TagEditor
 
     private function encodeSynchsafe(int $value): string
     {
-        return pack('C4',
+        return pack(
+            'C4',
             ($value >> 21) & 0x7F,
             ($value >> 14) & 0x7F,
             ($value >> 7) & 0x7F,

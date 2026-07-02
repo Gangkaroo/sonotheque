@@ -4,4 +4,6 @@ namespace App\Music\Streaming;
 
 use RuntimeException;
 
-class InvalidByteRange extends RuntimeException {}
+class InvalidByteRange extends RuntimeException
+{
+}

@@ -11,7 +11,8 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
     public function __construct(
         private readonly Mp3Id3v2TagEditor $editor,
         private readonly AudioMetadataReader $metadataReader,
-    ) {}
+    ) {
+    }
 
     public function supports(string $path): bool
     {
@@ -121,7 +122,7 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
     /** @return array{?int, ?int, ?int} */
     private function positions(string $path): array
     {
-        $information = (new \getID3)->analyze($path);
+        $information = (new \getID3())->analyze($path);
         \getid3_lib::CopyTagsToComments($information);
         $comments = $information['comments'] ?? [];
         $id3Comments = $information['id3v2']['comments'] ?? [];

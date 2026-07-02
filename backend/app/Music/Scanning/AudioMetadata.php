@@ -38,5 +38,6 @@ final readonly class AudioMetadata
         public ?EmbeddedArtwork $embeddedArtwork = null,
         public array $warnings = [],
         public array $rawMetadata = [],
-    ) {}
+    ) {
+    }
 }

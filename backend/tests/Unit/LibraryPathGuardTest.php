@@ -11,7 +11,7 @@ class LibraryPathGuardTest extends TestCase
 {
     public function test_drive_roots_use_a_single_separator_for_containment(): void
     {
-        $guard = new LibraryPathGuard;
+        $guard = new LibraryPathGuard();
 
         $this->assertTrue($guard->containsDirectory('P:/', 'P:/Artist/Album/track.mp3'));
         $this->assertFalse($guard->containsDirectory('P:/', 'Q:/Artist/Album/track.mp3'));
@@ -19,14 +19,14 @@ class LibraryPathGuardTest extends TestCase
 
     public function test_it_normalizes_safe_relative_paths(): void
     {
-        $guard = new LibraryPathGuard;
+        $guard = new LibraryPathGuard();
 
         $this->assertSame('artwork/front.jpg', $guard->normalizeRelativePath('artwork\\front.jpg'));
     }
 
     public function test_it_normalizes_parent_relative_cover_paths(): void
     {
-        $guard = new LibraryPathGuard;
+        $guard = new LibraryPathGuard();
 
         $this->assertSame('../Cover/Front.jpg', $guard->normalizeNavigableRelativePath('..\\Cover\\Front.jpg'));
     }
@@ -38,7 +38,7 @@ class LibraryPathGuardTest extends TestCase
         file_put_contents($directory.DIRECTORY_SEPARATOR.'cover.jpg', 'cover');
 
         try {
-            $resolved = (new LibraryPathGuard)->resolveExistingFileWithin($directory, 'cover.jpg');
+            $resolved = (new LibraryPathGuard())->resolveExistingFileWithin($directory, 'cover.jpg');
 
             $this->assertSame(
                 str_replace('\\', '/', realpath($directory.DIRECTORY_SEPARATOR.'cover.jpg')),
@@ -58,7 +58,7 @@ class LibraryPathGuardTest extends TestCase
         file_put_contents($coverDirectory.DIRECTORY_SEPARATOR.'Front.jpg', 'cover');
 
         try {
-            $resolved = (new LibraryPathGuard)->resolveExistingFileWithinFrom(
+            $resolved = (new LibraryPathGuard())->resolveExistingFileWithinFrom(
                 $directory,
                 'Artist/Album',
                 '../Cover/Front.jpg',
@@ -84,7 +84,7 @@ class LibraryPathGuardTest extends TestCase
         try {
             $this->expectException(InvalidLibraryPath::class);
 
-            (new LibraryPathGuard)->resolveExistingFileWithinFrom(
+            (new LibraryPathGuard())->resolveExistingFileWithinFrom(
                 $directory,
                 'Artist/Album',
                 '../../../Front.jpg',
@@ -99,7 +99,7 @@ class LibraryPathGuardTest extends TestCase
     {
         $this->expectException(InvalidLibraryPath::class);
 
-        (new LibraryPathGuard)->normalizeRelativePath($path);
+        (new LibraryPathGuard())->normalizeRelativePath($path);
     }
 
     /** @return array<string, array{string}> */

@@ -22,7 +22,8 @@ class AlbumArtworkManager
         private readonly int $thumbnailQuality,
         private readonly int $maxSourceBytes,
         private readonly int $maxSourcePixels,
-    ) {}
+    ) {
+    }
 
     public function sync(
         Album $album,

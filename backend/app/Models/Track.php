@@ -32,7 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 ])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['album_id' => 'ASC', 'disc_number' => 'ASC', 'track_number' => 'ASC'],
             parameters: [

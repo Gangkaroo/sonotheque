@@ -9,7 +9,7 @@ class RawMetadataSanitizerTest extends TestCase
 {
     public function test_it_replaces_values_that_postgresql_jsonb_cannot_store(): void
     {
-        $metadata = (new RawMetadataSanitizer)->sanitize([
+        $metadata = (new RawMetadataSanitizer())->sanitize([
             'comments' => [
                 "\xFF\xFEi\0T\0u\0n\0P\0G\0A\0P\0" => 'binary key',
                 'music_cd_identifier' => ["\x02:\x01F\0\x10"],

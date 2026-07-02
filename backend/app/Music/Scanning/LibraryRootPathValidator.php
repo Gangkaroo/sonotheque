@@ -8,7 +8,8 @@ class LibraryRootPathValidator
 {
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
-    ) {}
+    ) {
+    }
 
     public function assertAvailable(string $path): void
     {
