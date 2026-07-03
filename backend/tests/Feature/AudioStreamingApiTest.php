@@ -63,6 +63,19 @@ class AudioStreamingApiTest extends TestCase
         $this->assertSame('789', $suffix->streamedContent());
     }
 
+    public function test_it_returns_open_ended_ranges_as_complete_bounded_chunks(): void
+    {
+        config(['music-library.audio_stream_open_ended_range_bytes' => 4]);
+        $track = $this->createTrack('0123456789');
+
+        $response = $this->get("/api/tracks/{$track->id}/stream", ['Range' => 'bytes=2-']);
+
+        $response->assertStatus(206)
+            ->assertHeader('Content-Range', 'bytes 2-5/10')
+            ->assertHeader('Content-Length', '4');
+        $this->assertSame('2345', $response->streamedContent());
+    }
+
     public function test_it_rejects_unsatisfiable_and_multiple_ranges(): void
     {
         $track = $this->createTrack('0123456789');

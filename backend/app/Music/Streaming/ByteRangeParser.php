@@ -4,7 +4,7 @@ namespace App\Music\Streaming;
 
 class ByteRangeParser
 {
-    public function parse(?string $header, int $fileSize): ?ByteRange
+    public function parse(?string $header, int $fileSize, ?int $maxOpenEndedLength = null): ?ByteRange
     {
         if ($header === null || trim($header) === '') {
             return null;
@@ -31,12 +31,23 @@ class ByteRangeParser
         }
 
         $start = (int) $startValue;
-        $end = $endValue === '' ? $fileSize - 1 : (int) $endValue;
+        $end = $endValue === ''
+            ? $this->openEndedRangeEnd($start, $fileSize, $maxOpenEndedLength)
+            : (int) $endValue;
 
         if ($start >= $fileSize || $end < $start) {
             throw new InvalidByteRange();
         }
 
         return new ByteRange($start, min($end, $fileSize - 1));
+    }
+
+    private function openEndedRangeEnd(int $start, int $fileSize, ?int $maximumLength): int
+    {
+        if ($maximumLength === null || $maximumLength <= 0) {
+            return $fileSize - 1;
+        }
+
+        return min($fileSize - 1, $start + $maximumLength - 1);
     }
 }

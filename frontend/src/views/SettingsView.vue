@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/client'
 import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
 import LanAccessSettings from '@/components/LanAccessSettings.vue'
+import LastFmSettings from '@/components/LastFmSettings.vue'
 import MetadataSettings from '@/components/MetadataSettings.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAdminAccessStore } from '@/stores/adminAccess'
@@ -286,6 +287,9 @@ async function removeRoot() {
     <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-tag-multiple-outline" value="metadata">
       {{ t('settings.metadataTab') }}
     </v-tab>
+    <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-connection" value="connections">
+      {{ t('settings.connectionsTab') }}
+    </v-tab>
     <v-tab prepend-icon="mdi-shield-lock-outline" value="security">
       {{ t('settings.securityTab') }}
     </v-tab>
@@ -406,6 +410,11 @@ async function removeRoot() {
 
   <MetadataSettings
     v-if="activeSettingsTab === 'metadata' && canAccessProtectedSettings"
+    :key="adminAccess.revision"
+  />
+
+  <LastFmSettings
+    v-if="activeSettingsTab === 'connections' && canAccessProtectedSettings"
     :key="adminAccess.revision"
   />
 

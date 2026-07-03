@@ -136,6 +136,7 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('tracks.0.id', $track->id)
             ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('tracks.0.album.title', 'Album')
+            ->assertJsonPath('tracks.0.album.artworkThumbnailUrl', "/api/artwork/{$artwork->id}/thumbnail")
             ->assertJsonPath('tracks.0.artists.0.name', 'Artist')
             ->assertJsonPath('tracks.0.playStatistics.playCount', 0);
     }

@@ -3,13 +3,17 @@
 namespace Tests\Feature;
 
 use App\Jobs\SynchronizeTrackPlaybackStatistics;
+use App\Jobs\ScrobbleTrackPlayEvent;
 use App\Models\Album;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Models\TrackPlayEvent;
+use App\Music\LastFm\LastFmApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -22,7 +26,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         $track = $this->createTrack(durationMs: 120_000);
 
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
             'context' => 'track-list',
             'sessionKey' => 'play-session-1',
@@ -39,7 +43,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         $this->assertDatabaseHas('track_play_events', [
             'track_id' => $track->id,
             'media_file_id' => $track->media_file_id,
-            'listened_ms' => 15_000,
+            'listened_ms' => 60_000,
             'duration_ms' => 120_000,
             'counted' => true,
             'source' => 'app',
@@ -53,7 +57,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         $track = $this->createTrack(durationMs: 120_000);
 
         $payload = [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
             'sessionKey' => 'same-playback-session',
         ];
@@ -97,7 +101,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         ]);
     }
 
-    public function test_it_counts_tracks_shorter_than_the_threshold_immediately(): void
+    public function test_it_does_not_count_tracks_that_are_thirty_seconds_or_shorter(): void
     {
         $track = $this->createTrack(durationMs: 10_000);
 
@@ -105,14 +109,16 @@ class TrackPlayStatisticsApiTest extends TestCase
             'listenedMs' => 0,
             'durationMs' => 10_000,
         ])
-            ->assertCreated()
-            ->assertJsonPath('counted', true)
-            ->assertJsonPath('statistics.playCount', 1);
+            ->assertAccepted()
+            ->assertJsonPath('counted', false)
+            ->assertJsonPath('statistics.playCount', 0);
     }
 
     public function test_it_queues_file_synchronization_for_a_counted_play_when_enabled(): void
     {
         Queue::fake();
+        $this->freezeTime();
+        config(['music-library.play_statistics_sync_delay_seconds' => 30]);
         ApplicationSetting::current()->update([
             'import_play_statistics_from_tags' => true,
             'export_play_statistics_to_tags' => true,
@@ -120,16 +126,21 @@ class TrackPlayStatisticsApiTest extends TestCase
         $track = $this->createTrack(durationMs: 120_000);
 
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
             'sessionKey' => 'synchronized-play',
         ])->assertCreated();
 
-        Queue::assertPushed(SynchronizeTrackPlaybackStatistics::class, fn ($job): bool => $job->trackId === $track->id);
+        $expectedDelay = now()->addSeconds(90);
+        Queue::assertPushed(
+            SynchronizeTrackPlaybackStatistics::class,
+            fn ($job): bool => $job->trackId === $track->id
+                && $job->delay?->equalTo($expectedDelay) === true,
+        );
 
         Queue::fake();
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
             'sessionKey' => 'synchronized-play',
         ])->assertOk()->assertJsonPath('duplicate', true);
@@ -142,7 +153,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         $track = $this->createTrack(durationMs: 120_000);
 
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
         ])->assertCreated();
 
@@ -154,7 +165,7 @@ class TrackPlayStatisticsApiTest extends TestCase
         $track = $this->createTrack(durationMs: 120_000);
 
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
         ])->assertCreated();
 
@@ -164,6 +175,46 @@ class TrackPlayStatisticsApiTest extends TestCase
             ->assertJsonStructure([
                 'playStatistics' => ['playCount', 'firstPlayedAt', 'lastPlayedAt'],
             ]);
+    }
+
+    public function test_it_queues_a_lastfm_scrobble_for_an_eligible_play_when_connected(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update([
+            'lastfm_scrobbling_enabled' => true,
+            'lastfm_api_key' => str_repeat('a', 32),
+            'lastfm_api_secret' => str_repeat('b', 32),
+            'lastfm_session_key' => 'session-key',
+            'lastfm_username' => 'listener',
+        ]);
+        $track = $this->createTrack(durationMs: 600_000);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 240_000,
+            'durationMs' => 600_000,
+            'sessionKey' => 'lastfm-play',
+        ])->assertCreated()
+            ->assertJsonPath('lastFmQueued', true);
+
+        Queue::assertPushed(ScrobbleTrackPlayEvent::class);
+        $this->assertDatabaseHas('track_play_events', [
+            'track_id' => $track->id,
+            'lastfm_status' => 'pending',
+        ]);
+
+        Http::fake(['*' => Http::response([
+            'scrobbles' => [
+                '@attr' => ['accepted' => '1', 'ignored' => '0'],
+                'scrobble' => ['ignoredMessage' => ['code' => '0', '#text' => '']],
+            ],
+        ])]);
+        $event = TrackPlayEvent::query()->where('track_id', $track->id)->sole();
+        (new ScrobbleTrackPlayEvent($event->id))->handle(app(LastFmApiClient::class));
+
+        $this->assertSame('sent', $event->refresh()->lastfm_status);
+        Http::assertSent(fn ($request): bool => $request['artist'] === 'Artist'
+            && $request['track'] === 'Track'
+            && $request['album'] === 'Album');
     }
 
     private function createTrack(int $durationMs): Track

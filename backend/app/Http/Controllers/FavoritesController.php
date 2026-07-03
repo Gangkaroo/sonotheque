@@ -26,7 +26,7 @@ class FavoritesController extends Controller
     public function tracks(): JsonResponse
     {
         $favorites = FavoriteTrack::query()
-            ->with(['track.album:id,title,original_release_year', 'track.artists:id,name'])
+            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.artists:id,name'])
             ->orderByDesc('created_at')
             ->paginate(50);
 

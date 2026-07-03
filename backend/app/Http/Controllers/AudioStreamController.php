@@ -49,7 +49,11 @@ class AudioStreamController extends Controller
         abort_if($fileSize === false || $fileSize <= 0, 404);
 
         try {
-            $range = $this->rangeParser->parse($request->header('Range'), $fileSize);
+            $range = $this->rangeParser->parse(
+                $request->header('Range'),
+                $fileSize,
+                max(1, (int) config('music-library.audio_stream_open_ended_range_bytes')),
+            );
         } catch (InvalidByteRange) {
             return $this->rangeNotSatisfiable($fileSize);
         }

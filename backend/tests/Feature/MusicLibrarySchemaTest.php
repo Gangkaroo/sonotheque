@@ -242,28 +242,38 @@ class MusicLibrarySchemaTest extends TestCase
             ->where('schemaname', 'public')
             ->whereIn('indexname', [
                 'artists_browse_index',
+                'artists_name_ci_unique',
                 'artists_name_trgm_index',
-                'artists_sort_name_trgm_index',
                 'albums_title_trgm_index',
-                'albums_sort_title_trgm_index',
                 'albums_original_release_year_index',
                 'albums_artist_year_title_index',
                 'genres_name_trgm_index',
                 'tracks_title_trgm_index',
-                'tracks_sort_title_trgm_index',
+                'tracks_album_disc_track_id_index',
                 'genres_name_ci_unique',
                 'genre_track_pkey',
                 'genre_track_track_id_index',
+                'media_files_root_last_seen_index',
+                'media_files_root_id_index',
+                'scan_runs_root_status_id_index',
+                'scan_runs_root_status_updated_index',
+                'track_play_events_counted_recent_index',
+                'track_play_statistics_ranking_index',
             ])
             ->pluck('indexdef', 'indexname');
 
-        $this->assertCount(13, $indexes);
+        $this->assertCount(18, $indexes);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['artists_name_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['albums_title_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['tracks_title_trgm_index']);
         $this->assertStringContainsString('browse_initial', $indexes['artists_browse_index']);
         $this->assertStringContainsString('original_release_year', $indexes['albums_artist_year_title_index']);
         $this->assertStringContainsString('lower((name)::text)', $indexes['genres_name_ci_unique']);
+        $this->assertStringContainsString('lower((name)::text)', $indexes['artists_name_ci_unique']);
+        $this->assertStringContainsString('last_seen_at', $indexes['media_files_root_last_seen_index']);
+        $this->assertStringContainsString('album_id, disc_number, track_number, id', $indexes['tracks_album_disc_track_id_index']);
+        $this->assertStringContainsString('WHERE (counted = true)', $indexes['track_play_events_counted_recent_index']);
+        $this->assertStringContainsString('WHERE (play_count > 0)', $indexes['track_play_statistics_ranking_index']);
     }
 
     public function test_artist_browse_initial_rejects_values_outside_a_to_z_and_hash(): void
@@ -283,5 +293,21 @@ class MusicLibrarySchemaTest extends TestCase
 
         $this->expectException(QueryException::class);
         Genre::create(['name' => 'electronic']);
+    }
+
+    public function test_artists_are_unique_ignoring_case(): void
+    {
+        Artist::create([
+            'name' => 'Bjoerk',
+            'sort_name' => 'Bjoerk',
+            'browse_initial' => 'B',
+        ]);
+
+        $this->expectException(QueryException::class);
+        Artist::create([
+            'name' => 'BJOERK',
+            'sort_name' => 'BJOERK',
+            'browse_initial' => 'B',
+        ]);
     }
 }

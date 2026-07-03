@@ -233,9 +233,13 @@ function Start-ManagedProcess {
     Remove-StaleProcessState -Name $Name
     $previousEnvironment = @{}
     try {
-        foreach ($name in $EnvironmentVariables.Keys) {
-            $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-            [Environment]::SetEnvironmentVariable($name, [string]$EnvironmentVariables[$name], 'Process')
+        foreach ($environmentName in $EnvironmentVariables.Keys) {
+            $previousEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, 'Process')
+            [Environment]::SetEnvironmentVariable(
+                $environmentName,
+                [string]$EnvironmentVariables[$environmentName],
+                'Process'
+            )
         }
 
         $process = Start-Process `
@@ -248,8 +252,12 @@ function Start-ManagedProcess {
             -PassThru
     }
     finally {
-        foreach ($name in $EnvironmentVariables.Keys) {
-            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+        foreach ($environmentName in $EnvironmentVariables.Keys) {
+            [Environment]::SetEnvironmentVariable(
+                $environmentName,
+                $previousEnvironment[$environmentName],
+                'Process'
+            )
         }
     }
 
@@ -496,7 +504,7 @@ function Get-RuntimeStatus {
     $postgresStatus = Get-PostgresStatus
     $apiProcess = Get-ManagedProcess -Name 'api'
     $apiOwner = Get-PortOwner -Port 8000
-    $apiHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/api/dashboard-metrics'
+    $apiHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/up'
     $queueProcess = Get-ManagedProcess -Name 'queue-worker'
     $externalQueue = if ($null -eq $queueProcess) { Find-ExternalQueueWorker } else { $null }
     $frontendProcess = Get-ManagedProcess -Name 'frontend'

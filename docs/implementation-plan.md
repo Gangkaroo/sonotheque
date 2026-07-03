@@ -73,13 +73,13 @@ The first usable release will provide:
 
 The following features are deferred until after the first stable local release:
 
-- Metadata writing for formats beyond MP3 and album cover editing
 - User accounts and permissions
-- Automatic metadata lookup from external services
+- Session-wide catalog scoping to one library root or all roots
+- Personal album information, including purchase source and physical-copy state
+- Online artist, album, and lyrics enrichment
 - Audio transcoding
 - Playlist import/export
-- Last.fm integration
-- Duplicate-file management
+- Last.fm history import and now-playing updates
 - Mobile applications
 
 ## Architecture
@@ -200,6 +200,21 @@ Playlists and favorites are persisted globally for the local installation. There
 
 Favorites and playlist items reference catalog entities rather than duplicating metadata, so rescans keep user selections attached as long as the track or album identity remains stable.
 
+### Personal Album Information
+
+Personal information must be stored separately from scanned album metadata so
+rescans and tag edits cannot overwrite it. Initially it is global to the local
+installation, like favorites and playlists. A future user-account migration can
+add an owner without changing the scanned catalog.
+
+- `album_personal_metadata`: one optional row per album with purchase source,
+  physical-copy state, optional personal notes, and timestamps.
+- Keep purchase source as free text initially; do not create duplicate scanned
+  album or artist values for personal information.
+- Preserve personal information when a scan updates an album. Apply the same
+  orphan/relinking policy used for favorites if an album temporarily disappears
+  or is rediscovered.
+
 ### Editable Metadata
 
 Tag editing is implemented for ordinary MP3 ID3v2.3/ID3v2.4 files and uses
@@ -209,7 +224,7 @@ music files.
 The UI should distinguish album-level metadata from track-level metadata:
 
 - Album-level fields: album title, album artist, original release year/date,
-  total discs, cover artwork, album genres, and shared release metadata.
+  total discs, album genres, and shared release metadata.
 - Track-level fields: track title, track number, disc number, track artist,
   composer, performer, comment, track genres, and other values that can differ
   per file.
@@ -229,8 +244,6 @@ Important safety rules:
   library allows it.
 - Re-read the file after writing and update the catalog from the actual file
   contents rather than trusting the submitted form values.
-- Keep embedded artwork replacement separate from text tag editing because it
-  has larger file-size and format risks.
 
 ### Listening Statistics
 
@@ -288,6 +301,49 @@ integration:
 - Import recent/history data only when explicitly requested.
 - Keep Last.fm state separate from local play statistics so network failures do
   not block local tracking.
+
+### Online Artist, Album, And Lyrics Enrichment
+
+Online enrichment should add context to the currently playing music without
+changing scanned tags or becoming a playback dependency. Laravel should call
+external providers and expose normalized local API responses; the browser must
+not contact providers directly or receive provider secrets.
+
+Provider roles should remain replaceable:
+
+- Use MusicBrainz IDs from file tags when available and MusicBrainz search as a
+  fallback for structured artist, release, and recording identity.
+- Reuse the optional Last.fm connection for artist biographies, album
+  descriptions, tags, and related context where its API provides them.
+- Start lyrics support with a provider that offers an official display API,
+  such as LRCLIB for plain and synchronized lyrics. Do not scrape lyrics sites.
+- Keep commercial or restricted providers behind the same interfaces and only
+  enable them when their display, caching, and attribution terms are satisfied.
+
+Matching should prefer stable external IDs. Name-based matching should use
+normalized artist, album, and track names plus track duration, retain the
+provider and confidence, and return an unavailable or ambiguous result instead
+of silently attaching uncertain information.
+
+Add an enrichment cache with provider, entity type, lookup key, normalized
+payload, source identifier/URL, match confidence, fetched/expiry timestamps,
+and failure/backoff state. Cache durations and stored payloads must follow each
+provider's terms. Every external source must use this cache; direct uncached
+requests from user-facing views are not allowed. Negative results should be
+cached briefly, concurrent lookups should be deduplicated, and rate-limited
+requests should run through queued jobs with provider-specific throttling.
+Expired cached data may be displayed immediately while a background refresh
+runs when the provider's terms permit it.
+
+Playback startup, seeking, queue progression, and navigation must never wait
+for enrichment. The player should start from local catalog data and request
+optional information independently. A slow, rate-limited, offline, or failing
+provider may only affect its own Info or Lyrics state.
+
+External enrichment is disabled by default because requests disclose current
+listening information. Settings should provide separate controls for music
+information and lyrics, provider credentials where required, and cache
+clearing. Every displayed result must identify and link to its source.
 
 ## Implementation Phases
 
@@ -394,6 +450,34 @@ The implementation order changed from the original phase list. The scanner and a
 - Provide useful placeholders for missing artwork and metadata.
 - Add English and German translations from the beginning.
 
+### 4a. Session Library Scope And Personal Album Information
+
+- Add a global library-root selector with an explicit "All roots" option.
+- Keep the selected root in Pinia backed by session storage so it survives page
+  refreshes but remains specific to the current browser session.
+- Apply the selected root to dashboard metrics, artists, albums, tracks, genres,
+  search, list counts, filters, random selections, history, favorites, and
+  playlist contents. Settings and scan administration remain unscoped.
+- Resolve root membership through `tracks -> media_files -> library_roots` and
+  use distinct catalog entities so albums and artists shared by several roots
+  are not duplicated in results or counts.
+- Scope album details to tracks available in the selected root. Keep an album
+  visible only when at least one matching track remains.
+- Do not stop current playback or discard the existing queue when the scope
+  changes. Apply the new scope to subsequent browsing and newly generated play
+  or queue actions.
+- Ensure all relevant backend collection, aggregate, search, and random-item
+  endpoints accept the same nullable library-root filter. `null` means all
+  enabled roots.
+- Add album-detail editing for purchase source, physical-copy state, and
+  optional personal notes without writing these values to audio tags.
+- Add physical-copy filters to album and track lists. Track filtering is based
+  on the personal information of its album.
+- Show a compact physical-copy indicator on album details and useful album-list
+  contexts without crowding narrow layouts.
+- Test cross-root entities, scoped counts, root switching, session restoration,
+  personal-data preservation across scans, and scoped favorite/playlist views.
+
 ### 5. Audio Playback
 
 - Implement an audio streaming endpoint with HTTP range support. (Complete)
@@ -433,18 +517,16 @@ File writes remain queued and require a preview and explicit confirmation.
 
 - Choose and wrap a tag-writing library behind a small backend adapter.
   (Complete for the shared byte-preserving MP3 ID3v2 editor)
-- Define editable field mappings for MP3/ID3, FLAC/Vorbis comments, MP4/M4A,
-  Ogg/Opus, and WAV where possible. (Complete for MP3 title, track artist,
-  composer, performer, comment, track/disc number, year, album title, album
-  artist, release year, total discs, and genres; other formats pending)
+- Define editable field mappings for MP3/ID3. (Complete for MP3 title, track
+  artist, composer, performer, comment, track/disc number, year, album title,
+  album artist, release year, total discs, and genres)
 - Add track edit forms for per-track fields such as title, track number, disc
   number, artist, and genre. (Complete for MP3 title, track artist, composer,
   performer, comment, track number, disc number, year, and genres on track
   detail)
 - Add album edit forms for shared fields such as album title, album artist,
-  release year/date, album genres, and cover artwork. (Complete for MP3 album
-  title, album artist, release year, total discs, and shared genres; cover
-  editing pending)
+  release year/date, and album genres. (Complete for MP3 album title, album
+  artist, release year, total discs, and shared genres)
 - Support bulk album edits that can update all tracks in an album while allowing
   per-track exceptions for title, track number, and disc number. (Complete for
   sequential MP3 batches; track-specific fields are preserved)
@@ -471,8 +553,9 @@ Last.fm integration.
 
 - Add play-event and play-statistics tables. (Complete)
 - Define a "counted play" rule, for example after a minimum duration or playback
-  percentage, so short previews do not inflate statistics. (Complete with a
-  default 15-second threshold; shorter tracks count immediately)
+  percentage, so short previews do not inflate statistics. (Complete using the
+  Last.fm rule: tracks must exceed 30 seconds and count after half their duration
+  or four minutes, whichever comes first)
 - Record app plays from the player when the counted-play threshold is reached.
   (Complete)
 - Display play count, first played, and last played on track detail pages and in
@@ -486,16 +569,42 @@ Last.fm integration.
 - Add settings for listening-stat tag import and tag export. (Complete as one
   disabled-by-default synchronization setting)
 - Add optional queued export of play count, first played, and last played back
-  to file tags for interoperability with other players. (Complete for MP3;
-  additional formats remain pending)
+  to file tags for interoperability with other players. (Complete for MP3)
 - Add conflict handling when DB statistics and file-tag statistics disagree.
   (Non-destructive merge and source preservation complete; interactive conflict
   review remains pending)
 - Add Last.fm settings, authentication/token storage, and explicit connect /
-  disconnect workflow.
-- Add Last.fm scrobbling for eligible app plays.
+  disconnect workflow. (Complete with encrypted secrets and session state)
+- Add Last.fm scrobbling for eligible app plays. (Complete with queued delivery,
+  retry handling, and per-play delivery state)
 - Consider Last.fm history import only after local statistics and scrobbling are
   stable.
+
+### 5d. Online Artist, Album, And Lyrics Enrichment
+
+- Define backend provider contracts and normalized DTOs for artist information,
+  album information, and lyrics.
+- Add disabled-by-default settings for online music information and lyrics,
+  including provider credentials and connection tests where required.
+- Add a provider-aware PostgreSQL cache, request deduplication, expiry,
+  negative caching, stale-while-revalidate behavior where permitted,
+  retry/backoff behavior, and rate-limit enforcement. Route every provider
+  through it.
+- Prefer MusicBrainz identifiers from scanned tags; otherwise use conservative
+  name and duration matching with explicit confidence and ambiguity handling.
+- Expose local read endpoints for the current artist, album, and track lyrics;
+  never expose provider credentials to Vue.
+- Add an Info/Lyrics area to the player that handles loading, unavailable,
+  ambiguous, stale-cache, and provider-error states without interrupting audio.
+- Dispatch enrichment independently after playback starts; never place an
+  external request on the playback, seeking, or queue-progression path.
+- First support cached artist/album context and plain lyrics with source
+  attribution. Add synchronized lyric scrolling only after the plain-lyrics
+  workflow is stable.
+- Add fake-provider tests for matching, caching, disabled settings, throttling,
+  provider failure, and prevention of outbound requests when enrichment is off.
+- Consider artist/album detail-page enrichment and multiple-provider fallback
+  after the current-playing workflow is stable.
 
 ### 6. Settings and Scan Management
 
@@ -540,9 +649,29 @@ uses a configurable location and retention period, preserves source-relative
 paths in unique copies, records checksums and edit ownership, exposes recovery
 details, and provides cleanup and path-checked restore commands.
 
-Artwork editing and additional audio formats are intentionally deferred. Track
-genre editing completes the planned per-track MP3 field set; a browsable backup
-audit in Settings remains as a later metadata workflow refinement.
+The planned MP3 metadata field set is complete. A browsable backup audit in
+Settings remains as a later workflow refinement.
+
+The first Last.fm connector milestone is complete: account authorization,
+encrypted local credentials, opt-in scrobbling, shared local/Last.fm eligibility
+rules, and asynchronous delivery are implemented. The next connector refinement
+is operational visibility for failed or ignored scrobbles before considering
+history import or now-playing updates.
+
+The next user-facing media feature is online enrichment. Its first milestone is
+a provider-neutral Laravel service, opt-in settings, a terms-aware cache, and a
+player Info/Lyrics area showing attributed artist/album context and plain lyrics
+for the current track. Playback and local browsing must remain independent of
+provider availability. Synchronized lyrics and additional provider fallbacks
+belong in a later refinement.
+
+Two additional catalog refinements are planned. A session-wide root selector
+will restrict catalog queries and metrics to one physical library root while
+always offering an all-roots view. Personal album information will store
+purchase source, physical-copy state, and optional notes independently of
+scanned metadata, with physical-copy filters in album and track lists. The root
+scope is the more foundational change and should be implemented before personal
+album information because it affects nearly every catalog query.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, and
@@ -575,3 +704,7 @@ The first milestone is complete when:
 - Prefer the configured folder cover over embedded artwork and generate thumbnails during scanning rather than resizing images on every request.
 - Treat tag editing as a file-writing workflow, not just a database update.
 - Keep app listening statistics in the database as the source of truth; importing or exporting statistics through file tags is optional and disabled by default.
+- Treat the selected library root as session-level query context, with all roots
+  as the default, rather than modifying or duplicating catalog records.
+- Keep personal album information separate from scanned metadata so filesystem
+  scans and tag edits cannot overwrite it.

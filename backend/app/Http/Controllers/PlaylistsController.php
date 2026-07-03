@@ -70,9 +70,13 @@ class PlaylistsController extends Controller
     public function playlists(Request $request): JsonResponse
     {
         $query = Playlist::query()
+            ->select('playlists.*')
+            ->leftJoin('playlist_folders', 'playlist_folders.id', '=', 'playlists.playlist_folder_id')
             ->with('folder:id,name')
             ->withCount('items')
-            ->orderBy('name');
+            ->orderByRaw('playlist_folders.id is null')
+            ->orderByRaw('lower(playlist_folders.name)')
+            ->orderByRaw('lower(playlists.name)');
 
         if ($request->filled('folder')) {
             $query->where('playlist_folder_id', $request->integer('folder'));
@@ -89,7 +93,7 @@ class PlaylistsController extends Controller
 
     public function playlist(Playlist $playlist): JsonResponse
     {
-        $playlist->load(['folder:id,name', 'items.track.album:id,title,original_release_year', 'items.track.artists:id,name'])
+        $playlist->load(['folder:id,name', 'items.track.album:id,title,original_release_year,artwork_id', 'items.track.artists:id,name'])
             ->loadCount('items');
 
         return response()->json($this->playlistDetailPayload($playlist));
@@ -97,10 +101,19 @@ class PlaylistsController extends Controller
 
     public function createPlaylist(Request $request): JsonResponse
     {
-        $validated = $request->validate($this->playlistRules());
-        $playlist = Playlist::create($this->playlistAttributes($validated))
-            ->load(['folder:id,name'])
-            ->loadCount('items');
+        $validated = $request->validate([
+            ...$this->playlistRules(),
+            'trackIds' => ['sometimes', 'array', 'min:1', 'max:500'],
+            'trackIds.*' => ['integer', 'exists:tracks,id'],
+        ]);
+        $playlist = DB::transaction(function () use ($validated): Playlist {
+            $playlist = Playlist::create($this->playlistAttributes($validated));
+            if (isset($validated['trackIds'])) {
+                $this->createPlaylistItems($playlist, $validated['trackIds'], null);
+            }
+
+            return $playlist->load(['folder:id,name'])->loadCount('items');
+        });
 
         return response()->json($this->playlistPayload($playlist), 201);
     }
@@ -335,7 +348,7 @@ class PlaylistsController extends Controller
 
         return PlaylistItem::query()
             ->whereIn('id', $items->pluck('id'))
-            ->with(['track.album:id,title,original_release_year', 'track.artists:id,name'])
+            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.artists:id,name'])
             ->orderBy('position')
             ->get();
     }

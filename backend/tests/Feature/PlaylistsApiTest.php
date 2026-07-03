@@ -113,6 +113,23 @@ class PlaylistsApiTest extends TestCase
             ->assertJsonPath('items.0.position', 0);
     }
 
+    public function test_playlists_are_ordered_by_folder_then_name_with_unfiled_playlists_last(): void
+    {
+        $zFolder = PlaylistFolder::create(['name' => 'Zebra']);
+        $aFolder = PlaylistFolder::create(['name' => 'Archive']);
+        Playlist::create(['name' => 'Loose', 'playlist_folder_id' => null]);
+        Playlist::create(['name' => 'Second', 'playlist_folder_id' => $aFolder->id]);
+        Playlist::create(['name' => 'First', 'playlist_folder_id' => $aFolder->id]);
+        Playlist::create(['name' => 'Only', 'playlist_folder_id' => $zFolder->id]);
+
+        $this->getJson('/api/playlists')
+            ->assertOk()
+            ->assertJsonPath('items.0.name', 'First')
+            ->assertJsonPath('items.1.name', 'Second')
+            ->assertJsonPath('items.2.name', 'Only')
+            ->assertJsonPath('items.3.name', 'Loose');
+    }
+
     public function test_multiple_tracks_can_be_added_to_a_playlist_in_one_request(): void
     {
         [, , $firstTrack, , $secondTrack] = $this->createCatalog();
@@ -127,6 +144,26 @@ class PlaylistsApiTest extends TestCase
             ->assertJsonPath('items.1.position', 1)
             ->assertJsonPath('items.1.track.title', 'Second track');
 
+        $this->assertSame(
+            [$firstTrack->id, $secondTrack->id],
+            $playlist->items()->orderBy('position')->pluck('track_id')->all(),
+        );
+    }
+
+    public function test_a_playlist_can_be_created_with_tracks_in_one_request(): void
+    {
+        [, , $firstTrack, , $secondTrack] = $this->createCatalog();
+
+        $this->postJson('/api/playlists', [
+            'name' => 'Instant mix',
+            'description' => 'Created while adding tracks',
+            'trackIds' => [$firstTrack->id, $secondTrack->id],
+        ])
+            ->assertCreated()
+            ->assertJsonPath('name', 'Instant mix')
+            ->assertJsonPath('trackCount', 2);
+
+        $playlist = Playlist::where('name', 'Instant mix')->sole();
         $this->assertSame(
             [$firstTrack->id, $secondTrack->id],
             $playlist->items()->orderBy('position')->pluck('track_id')->all(),

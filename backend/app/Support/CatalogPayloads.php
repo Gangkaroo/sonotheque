@@ -47,7 +47,7 @@ class CatalogPayloads
             'artwork:id,width,height',
             'tracks' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
-                ->with(['album:id,title,original_release_year', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+                ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
                 ->orderBy('id'),
@@ -86,6 +86,7 @@ class CatalogPayloads
                 'id' => $track->album->id,
                 'title' => $track->album->title,
                 'originalReleaseYear' => $track->album->original_release_year,
+                'artworkThumbnailUrl' => $track->album->artwork_id ? "/api/artwork/{$track->album->artwork_id}/thumbnail" : null,
             ] : null,
             'artists' => $track->artists->map(fn (Artist $artist) => [
                 'id' => $artist->id,
@@ -99,7 +100,7 @@ class CatalogPayloads
     public function trackDetail(Track $track): array
     {
         $track->load([
-            'album:id,title,original_release_year',
+            'album:id,title,original_release_year,artwork_id',
             'artists:id,name',
             'genres:id,name',
             'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',

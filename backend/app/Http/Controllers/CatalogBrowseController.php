@@ -182,7 +182,7 @@ class CatalogBrowseController extends Controller
 
         $tracks = Track::query()
             ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
-            ->with(['album:id,title,original_release_year', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+            ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->whereHas('artists', fn (Builder $artistQuery) => $artistQuery->whereKey($artist)))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when(($filters['playStatus'] ?? null) === 'never', function (Builder $query): void {
@@ -236,7 +236,7 @@ class CatalogBrowseController extends Controller
 
     private function loadPlayableTrack(Track $track): Track
     {
-        return $track->load(['album:id,title,original_release_year', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
+        return $track->load(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
     }
 
     /** @return list<int> */

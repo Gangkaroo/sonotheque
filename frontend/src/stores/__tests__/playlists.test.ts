@@ -30,6 +30,29 @@ describe('playlists store', () => {
     expect(store.loading).toBe(false)
   })
 
+  it('orders playlists by folder and then name with unfiled playlists last', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/playlist-folders') return jsonResponse({ items: [] })
+      if (url === '/api/playlists') {
+        return jsonResponse({
+          items: [
+            { id: 1, name: 'Loose', folder: null, trackCount: 0 },
+            { id: 2, name: 'Only', folder: { id: 2, name: 'Zebra' }, trackCount: 0 },
+            { id: 3, name: 'Second', folder: { id: 1, name: 'Archive' }, trackCount: 0 },
+            { id: 4, name: 'First', folder: { id: 1, name: 'Archive' }, trackCount: 0 },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    await store.loadAll()
+
+    expect(store.playlists.map((playlist) => playlist.name)).toEqual(['First', 'Second', 'Only', 'Loose'])
+  })
+
   it('creates and deletes folders and playlists', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/playlist-folders' && init?.method === 'POST') {
@@ -64,6 +87,35 @@ describe('playlists store', () => {
 
     expect(store.playlists).toEqual([])
     expect(store.folders).toEqual([])
+  })
+
+  it('creates a playlist with its initial tracks in one request', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          name: 'New mix',
+          description: null,
+          folderId: null,
+          trackIds: [1, 2],
+        })
+
+        return jsonResponse({ id: 11, name: 'New mix', folder: null, trackCount: 2 }, 201)
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = usePlaylistsStore()
+    const playlist = await store.createPlaylist({
+      name: 'New mix',
+      description: null,
+      folderId: null,
+      trackIds: [1, 2],
+    })
+
+    expect(playlist.trackCount).toBe(2)
+    expect(store.playlists).toEqual([playlist])
   })
 
   it('updates folders and refreshes playlist folder names', async () => {

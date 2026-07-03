@@ -47,7 +47,12 @@ export interface Track {
   trackNumber?: number
   discNumber?: number
   year?: number | null
-  album: { id: number, title: string, originalReleaseYear?: number | null } | null
+  album: {
+    id: number
+    title: string
+    originalReleaseYear?: number | null
+    artworkThumbnailUrl?: string | null
+  } | null
   artists: NamedCatalogItem[]
   playStatistics: TrackPlayStatistics
 }

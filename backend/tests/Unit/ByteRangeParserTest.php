@@ -29,6 +29,14 @@ class ByteRangeParserTest extends TestCase
         ];
     }
 
+    public function test_it_limits_open_ended_ranges_when_a_maximum_length_is_given(): void
+    {
+        $range = (new ByteRangeParser())->parse('bytes=2-', 10, 4);
+
+        $this->assertSame(2, $range?->start);
+        $this->assertSame(5, $range?->end);
+    }
+
     #[DataProvider('invalidRanges')]
     public function test_it_rejects_invalid_or_multiple_ranges(string $header): void
     {

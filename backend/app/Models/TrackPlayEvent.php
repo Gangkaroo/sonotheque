@@ -16,6 +16,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'source',
     'context',
     'session_key',
+    'lastfm_status',
+    'lastfm_attempts',
+    'lastfm_scrobbled_at',
+    'lastfm_error',
+    'lastfm_ignored_code',
 ])]
 class TrackPlayEvent extends Model
 {
@@ -36,6 +41,7 @@ class TrackPlayEvent extends Model
         return [
             'played_at' => 'immutable_datetime',
             'counted' => 'boolean',
+            'lastfm_scrobbled_at' => 'immutable_datetime',
         ];
     }
 }

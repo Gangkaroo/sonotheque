@@ -26,7 +26,7 @@ try {
         '127.0.0.1'
     }
     $frontendUri = "http://${frontendHost}:5173/"
-    $apiHealthUri = 'http://127.0.0.1:8000/api/dashboard-metrics'
+    $apiHealthUri = 'http://127.0.0.1:8000/up'
     $existingMode = Get-RuntimeModeState
     $apiOwner = Get-PortOwner -Port 8000
     $frontendOwner = Get-PortOwner -Port 5173

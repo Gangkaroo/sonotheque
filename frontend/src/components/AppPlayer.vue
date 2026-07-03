@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, mergeProps, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
@@ -11,7 +11,8 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 const { t } = useI18n()
-const COUNTED_PLAY_THRESHOLD_SECONDS = 15
+const MINIMUM_COUNTED_TRACK_SECONDS = 30
+const MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS = 240
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
@@ -28,12 +29,12 @@ const queuePlaylistDescription = ref('')
 const queuePlaylistFolderId = ref<number | null>(null)
 const queuePlaylistSuccess = ref('')
 const queuePlaylistSuccessVisible = ref(false)
-const currentTime = ref(0)
+const currentTime = ref(player.playbackPosition)
 const duration = ref(0)
 const restoredTrackId = ref<number | null>(null)
-const resumeAfterMetadata = ref(false)
-const isRestoringPlayback = ref(false)
-const isRestoringPosition = ref(false)
+const resumeAfterMetadata = ref(player.isPlaying)
+const isRestoringPlayback = ref(player.isPlaying)
+const isRestoringPosition = ref(player.playbackPosition > 0)
 const isSeeking = ref(false)
 const showSeekLoading = ref(false)
 const reportedPlayKey = ref<string | null>(null)
@@ -50,6 +51,7 @@ const seekPosition = computed({
 const progressPercent = computed(() => duration.value > 0 ? Math.min(100, Math.max(0, (currentTime.value / duration.value) * 100)) : 0)
 const remainingTime = computed(() => duration.value > 0 ? `-${formatTime(Math.max(0, duration.value - currentTime.value))}` : '')
 const primaryArtist = computed(() => player.currentTrack?.artists[0] ?? null)
+const albumArtworkThumbnailUrl = computed(() => player.currentTrack?.album?.artworkThumbnailUrl ?? null)
 const artistNames = computed(() => player.currentTrack?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
 const albumReleaseYear = computed(() => player.currentTrack?.album?.originalReleaseYear ?? player.currentTrack?.year ?? null)
 const albumTitle = computed(() => {
@@ -102,17 +104,16 @@ interface TrackPlayResponse {
 
 watch(
   () => currentPlayKey.value,
-  async () => {
+  () => {
     restoredTrackId.value = null
     reportedPlayKey.value = null
     currentTime.value = player.playbackPosition
     duration.value = 0
     isRestoringPosition.value = player.playbackPosition > 0
-    await nextTick()
     resumeAfterMetadata.value = player.isPlaying
     isRestoringPlayback.value = false
-    audio.value?.load()
   },
+  { flush: 'sync' },
 )
 
 watch(
@@ -121,6 +122,7 @@ watch(
     if (!audio.value || !player.currentTrack) return
 
     if (isPlaying) {
+      if (resumeAfterMetadata.value) return
       await playAudio()
     } else {
       audio.value.pause()
@@ -161,9 +163,22 @@ async function playAudio(showError = true) {
 function togglePlayback() {
   if (player.isPlaying) {
     player.pause()
+  } else if (player.playbackState === 'error') {
+    retryPlaybackAfterError()
   } else {
     player.resume()
   }
+}
+
+function retryPlaybackAfterError() {
+  if (!audio.value || !player.currentTrack) return
+
+  restoredTrackId.value = null
+  isRestoringPosition.value = player.playbackPosition > 0
+  resumeAfterMetadata.value = true
+  isRestoringPlayback.value = false
+  player.resume()
+  audio.value.load()
 }
 
 function updateProgress() {
@@ -299,7 +314,9 @@ function maybeRecordCountedPlay() {
     || !duration.value
   ) return
 
-  const requiredSeconds = duration.value <= COUNTED_PLAY_THRESHOLD_SECONDS ? 0 : COUNTED_PLAY_THRESHOLD_SECONDS
+  if (duration.value <= MINIMUM_COUNTED_TRACK_SECONDS) return
+
+  const requiredSeconds = Math.min(duration.value / 2, MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS)
   if (currentTime.value < requiredSeconds) return
 
   reportedPlayKey.value = playKey
@@ -310,6 +327,7 @@ function maybeRecordCountedPlay() {
     body: JSON.stringify({
       listenedMs: Math.max(0, Math.round(currentTime.value * 1000)),
       durationMs: Math.max(0, Math.round(duration.value * 1000)),
+      playedAt: new Date(Date.now() - (currentTime.value * 1000)).toISOString(),
       context: player.playbackContext,
       sessionKey,
     }),
@@ -397,22 +415,15 @@ onBeforeUnmount(() => {
   if (seekLoadingClearTimer) window.clearTimeout(seekLoadingClearTimer)
 })
 
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('beforeunload', persistCurrentPlaybackPosition)
-  if (!player.currentTrack) return
-
-  currentTime.value = player.playbackPosition
-  isRestoringPosition.value = player.playbackPosition > 0
-  await nextTick()
-  resumeAfterMetadata.value = player.isPlaying
-  isRestoringPlayback.value = player.isPlaying
-  audio.value?.load()
 })
 </script>
 
 <template>
   <v-footer v-if="player.currentTrack" app border class="player-footer" :class="{ 'is-collapsed': playerCollapsed }">
     <audio
+      :key="currentPlayKey ?? undefined"
       ref="audio"
       :src="player.currentTrack.streamUrl"
       preload="metadata"
@@ -489,39 +500,53 @@ onMounted(async () => {
     </div>
 
     <div v-else class="player-content">
-      <div class="player-meta">
+      <div class="player-now-playing">
         <RouterLink
-          v-if="trackRoute"
-          class="player-meta-row player-meta-link text-subtitle-2 font-weight-bold"
-          :to="trackRoute"
+          v-if="albumRoute && albumArtworkThumbnailUrl"
+          class="player-artwork-link"
+          :to="albumRoute"
         >
-          <v-icon class="player-meta-icon" icon="mdi-music-note" size="small" />
-          <span class="text-truncate">{{ trackTitle }}</span>
+          <v-img
+            :alt="albumTitle"
+            class="player-artwork"
+            cover
+            :src="albumArtworkThumbnailUrl"
+          />
         </RouterLink>
-        <div v-else class="player-meta-row text-subtitle-2 font-weight-bold">
-          <v-icon class="player-meta-icon" icon="mdi-music-note" size="small" />
-          <span class="text-truncate">{{ trackTitle }}</span>
-        </div>
-        <div class="player-meta-row text-caption text-medium-emphasis">
-          <v-icon class="player-meta-icon" icon="mdi-account-music-outline" size="small" />
-          <RouterLink v-if="artistAlbumsRoute" class="player-meta-link text-truncate" :to="artistAlbumsRoute">
-            {{ artistNames }}
+        <div class="player-meta">
+          <RouterLink
+            v-if="trackRoute"
+            class="player-meta-row player-meta-link text-subtitle-2 font-weight-bold"
+            :to="trackRoute"
+          >
+            <v-icon class="player-meta-icon" icon="mdi-music-note" size="small" />
+            <span class="text-truncate">{{ trackTitle }}</span>
           </RouterLink>
-          <span v-else class="text-truncate">{{ artistNames }}</span>
-        </div>
-        <div class="player-meta-row text-caption text-medium-emphasis">
-          <v-icon class="player-meta-icon" icon="mdi-album" size="small" />
-          <RouterLink v-if="albumRoute" class="player-meta-link text-truncate" :to="albumRoute">
-            {{ albumTitle }}
-          </RouterLink>
-          <span v-else class="text-truncate">{{ albumTitle }}</span>
-        </div>
-        <div
-          v-if="playbackStateText"
-          class="text-caption text-truncate"
-          :class="player.playbackState === 'error' ? 'text-error' : 'text-medium-emphasis'"
-        >
-          {{ playbackStateText }}
+          <div v-else class="player-meta-row text-subtitle-2 font-weight-bold">
+            <v-icon class="player-meta-icon" icon="mdi-music-note" size="small" />
+            <span class="text-truncate">{{ trackTitle }}</span>
+          </div>
+          <div class="player-meta-row text-caption text-medium-emphasis">
+            <v-icon class="player-meta-icon" icon="mdi-account-music-outline" size="small" />
+            <RouterLink v-if="artistAlbumsRoute" class="player-meta-link text-truncate" :to="artistAlbumsRoute">
+              {{ artistNames }}
+            </RouterLink>
+            <span v-else class="text-truncate">{{ artistNames }}</span>
+          </div>
+          <div class="player-meta-row text-caption text-medium-emphasis">
+            <v-icon class="player-meta-icon" icon="mdi-album" size="small" />
+            <RouterLink v-if="albumRoute" class="player-meta-link text-truncate" :to="albumRoute">
+              {{ albumTitle }}
+            </RouterLink>
+            <span v-else class="text-truncate">{{ albumTitle }}</span>
+          </div>
+          <div
+            v-if="playbackStateText"
+            class="text-caption text-truncate"
+            :class="player.playbackState === 'error' ? 'text-error' : 'text-medium-emphasis'"
+          >
+            {{ playbackStateText }}
+          </div>
         </div>
       </div>
 
@@ -646,7 +671,11 @@ onMounted(async () => {
           min="0"
           step="1"
           thumb-label
-        />
+        >
+          <template #thumb-label="{ modelValue }">
+            {{ formatTime(modelValue) }}
+          </template>
+        </v-slider>
         <div v-if="showSeekLoading || player.playbackState === 'loading'" class="player-progress-loading" aria-hidden="true" />
         <div class="text-caption text-medium-emphasis">{{ formatTime(currentTime) }} / {{ formatTime(duration) }}</div>
       </div>
@@ -1137,7 +1166,28 @@ onMounted(async () => {
   width: 32px;
 }
 
+.player-now-playing {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-artwork-link {
+  border-radius: 8px;
+  flex: 0 0 56px;
+  height: 56px;
+  overflow: hidden;
+  width: 56px;
+}
+
+.player-artwork {
+  height: 100%;
+  width: 100%;
+}
+
 .player-meta {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1271,6 +1321,10 @@ onMounted(async () => {
     grid-row: 2;
   }
 
+  .player-artwork-link {
+    display: none;
+  }
+
 }
 
 @media (max-width: 620px) {
@@ -1278,7 +1332,7 @@ onMounted(async () => {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .player-meta {
+  .player-now-playing {
     grid-column: 1 / -1;
   }
 

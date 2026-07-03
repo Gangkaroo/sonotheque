@@ -61,7 +61,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
         apiRequest<PlaylistResponse>('/playlists'),
       ])
       folders.value = folderResult.items
-      playlists.value = playlistResult.items
+      playlists.value = sortPlaylists(playlistResult.items)
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -110,9 +110,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       folders.value = folders.value
         .map((item) => item.id === id ? folder : item)
         .sort((left, right) => left.name.localeCompare(right.name))
-      playlists.value = playlists.value.map((playlist) => playlist.folder?.id === id
+      playlists.value = sortPlaylists(playlists.value.map((playlist) => playlist.folder?.id === id
         ? { ...playlist, folder: { id: folder.id, name: folder.name } }
-        : playlist)
+        : playlist))
       if (current.value?.folder?.id === id) {
         current.value = { ...current.value, folder: { id: folder.id, name: folder.name } }
       }
@@ -125,7 +125,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
-  async function createPlaylist(payload: { name: string, description?: string | null, folderId?: number | null }) {
+  async function createPlaylist(payload: {
+    name: string
+    description?: string | null
+    folderId?: number | null
+    trackIds?: number[]
+  }) {
     saving.value = true
     error.value = null
     try {
@@ -133,7 +138,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      playlists.value = [...playlists.value, playlist].sort((left, right) => left.name.localeCompare(right.name))
+      playlists.value = sortPlaylists([...playlists.value, playlist])
       if (playlist.folder) {
         folders.value = folders.value.map((folder) => folder.id === playlist.folder?.id
           ? { ...folder, playlistCount: folder.playlistCount + 1 }
@@ -157,9 +162,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
-      playlists.value = playlists.value
+      playlists.value = sortPlaylists(playlists.value
         .map((item) => item.id === id ? playlist : item)
-        .sort((left, right) => left.name.localeCompare(right.name))
+      )
       updateFolderCounts(previousPlaylist?.folder?.id ?? null, playlist.folder?.id ?? null)
       if (current.value?.id === id) {
         current.value = {
@@ -186,7 +191,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     try {
       await apiRequest<void>(`/playlist-folders/${id}`, { method: 'DELETE' })
       folders.value = folders.value.filter((folder) => folder.id !== id)
-      playlists.value = playlists.value.map((playlist) => playlist.folder?.id === id ? { ...playlist, folder: null } : playlist)
+      playlists.value = sortPlaylists(playlists.value.map((playlist) => playlist.folder?.id === id
+        ? { ...playlist, folder: null }
+        : playlist))
     } catch (cause) {
       error.value = errorMessage(cause)
       throw cause
@@ -349,4 +356,17 @@ export const usePlaylistsStore = defineStore('playlists', () => {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Unable to update playlists.'
+}
+
+function sortPlaylists(items: PlaylistSummary[]) {
+  return [...items].sort((left, right) => {
+    const leftFolder = left.folder?.name ?? null
+    const rightFolder = right.folder?.name ?? null
+    if (leftFolder === null && rightFolder !== null) return 1
+    if (leftFolder !== null && rightFolder === null) return -1
+
+    const folderComparison = (leftFolder ?? '').localeCompare(rightFolder ?? '', undefined, { sensitivity: 'base' })
+
+    return folderComparison || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  })
 }

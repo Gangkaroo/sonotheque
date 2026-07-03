@@ -16,6 +16,10 @@ The development stack has four moving parts:
 
 The frontend proxies `/api` requests to `http://127.0.0.1:8000`.
 
+The queue worker also delivers enabled Last.fm scrobbles. Last.fm playback never
+blocks local audio playback; temporary delivery failures are retried in the
+background.
+
 ## Requirements
 
 - Docker Desktop.
@@ -64,6 +68,26 @@ From the repository root, start the complete local stack with:
 ```powershell
 .\scripts\start.ps1
 ```
+
+## Last.fm Connection
+
+Create API credentials at `https://www.last.fm/api/account/create`, then open
+Settings > Connections. Enter the API key and shared secret, open the Last.fm
+authorization page, approve access, and complete the connection in the app.
+
+The shared secret and Last.fm session key are encrypted with Laravel's
+`APP_KEY`. They are not returned by the settings API. Keep `backend/.env` and its
+`APP_KEY` stable; replacing the key makes existing encrypted connector state
+unreadable and requires reconnecting the account.
+
+Outbound Last.fm requests are direct by default. Networks that require a proxy
+can set `LASTFM_PROXY`. If PHP has no `curl.cainfo` or `openssl.cafile`, set
+`LASTFM_CA_BUNDLE` to a maintained PEM bundle, for example Git for Windows'
+`mingw64/etc/ssl/certs/ca-bundle.crt`. TLS verification must remain enabled.
+
+Eligible tracks are longer than 30 seconds and have played for at least half
+their duration or four minutes, whichever comes first. The same rule controls
+the local play count and Last.fm submission.
 
 To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:
@@ -324,7 +348,7 @@ docker exec -it music-library-postgres createdb -U music_library music_library_t
 If the frontend loads but data does not appear, check the backend:
 
 ```powershell
-Invoke-WebRequest -Uri http://127.0.0.1:8000/api/dashboard-metrics -UseBasicParsing
+Invoke-WebRequest -Uri http://127.0.0.1:8000/up -UseBasicParsing
 ```
 
 If scans stay queued, run the status command and check that the queue listener

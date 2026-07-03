@@ -87,7 +87,7 @@ class PlaybackStatisticsApiTest extends TestCase
     private function recordPlay(Track $track, string $playedAt, string $sessionKey): void
     {
         $this->postJson("/api/tracks/{$track->id}/plays", [
-            'listenedMs' => 15_000,
+            'listenedMs' => 60_000,
             'durationMs' => 120_000,
             'playedAt' => $playedAt,
             'sessionKey' => $sessionKey,
