@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'album_id',
@@ -23,14 +25,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
     'track_number',
     'disc_number',
     'year',
+    'comment',
+    'composers',
+    'performers',
     'metadata',
 ])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['album_id' => 'ASC', 'disc_number' => 'ASC', 'track_number' => 'ASC'],
             parameters: [
+                'page' => new QueryParameter(
+                    schema: ['type' => 'integer', 'minimum' => 1],
+                    castToNativeType: true,
+                ),
                 'search' => new QueryParameter(
                     filter: CaseInsensitivePartialSearchFilter::class,
                     property: 'title',
@@ -104,9 +113,23 @@ class Track extends Model
         return $this->belongsToMany(Genre::class)->withTimestamps();
     }
 
+    /** @return HasOne<TrackPlayStatistic, $this> */
+    public function playStatistic(): HasOne
+    {
+        return $this->hasOne(TrackPlayStatistic::class);
+    }
+
+    /** @return HasMany<TrackPlayEvent, $this> */
+    public function playEvents(): HasMany
+    {
+        return $this->hasMany(TrackPlayEvent::class);
+    }
+
     protected function casts(): array
     {
         return [
+            'composers' => 'array',
+            'performers' => 'array',
             'metadata' => 'array',
         ];
     }

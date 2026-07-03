@@ -2,6 +2,14 @@
 
 namespace App\Models;
 
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Delete;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Post;
+use App\ApiPlatform\State\CreateLibraryRootProcessor;
+use App\ApiPlatform\State\UpdateLibraryRootProcessor;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,14 +20,47 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'name',
     'path',
     'path_hash',
-    'cover_image_path',
+    'cover_image_paths',
+    'excluded_directories',
     'enabled',
     'include_patterns',
     'exclude_patterns',
     'last_scanned_at',
 ])]
+#[ApiResource(
+    operations: [
+        new Get(),
+        new GetCollection(order: ['name' => 'ASC']),
+        new Post(
+            rules: [
+                'name' => ['required', 'string', 'max:255'],
+                'path' => ['required', 'string', 'max:4096'],
+                'cover_image_paths' => ['sometimes', 'array', 'min:1', 'max:20'],
+                'cover_image_paths.*' => ['string', 'max:1024'],
+                'excluded_directories' => ['sometimes', 'array', 'max:100'],
+                'excluded_directories.*' => ['string', 'max:4096'],
+            ],
+            processor: CreateLibraryRootProcessor::class,
+        ),
+        new Patch(
+            rules: [
+                'name' => ['required', 'string', 'max:255'],
+                'cover_image_paths' => ['sometimes', 'array', 'min:1', 'max:20'],
+                'cover_image_paths.*' => ['string', 'max:1024'],
+                'excluded_directories' => ['sometimes', 'array', 'max:100'],
+                'excluded_directories.*' => ['string', 'max:4096'],
+            ],
+            processor: UpdateLibraryRootProcessor::class,
+        ),
+        new Delete(),
+    ],
+    paginationItemsPerPage: 100,
+)]
 class LibraryRoot extends Model
 {
+    /** @var list<string> */
+    protected $hidden = ['path_hash', 'library', 'scanRuns', 'albums', 'mediaFiles'];
+
     /** @return BelongsTo<Library, $this> */
     public function library(): BelongsTo
     {
@@ -50,6 +91,8 @@ class LibraryRoot extends Model
             'enabled' => 'boolean',
             'include_patterns' => 'array',
             'exclude_patterns' => 'array',
+            'cover_image_paths' => 'array',
+            'excluded_directories' => 'array',
             'last_scanned_at' => 'immutable_datetime',
         ];
     }

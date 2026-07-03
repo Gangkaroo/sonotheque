@@ -15,10 +15,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 #[Fillable(['name'])]
 #[ApiResource(
     operations: [
-        new Get,
+        new Get(),
         new GetCollection(
             order: ['name' => 'ASC'],
             parameters: [
+                'page' => new QueryParameter(
+                    schema: ['type' => 'integer', 'minimum' => 1],
+                    castToNativeType: true,
+                ),
                 'search' => new QueryParameter(
                     filter: CaseInsensitivePartialSearchFilter::class,
                     property: 'name',

@@ -26,17 +26,32 @@ class MusicLibrarySchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks'] as $table) {
+        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
+
+        $this->assertFalse(Schema::hasTable('users'));
+        $this->assertFalse(Schema::hasTable('password_reset_tokens'));
+        $this->assertTrue(Schema::hasTable('sessions'));
+        $this->assertFalse(Schema::hasColumn('sessions', 'user_id'));
+        $this->assertFalse(Schema::hasColumn('library_roots', 'cover_image_path'));
+        $this->assertTrue(Schema::hasColumn('scan_runs', 'files_removed'));
+        $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_type'));
+        $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_relative_path'));
+        $this->assertFalse(Schema::hasColumn('artwork', 'cache_path'));
+        $this->assertFalse(Schema::hasColumn('scan_runs', 'files_missing'));
 
         foreach ([
             ['library_roots', 'include_patterns'],
             ['library_roots', 'exclude_patterns'],
+            ['library_roots', 'cover_image_paths'],
+            ['library_roots', 'excluded_directories'],
             ['scan_runs', 'summary'],
             ['albums', 'metadata'],
             ['media_files', 'raw_metadata'],
             ['tracks', 'metadata'],
+            ['tracks', 'composers'],
+            ['tracks', 'performers'],
         ] as [$table, $column]) {
             $this->assertTrue(
                 DB::table('information_schema.columns')
@@ -57,7 +72,8 @@ class MusicLibrarySchemaTest extends TestCase
             'name' => 'Primary HDD',
             'path' => 'D:\\Music',
             'path_hash' => hash('sha256', 'd:\\music'),
-            'cover_image_path' => 'artwork/front.jpg',
+            'cover_image_paths' => ['artwork/front.jpg', 'Disc 1/front.jpg'],
+            'excluded_directories' => ['Incoming'],
             'include_patterns' => ['*.flac', '*.mp3'],
         ]);
 
@@ -76,7 +92,6 @@ class MusicLibrarySchemaTest extends TestCase
         $artwork = Artwork::create([
             'source_type' => ArtworkSource::Folder,
             'source_relative_path' => 'artwork/front.jpg',
-            'cache_path' => 'artwork/full/example.webp',
             'thumbnail_path' => 'artwork/thumbnails/example.webp',
             'mime_type' => 'image/webp',
             'width' => 1000,
@@ -121,6 +136,8 @@ class MusicLibrarySchemaTest extends TestCase
         $this->assertTrue($library->scanRuns()->whereKey($scan->id)->exists());
         $this->assertTrue($root->fresh()->library->is($library));
         $this->assertSame(['*.flac', '*.mp3'], $root->fresh()->include_patterns);
+        $this->assertSame(['artwork/front.jpg', 'Disc 1/front.jpg'], $root->fresh()->cover_image_paths);
+        $this->assertSame(['Incoming'], $root->fresh()->excluded_directories);
         $this->assertSame(ArtworkSource::Folder, $album->fresh()->artwork->source_type);
         $this->assertSame(MediaFileStatus::Available, $mediaFile->fresh()->status);
         $this->assertTrue($artist->tracks()->whereKey($track->id)->exists());
@@ -137,6 +154,7 @@ class MusicLibrarySchemaTest extends TestCase
             'path' => 'D:\\Music',
             'path_hash' => hash('sha256', 'd:\\music'),
         ]);
+        $this->assertSame(['cover.jpg'], $root->fresh()->cover_image_paths);
         $album = Album::create([
             'library_root_id' => $root->id,
             'title' => 'Album',
@@ -224,25 +242,38 @@ class MusicLibrarySchemaTest extends TestCase
             ->where('schemaname', 'public')
             ->whereIn('indexname', [
                 'artists_browse_index',
+                'artists_name_ci_unique',
                 'artists_name_trgm_index',
-                'artists_sort_name_trgm_index',
                 'albums_title_trgm_index',
-                'albums_sort_title_trgm_index',
                 'albums_original_release_year_index',
                 'albums_artist_year_title_index',
                 'genres_name_trgm_index',
+                'tracks_title_trgm_index',
+                'tracks_album_disc_track_id_index',
                 'genres_name_ci_unique',
                 'genre_track_pkey',
                 'genre_track_track_id_index',
+                'media_files_root_last_seen_index',
+                'media_files_root_id_index',
+                'scan_runs_root_status_id_index',
+                'scan_runs_root_status_updated_index',
+                'track_play_events_counted_recent_index',
+                'track_play_statistics_ranking_index',
             ])
             ->pluck('indexdef', 'indexname');
 
-        $this->assertCount(11, $indexes);
+        $this->assertCount(18, $indexes);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['artists_name_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['albums_title_trgm_index']);
+        $this->assertStringContainsString('gin_trgm_ops', $indexes['tracks_title_trgm_index']);
         $this->assertStringContainsString('browse_initial', $indexes['artists_browse_index']);
         $this->assertStringContainsString('original_release_year', $indexes['albums_artist_year_title_index']);
         $this->assertStringContainsString('lower((name)::text)', $indexes['genres_name_ci_unique']);
+        $this->assertStringContainsString('lower((name)::text)', $indexes['artists_name_ci_unique']);
+        $this->assertStringContainsString('last_seen_at', $indexes['media_files_root_last_seen_index']);
+        $this->assertStringContainsString('album_id, disc_number, track_number, id', $indexes['tracks_album_disc_track_id_index']);
+        $this->assertStringContainsString('WHERE (counted = true)', $indexes['track_play_events_counted_recent_index']);
+        $this->assertStringContainsString('WHERE (play_count > 0)', $indexes['track_play_statistics_ranking_index']);
     }
 
     public function test_artist_browse_initial_rejects_values_outside_a_to_z_and_hash(): void
@@ -262,5 +293,21 @@ class MusicLibrarySchemaTest extends TestCase
 
         $this->expectException(QueryException::class);
         Genre::create(['name' => 'electronic']);
+    }
+
+    public function test_artists_are_unique_ignoring_case(): void
+    {
+        Artist::create([
+            'name' => 'Bjoerk',
+            'sort_name' => 'Bjoerk',
+            'browse_initial' => 'B',
+        ]);
+
+        $this->expectException(QueryException::class);
+        Artist::create([
+            'name' => 'BJOERK',
+            'sort_name' => 'BJOERK',
+            'browse_initial' => 'B',
+        ]);
     }
 }
