@@ -8,6 +8,27 @@ use Illuminate\Support\Facades\Http;
 
 class LastFmApiClient
 {
+    /** @return array<string, mixed> */
+    public function artistInfo(string $apiKey, string $artist, string $language): array
+    {
+        return $this->publicCall('artist.getInfo', $apiKey, [
+            'artist' => $artist,
+            'lang' => $language,
+            'autocorrect' => 1,
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    public function albumInfo(string $apiKey, string $artist, string $album, string $language): array
+    {
+        return $this->publicCall('album.getInfo', $apiKey, [
+            'artist' => $artist,
+            'album' => $album,
+            'lang' => $language,
+            'autocorrect' => 1,
+        ]);
+    }
+
     public function requestToken(string $apiKey, string $apiSecret): string
     {
         $payload = $this->call('auth.getToken', $apiKey, $apiSecret);
@@ -77,6 +98,30 @@ class LastFmApiClient
             'api_key' => $apiKey,
             'token' => $token,
         ]);
+    }
+
+    /** @param array<string, int|string> $parameters */
+    private function publicCall(string $method, string $apiKey, array $parameters): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withUserAgent((string) config('music-library.enrichment.user_agent'))
+                ->withOptions($this->connectionOptions())
+                ->timeout(max(1, (int) config('music-library.lastfm.timeout_seconds', 10)))
+                ->get((string) config('music-library.lastfm.api_url'), [
+                    'api_key' => $apiKey,
+                    'method' => $method,
+                    'format' => 'json',
+                    ...$parameters,
+                ]);
+        } catch (ConnectionException $exception) {
+            throw new LastFmApiException(
+                'Last.fm could not be reached: '.$exception->getMessage(),
+                retriable: true,
+            );
+        }
+
+        return $this->responsePayload($response);
     }
 
     /** @param array<string, int|string> $parameters */

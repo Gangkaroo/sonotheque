@@ -4,9 +4,11 @@ import { useI18n } from 'vue-i18n'
 
 import { ApiError } from '@/api/client'
 import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
+import GeneralSettings from '@/components/GeneralSettings.vue'
 import LanAccessSettings from '@/components/LanAccessSettings.vue'
 import LastFmSettings from '@/components/LastFmSettings.vue'
 import MetadataSettings from '@/components/MetadataSettings.vue'
+import OnlineEnrichmentSettings from '@/components/OnlineEnrichmentSettings.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAdminAccessStore } from '@/stores/adminAccess'
 import { useCatalogStore } from '@/stores/catalog'
@@ -24,7 +26,7 @@ const libraryRoots = useLibraryRootsStore()
 const scanRuns = useScanRunsStore()
 const localBrowser = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname)
 const canAccessProtectedSettings = computed(() => localBrowser || adminAccess.hasToken)
-const activeSettingsTab = ref(canAccessProtectedSettings.value ? 'media-library' : 'security')
+const activeSettingsTab = ref('general')
 const rootRows = computed(() => libraryRoots.roots.map((root) => ({
   root,
   scan: scanRuns.latestForRoot(root.id),
@@ -281,6 +283,9 @@ async function removeRoot() {
     color="primary"
     show-arrows
   >
+    <v-tab prepend-icon="mdi-tune-variant" value="general">
+      {{ t('settings.generalTab') }}
+    </v-tab>
     <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-folder-music-outline" value="media-library">
       {{ t('settings.mediaLibraryTab') }}
     </v-tab>
@@ -294,6 +299,8 @@ async function removeRoot() {
       {{ t('settings.securityTab') }}
     </v-tab>
   </v-tabs>
+
+  <GeneralSettings v-if="activeSettingsTab === 'general'" />
 
   <LanAccessSettings
     v-if="activeSettingsTab === 'security'"
@@ -413,10 +420,10 @@ async function removeRoot() {
     :key="adminAccess.revision"
   />
 
-  <LastFmSettings
-    v-if="activeSettingsTab === 'connections' && canAccessProtectedSettings"
-    :key="adminAccess.revision"
-  />
+  <template v-if="activeSettingsTab === 'connections' && canAccessProtectedSettings">
+    <OnlineEnrichmentSettings :key="`enrichment-${adminAccess.revision}`" />
+    <LastFmSettings :key="`lastfm-${adminAccess.revision}`" />
+  </template>
 
   <v-card v-show="activeSettingsTab === 'media-library'" border rounded="xl" class="mt-6">
     <v-card-item class="pa-6 pb-2">

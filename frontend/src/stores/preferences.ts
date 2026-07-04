@@ -53,9 +53,12 @@ export const usePreferencesStore = defineStore('preferences', {
       this.locale = locale
       this.save()
     },
-    toggleTheme() {
-      this.theme = this.theme === 'dark' ? 'light' : 'dark'
+    setTheme(theme: ThemePreference) {
+      this.theme = theme
       this.save()
+    },
+    toggleTheme() {
+      this.setTheme(this.theme === 'dark' ? 'light' : 'dark')
     },
     save() {
       savePreferences({ locale: this.locale, theme: this.theme })

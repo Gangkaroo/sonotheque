@@ -4,13 +4,14 @@ defineOptions({
 })
 
 defineProps<{
+  location?: 'bottom' | 'end' | 'start' | 'top'
   text: string
   wrapperClass?: string
 }>()
 </script>
 
 <template>
-  <v-tooltip :text="text" location="top">
+  <v-tooltip :text="text" :location="location ?? 'top'">
     <template #activator="{ props }">
       <span :class="['tooltip-icon-button', wrapperClass]" v-bind="props">
         <v-btn v-bind="$attrs" />

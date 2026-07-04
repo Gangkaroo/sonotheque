@@ -76,7 +76,6 @@ The following features are deferred until after the first stable local release:
 - User accounts and permissions
 - Session-wide catalog scoping to one library root or all roots
 - Personal album information, including purchase source and physical-copy state
-- Online artist, album, and lyrics enrichment
 - Audio transcoding
 - Playlist import/export
 - Last.fm history import and now-playing updates
@@ -357,6 +356,7 @@ Completed:
 - getID3 metadata extraction and normalized artist, album, track, and genre records
 - Folder-cover discovery, embedded-artwork fallback, artwork caching, and thumbnail generation
 - Vue/Vuetify application shell with responsive navigation, Pinia, routing, and English/German translations
+- General settings for persisted language and color theme preferences, with a compact header and a unified playback-details panel
 - Library-root list, create, edit, and remove workflow with canonical path, subfolder checks, and safe relative cover-path validation
 - Scan start/cancel API, queued dispatch, progress/history API, and periodically refreshed Settings UI controls
 - Structured scan diagnostics for invalid layouts, unreadable entries, malformed files, missing files, and unavailable roots
@@ -389,15 +389,15 @@ Completed:
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
 - Optional MP3 statistics synchronization using foo_playcount-compatible tags, with queued coalesced write-back
 - Previewed and queued MP3 track/album metadata editing with verification, conflict fingerprints, and optional durable backups
+- Last.fm authorization and asynchronous scrobbling with encrypted credentials, shared counted-play rules, retry handling, and delivery state
+- Opt-in current-track enrichment using attributed Last.fm artist/album context and LRCLIB lyrics
+- Provider-aware enrichment caching with atomic request deduplication, unique stale refresh jobs, configurable throttling, exponential backoff, diagnostics, and cache controls
 
 In progress or still required for the first milestone:
 
-- Local runtime integration for starting, stopping, and checking Docker,
-  Laravel, the queue listener, and Vite together. (Complete)
-- Explicit opt-in LAN binding in the manual startup scripts, including clear Windows Firewall guidance. (Complete)
 - Broader end-to-end and packaging coverage
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. The app is now past the first playable browsing milestone; the next work should make local operation, startup, and recovery boringly repeatable.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation and LAN startup are now repeatable; current feature work focuses on reliable online enrichment and conservative external identity matching without coupling playback to provider availability.
 
 ### 1. Project Foundation
 
@@ -583,26 +583,35 @@ Last.fm integration.
 ### 5d. Online Artist, Album, And Lyrics Enrichment
 
 - Define backend provider contracts and normalized DTOs for artist information,
-  album information, and lyrics.
+  album information, and lyrics. (Foundation complete.)
 - Add disabled-by-default settings for online music information and lyrics,
-  including provider credentials and connection tests where required.
+  including provider credentials and connection tests where required. (Opt-in
+  information and lyrics switches complete; Last.fm credentials are reused for
+  read-only context, LRCLIB requires none, and explicit provider checks are
+  available in Settings.)
 - Add a provider-aware PostgreSQL cache, request deduplication, expiry,
   negative caching, stale-while-revalidate behavior where permitted,
   retry/backoff behavior, and rate-limit enforcement. Route every provider
-  through it.
+  through it. (Complete with atomic miss locks, unique queued stale refreshes,
+  exponential failure backoff, configurable provider request limits, cache
+  statistics, and confirmation-protected cache clearing.)
 - Prefer MusicBrainz identifiers from scanned tags; otherwise use conservative
   name and duration matching with explicit confidence and ambiguity handling.
 - Expose local read endpoints for the current artist, album, and track lyrics;
-  never expose provider credentials to Vue.
+  never expose provider credentials to Vue. (Track-scoped information and
+  lyrics endpoints complete.)
 - Add an Info/Lyrics area to the player that handles loading, unavailable,
   ambiguous, stale-cache, and provider-error states without interrupting audio.
+  (Complete for Last.fm artist/album context and LRCLIB plain lyrics.)
 - Dispatch enrichment independently after playback starts; never place an
   external request on the playback, seeking, or queue-progression path.
 - First support cached artist/album context and plain lyrics with source
   attribution. Add synchronized lyric scrolling only after the plain-lyrics
-  workflow is stable.
+  workflow is stable. (First slice complete.)
 - Add fake-provider tests for matching, caching, disabled settings, throttling,
   provider failure, and prevention of outbound requests when enrichment is off.
+  (Complete for the Last.fm/LRCLIB slice, including lock contention and stale
+  refresh behavior.)
 - Consider artist/album detail-page enrichment and multiple-provider fallback
   after the current-playing workflow is stable.
 
@@ -658,12 +667,17 @@ rules, and asynchronous delivery are implemented. The next connector refinement
 is operational visibility for failed or ignored scrobbles before considering
 history import or now-playing updates.
 
-The next user-facing media feature is online enrichment. Its first milestone is
-a provider-neutral Laravel service, opt-in settings, a terms-aware cache, and a
-player Info/Lyrics area showing attributed artist/album context and plain lyrics
-for the current track. Playback and local browsing must remain independent of
-provider availability. Synchronized lyrics and additional provider fallbacks
-belong in a later refinement.
+The first online-enrichment milestone and its reliability layer are complete:
+provider-neutral services, opt-in settings, attributed Last.fm and LRCLIB
+content, atomic request deduplication, stale background refresh, configurable
+request limits, failure backoff, provider checks, and cache management are in
+place without coupling playback to provider availability.
+
+The next enrichment milestone is identity and matching through MusicBrainz.
+Scanned MusicBrainz identifiers should be preferred where present, with
+conservative name-based fallback, explicit confidence, and an ambiguous state
+instead of silently attaching uncertain data. Synchronized lyric scrolling and
+additional display providers remain later refinements after matching is stable.
 
 Two additional catalog refinements are planned. A session-wide root selector
 will restrict catalog queries and metrics to one physical library root while

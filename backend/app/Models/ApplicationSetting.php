@@ -18,6 +18,8 @@ use Illuminate\Database\Eloquent\Model;
     'lastfm_username',
     'lastfm_auth_token',
     'lastfm_auth_token_expires_at',
+    'online_information_enabled',
+    'online_lyrics_enabled',
 ])]
 class ApplicationSetting extends Model
 {
@@ -30,6 +32,8 @@ class ApplicationSetting extends Model
             'metadata_backup_path' => config('music-library.metadata_backups.default_path'),
             'metadata_backup_retention_days' => config('music-library.metadata_backups.default_retention_days'),
             'lastfm_scrobbling_enabled' => false,
+            'online_information_enabled' => false,
+            'online_lyrics_enabled' => false,
         ]);
     }
 
@@ -65,6 +69,8 @@ class ApplicationSetting extends Model
             'lastfm_session_key' => 'encrypted',
             'lastfm_auth_token' => 'encrypted',
             'lastfm_auth_token_expires_at' => 'immutable_datetime',
+            'online_information_enabled' => 'boolean',
+            'online_lyrics_enabled' => 'boolean',
         ];
     }
 }

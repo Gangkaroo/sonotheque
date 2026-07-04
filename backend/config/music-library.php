@@ -4,6 +4,7 @@ $trustedHosts = array_values(array_filter(array_map(
     static fn (string $host): string => trim($host),
     explode(',', (string) env('MUSIC_LIBRARY_TRUSTED_HOSTS', 'localhost,127.0.0.1,::1')),
 )));
+$enrichmentCaBundle = env('ENRICHMENT_CA_BUNDLE') ?: env('LASTFM_CA_BUNDLE');
 
 return [
     'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '1024M'),
@@ -18,7 +19,32 @@ return [
         'auth_url' => env('LASTFM_AUTH_URL', 'https://www.last.fm/api/auth/'),
         'timeout_seconds' => (int) env('LASTFM_TIMEOUT_SECONDS', 10),
         'proxy' => env('LASTFM_PROXY', ''),
-        'ca_bundle' => env('LASTFM_CA_BUNDLE'),
+        'ca_bundle' => env('LASTFM_CA_BUNDLE') ?: $enrichmentCaBundle,
+    ],
+
+    'enrichment' => [
+        'user_agent' => env('ENRICHMENT_USER_AGENT', 'MusicLibrary/0.1 (local music library application)'),
+        'ready_cache_days' => (int) env('ENRICHMENT_READY_CACHE_DAYS', 30),
+        'stale_cache_days' => (int) env('ENRICHMENT_STALE_CACHE_DAYS', 7),
+        'not_found_cache_hours' => (int) env('ENRICHMENT_NOT_FOUND_CACHE_HOURS', 24),
+        'error_retry_minutes' => (int) env('ENRICHMENT_ERROR_RETRY_MINUTES', 15),
+        'max_error_retry_minutes' => (int) env('ENRICHMENT_MAX_ERROR_RETRY_MINUTES', 360),
+        'lock_seconds' => (int) env('ENRICHMENT_LOCK_SECONDS', 30),
+        'lock_wait_seconds' => (int) env('ENRICHMENT_LOCK_WAIT_SECONDS', 12),
+        'providers' => [
+            'lastfm' => [
+                'max_requests_per_minute' => (int) env('LASTFM_ENRICHMENT_REQUESTS_PER_MINUTE', 30),
+            ],
+            'lrclib' => [
+                'max_requests_per_minute' => (int) env('LRCLIB_REQUESTS_PER_MINUTE', 60),
+            ],
+        ],
+        'lrclib' => [
+            'api_url' => env('LRCLIB_API_URL', 'https://lrclib.net/api'),
+            'timeout_seconds' => (int) env('LRCLIB_TIMEOUT_SECONDS', 20),
+            'proxy' => env('LRCLIB_PROXY', ''),
+            'ca_bundle' => env('LRCLIB_CA_BUNDLE') ?: $enrichmentCaBundle,
+        ],
     ],
 
     'metadata_backups' => [

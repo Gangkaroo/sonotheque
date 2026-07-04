@@ -13,7 +13,7 @@ describe('preferences store', () => {
     const preferences = usePreferencesStore()
 
     preferences.setLocale('de')
-    preferences.toggleTheme()
+    preferences.setTheme('light')
 
     expect(preferences.locale).toBe('de')
     expect(preferences.theme).toBe('light')

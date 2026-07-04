@@ -89,6 +89,34 @@ Eligible tracks are longer than 30 seconds and have played for at least half
 their duration or four minutes, whichever comes first. The same rule controls
 the local play count and Last.fm submission.
 
+## Online Information And Lyrics
+
+Settings > Connections contains separate opt-in switches for artist/album
+information and lyrics. Artist and album context uses the configured Last.fm
+API key; authorizing a Last.fm user session is not required for these read-only
+requests. Lyrics use LRCLIB and require no API credentials.
+
+Provider requests start only when the corresponding Info or Lyrics tab is
+opened. Successful results are cached for 30 days, remain available as stale
+content for another 7 days while a unique background refresh runs, and missing
+results are cached for 24 hours. Repeated failures use exponential backoff.
+Atomic cache locks deduplicate concurrent misses, while configurable
+provider-specific request limits prevent bursts. Playback, seeking, and queue
+progression never wait for background refreshes.
+
+Settings > Connections provides explicit Last.fm and LRCLIB connection checks,
+cache statistics, and a confirmation-protected action that clears only online
+enrichment entries. Connection checks run only when clicked and use fixed test
+values rather than the currently playing track. Cache durations, lock timing,
+request limits, and LRCLIB connection settings can be adjusted with the
+`ENRICHMENT_*`, `LASTFM_ENRICHMENT_*`, and `LRCLIB_*` values documented in
+`backend/.env.example`.
+
+Set `ENRICHMENT_CA_BUNDLE` when PHP needs an explicit certificate authority
+bundle for outbound HTTPS. `LASTFM_CA_BUNDLE` and `LRCLIB_CA_BUNDLE` can
+override it per provider; LRCLIB also reuses an existing Last.fm bundle for
+compatibility.
+
 To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:
 

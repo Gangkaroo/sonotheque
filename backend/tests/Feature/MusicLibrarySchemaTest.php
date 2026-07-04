@@ -26,7 +26,7 @@ class MusicLibrarySchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups'] as $table) {
+        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -52,6 +52,8 @@ class MusicLibrarySchemaTest extends TestCase
             ['tracks', 'metadata'],
             ['tracks', 'composers'],
             ['tracks', 'performers'],
+            ['online_content_cache', 'lookup'],
+            ['online_content_cache', 'payload'],
         ] as [$table, $column]) {
             $this->assertTrue(
                 DB::table('information_schema.columns')

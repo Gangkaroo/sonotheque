@@ -7,18 +7,25 @@ import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore, type TrackPlayStatistics } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useNowPlayingPanelStore } from '@/stores/nowPlayingPanel'
+import {
+  useOnlineEnrichmentStore,
+  type EnrichmentErrorCode,
+  type EnrichmentStatus,
+} from '@/stores/onlineEnrichment'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const MINIMUM_COUNTED_TRACK_SECONDS = 30
 const MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS = 240
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const nowPlayingPanel = useNowPlayingPanelStore()
+const enrichment = useOnlineEnrichmentStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
 const audio = ref<HTMLAudioElement | null>(null)
-const queueDrawer = ref(false)
 const playerCollapsed = ref(false)
 const draggedQueueIndex = ref<number | null>(null)
 const addToPlaylistDialog = ref(false)
@@ -43,6 +50,12 @@ let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
 const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
   set: (value: number) => player.setVolume(value / 100),
+})
+const nowPlayingDrawerOpen = computed({
+  get: () => nowPlayingPanel.isOpen,
+  set: (value: boolean) => {
+    if (!value) nowPlayingPanel.close()
+  },
 })
 const seekPosition = computed({
   get: () => currentTime.value,
@@ -115,6 +128,28 @@ watch(
   },
   { flush: 'sync' },
 )
+
+watch(
+  [
+    () => nowPlayingPanel.isOpen,
+    () => nowPlayingPanel.activeTab,
+    () => player.currentTrack?.id,
+    () => locale.value,
+  ],
+  ([isOpen, activeTab, trackId, language]) => {
+    if (!isOpen || !trackId) return
+
+    if (activeTab === 'info') void enrichment.loadInformation(trackId, language)
+    if (activeTab === 'lyrics') void enrichment.loadLyrics(trackId)
+  },
+  { immediate: true },
+)
+
+function enrichmentStateText(status: EnrichmentStatus | undefined, errorCode?: EnrichmentErrorCode | null) {
+  if (status === 'error' && errorCode) return t(`player.enrichmentErrors.${errorCode}`)
+
+  return status ? t(`player.enrichmentStates.${status}`) : ''
+}
 
 watch(
   () => player.isPlaying,
@@ -340,12 +375,6 @@ function maybeRecordCountedPlay() {
 function openAddToPlaylist(tracks: typeof player.queue) {
   playlistTracks.value = [...tracks]
   addToPlaylistDialog.value = true
-}
-
-function openCurrentTrackPlaylistDialog() {
-  if (!player.currentTrack) return
-
-  openAddToPlaylist([player.currentTrack])
 }
 
 async function createPlaylistFromQueue() {
@@ -587,17 +616,9 @@ onMounted(() => {
             :aria-label="t('player.queue')"
             icon="mdi-playlist-music-outline"
             variant="text"
-            @click="queueDrawer = true"
+            @click="nowPlayingPanel.open('queue')"
           />
         </v-badge>
-        <TooltipIconButton
-          :text="t('playlists.addTrackToPlaylist')"
-          :aria-label="t('playlists.addTrackToPlaylist')"
-          :disabled="!player.currentTrack"
-          icon="mdi-playlist-plus"
-          variant="text"
-          @click="openCurrentTrackPlaylistDialog"
-        />
         <TooltipIconButton
           :text="player.currentTrack && favorites.isTrackFavorite(player.currentTrack.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
           :aria-label="player.currentTrack && favorites.isTrackFavorite(player.currentTrack.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
@@ -696,18 +717,76 @@ onMounted(() => {
   </v-footer>
 
   <v-navigation-drawer
-    v-model="queueDrawer"
-    class="queue-drawer"
+    v-model="nowPlayingDrawerOpen"
+    class="now-playing-drawer"
     location="right"
     temporary
     width="520"
   >
-    <div class="d-flex align-center justify-space-between pa-4">
-      <div>
-        <div class="text-h6 font-weight-bold">{{ t('player.queue') }}</div>
-        <div class="text-caption text-medium-emphasis">{{ t('player.queueCount', { count: player.queue.length }) }}</div>
+    <div class="now-playing-drawer-header pa-4">
+      <RouterLink
+        v-if="albumRoute && albumArtworkThumbnailUrl"
+        class="now-playing-drawer-artwork"
+        :to="albumRoute"
+        @click="nowPlayingPanel.close"
+      >
+        <v-img :alt="albumTitle" cover :src="albumArtworkThumbnailUrl" />
+      </RouterLink>
+      <div v-else class="now-playing-drawer-artwork now-playing-drawer-artwork-placeholder">
+        <v-icon icon="mdi-album" size="28" />
       </div>
-      <div class="d-flex align-center ga-1">
+
+      <div class="now-playing-drawer-meta">
+        <RouterLink
+          v-if="trackRoute"
+          class="now-playing-drawer-link text-subtitle-1 font-weight-bold"
+          :to="trackRoute"
+          @click="nowPlayingPanel.close"
+        >
+          {{ trackTitle }}
+        </RouterLink>
+        <div v-else class="text-subtitle-1 font-weight-bold text-truncate">{{ trackTitle }}</div>
+        <RouterLink
+          v-if="artistAlbumsRoute"
+          class="now-playing-drawer-link text-body-2 text-medium-emphasis"
+          :to="artistAlbumsRoute"
+          @click="nowPlayingPanel.close"
+        >
+          {{ artistNames }}
+        </RouterLink>
+        <div v-else class="text-body-2 text-medium-emphasis text-truncate">{{ artistNames }}</div>
+        <RouterLink
+          v-if="albumRoute"
+          class="now-playing-drawer-link text-caption text-medium-emphasis"
+          :to="albumRoute"
+          @click="nowPlayingPanel.close"
+        >
+          {{ albumTitle }}
+        </RouterLink>
+        <div v-else class="text-caption text-medium-emphasis text-truncate">{{ albumTitle }}</div>
+      </div>
+
+      <TooltipIconButton
+        :text="t('player.closeNowPlaying')"
+        :aria-label="t('player.closeNowPlaying')"
+        icon="mdi-close"
+        variant="text"
+        @click="nowPlayingPanel.close"
+      />
+    </div>
+
+    <v-tabs v-model="nowPlayingPanel.activeTab" color="primary" grow>
+      <v-tab prepend-icon="mdi-playlist-music-outline" value="queue">{{ t('player.queue') }}</v-tab>
+      <v-tab prepend-icon="mdi-information-outline" value="info">{{ t('player.info') }}</v-tab>
+      <v-tab prepend-icon="mdi-text-box-outline" value="lyrics">{{ t('player.lyrics') }}</v-tab>
+    </v-tabs>
+    <v-divider />
+
+    <v-window v-model="nowPlayingPanel.activeTab">
+      <v-window-item value="queue">
+        <div class="queue-toolbar pa-4">
+          <div class="text-caption text-medium-emphasis">{{ t('player.queueCount', { count: player.queue.length }) }}</div>
+          <div class="d-flex align-center ga-1">
         <TooltipIconButton
           :text="t('playlists.createFromQueue')"
           :aria-label="t('playlists.createFromQueue')"
@@ -724,16 +803,9 @@ onMounted(() => {
           variant="text"
           @click="player.clearQueue"
         />
-        <TooltipIconButton
-          :text="t('player.closeQueue')"
-          :aria-label="t('player.closeQueue')"
-          icon="mdi-close"
-          variant="text"
-          @click="queueDrawer = false"
-        />
-      </div>
-    </div>
-    <v-divider />
+          </div>
+        </div>
+        <v-divider />
 
     <v-list v-if="player.queue.length" lines="three" class="queue-list">
       <template v-if="nowPlayingQueueItem">
@@ -741,7 +813,7 @@ onMounted(() => {
         <v-list-item
           :key="queueItemKey(nowPlayingQueueItem.track, nowPlayingQueueItem.index)"
           active
-          active-color="primary"
+          color="primary"
           class="queue-item"
           :class="{ 'is-dragging': draggedQueueIndex === nowPlayingQueueItem.index }"
           draggable="true"
@@ -989,10 +1061,159 @@ onMounted(() => {
           </template>
         </v-list-item>
       </template>
-    </v-list>
-    <div v-else class="pa-4 text-medium-emphasis">
-      {{ t('player.queueEmpty') }}
-    </div>
+        </v-list>
+        <div v-else class="pa-4 text-medium-emphasis">
+          {{ t('player.queueEmpty') }}
+        </div>
+      </v-window-item>
+
+      <v-window-item value="info">
+        <div class="now-playing-tab-content pa-4">
+          <v-skeleton-loader v-if="enrichment.informationLoading" type="article@2" />
+          <v-alert
+            v-else-if="enrichment.informationError"
+            class="mb-4"
+            type="error"
+            variant="tonal"
+          >
+            {{ enrichment.informationError }}
+          </v-alert>
+
+          <template v-else>
+            <v-alert
+              v-if="enrichment.information?.artist.stale || enrichment.information?.album.stale"
+              class="mb-4"
+              icon="mdi-cached"
+              :text="t('player.enrichmentStale')"
+              type="info"
+              variant="tonal"
+            />
+            <v-alert
+              v-if="enrichment.information?.artist.status === 'disabled'"
+              class="mb-4"
+              icon="mdi-cloud-off-outline"
+              :text="t('player.enrichmentDisabledDescription')"
+              :title="t('player.enrichmentDisabledTitle')"
+              variant="tonal"
+            />
+
+            <v-card class="mb-4" rounded="lg" variant="outlined">
+              <v-card-item prepend-icon="mdi-account-music-outline">
+                <v-card-title>{{ t('player.artistInformation') }}</v-card-title>
+                <v-card-subtitle>{{ enrichment.information?.artist.data?.name ?? artistNames }}</v-card-subtitle>
+              </v-card-item>
+              <v-card-text v-if="enrichment.information?.artist.status === 'ready'">
+                <p v-if="enrichment.information.artist.data?.biography" class="enrichment-copy">
+                  {{ enrichment.information.artist.data.biography }}
+                </p>
+                <div v-if="enrichment.information.artist.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
+                  <v-chip v-for="tag in enrichment.information.artist.data.tags" :key="tag" size="small" variant="tonal">
+                    {{ tag }}
+                  </v-chip>
+                </div>
+                <v-btn
+                  v-if="enrichment.information.artist.data?.attribution.sourceUrl"
+                  class="mt-4 px-0"
+                  append-icon="mdi-open-in-new"
+                  :href="enrichment.information.artist.data.attribution.sourceUrl"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  variant="text"
+                >
+                  {{ t('player.source', { source: enrichment.information.artist.data.attribution.label }) }}
+                </v-btn>
+              </v-card-text>
+              <v-card-text v-else class="text-medium-emphasis">
+                {{
+                  enrichmentStateText(
+                    enrichment.information?.artist.status,
+                    enrichment.information?.artist.errorCode,
+                  )
+                }}
+              </v-card-text>
+            </v-card>
+
+            <v-card rounded="lg" variant="outlined">
+              <v-card-item prepend-icon="mdi-album">
+                <v-card-title>{{ t('player.albumInformation') }}</v-card-title>
+                <v-card-subtitle>{{ enrichment.information?.album.data?.title ?? albumTitle }}</v-card-subtitle>
+              </v-card-item>
+              <v-card-text v-if="enrichment.information?.album.status === 'ready'">
+                <p v-if="enrichment.information.album.data?.summary" class="enrichment-copy">
+                  {{ enrichment.information.album.data.summary }}
+                </p>
+                <div v-if="enrichment.information.album.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
+                  <v-chip v-for="tag in enrichment.information.album.data.tags" :key="tag" size="small" variant="tonal">
+                    {{ tag }}
+                  </v-chip>
+                </div>
+                <v-btn
+                  v-if="enrichment.information.album.data?.attribution.sourceUrl"
+                  class="mt-4 px-0"
+                  append-icon="mdi-open-in-new"
+                  :href="enrichment.information.album.data.attribution.sourceUrl"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  variant="text"
+                >
+                  {{ t('player.source', { source: enrichment.information.album.data.attribution.label }) }}
+                </v-btn>
+              </v-card-text>
+              <v-card-text v-else class="text-medium-emphasis">
+                {{
+                  enrichmentStateText(
+                    enrichment.information?.album.status,
+                    enrichment.information?.album.errorCode,
+                  )
+                }}
+              </v-card-text>
+            </v-card>
+          </template>
+        </div>
+      </v-window-item>
+
+      <v-window-item value="lyrics">
+        <div v-if="enrichment.lyricsLoading" class="pa-4">
+          <v-skeleton-loader type="article" />
+        </div>
+        <div v-else-if="enrichment.lyricsError" class="pa-4">
+          <v-alert type="error" variant="tonal">{{ enrichment.lyricsError }}</v-alert>
+        </div>
+        <div v-else-if="enrichment.lyrics?.status === 'ready'" class="now-playing-tab-content pa-4">
+          <v-alert
+            v-if="enrichment.lyrics.stale"
+            class="mb-4"
+            icon="mdi-cached"
+            :text="t('player.enrichmentStale')"
+            type="info"
+            variant="tonal"
+          />
+          <div v-if="enrichment.lyrics.data?.instrumental" class="now-playing-empty-state pa-8 text-center">
+            <v-icon class="mb-4" color="primary" icon="mdi-music-note-off-outline" size="48" />
+            <div class="text-h6 font-weight-bold">{{ t('player.instrumentalTrack') }}</div>
+          </div>
+          <pre v-else class="lyrics-copy">{{ enrichment.lyrics.data?.plainLyrics }}</pre>
+          <v-btn
+            v-if="enrichment.lyrics.data?.attribution.sourceUrl"
+            class="mt-4 px-0"
+            append-icon="mdi-open-in-new"
+            :href="enrichment.lyrics.data.attribution.sourceUrl"
+            rel="noopener noreferrer"
+            target="_blank"
+            variant="text"
+          >
+            {{ t('player.source', { source: enrichment.lyrics.data.attribution.label }) }}
+          </v-btn>
+        </div>
+        <div v-else class="now-playing-empty-state pa-8 text-center">
+          <v-icon class="mb-4" color="primary" icon="mdi-text-box-search-outline" size="48" />
+          <div class="text-h6 font-weight-bold">{{ t('player.lyricsUnavailableTitle') }}</div>
+          <div class="text-body-2 text-medium-emphasis mt-2">
+            {{ enrichmentStateText(enrichment.lyrics?.status, enrichment.lyrics?.errorCode) }}
+          </div>
+        </div>
+      </v-window-item>
+    </v-window>
   </v-navigation-drawer>
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
@@ -1248,6 +1469,71 @@ onMounted(() => {
   display: flex;
 }
 
+.now-playing-drawer-header {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+}
+
+.now-playing-drawer-artwork {
+  border-radius: 10px;
+  height: 56px;
+  overflow: hidden;
+  width: 56px;
+}
+
+.now-playing-drawer-artwork-placeholder {
+  align-items: center;
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+  display: flex;
+  justify-content: center;
+}
+
+.now-playing-drawer-meta {
+  display: grid;
+  min-width: 0;
+}
+
+.now-playing-drawer-link {
+  color: inherit;
+  overflow: hidden;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing-drawer-link:hover {
+  text-decoration: underline;
+}
+
+.queue-toolbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.now-playing-tab-content {
+  max-width: 100%;
+}
+
+.enrichment-copy,
+.lyrics-copy {
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.lyrics-copy {
+  font: inherit;
+  margin: 0;
+}
+
+.now-playing-empty-state {
+  margin-inline: auto;
+  max-width: 420px;
+}
+
 .queue-list {
   padding: 8px;
 }
@@ -1380,7 +1666,7 @@ onMounted(() => {
 }
 
 @media (max-width: 560px) {
-  :deep(.queue-drawer) {
+  :deep(.now-playing-drawer) {
     max-width: 100vw;
   }
 }

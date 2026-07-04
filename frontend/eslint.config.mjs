@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
 import vueParser from 'vue-eslint-parser'
 
 export default [
-  { ignores: ['dist/**', 'coverage/**'] },
+  { ignores: ['dist/**', 'coverage/**', '.vite/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/essential'],
