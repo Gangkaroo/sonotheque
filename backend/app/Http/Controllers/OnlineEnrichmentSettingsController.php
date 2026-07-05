@@ -48,7 +48,7 @@ class OnlineEnrichmentSettingsController extends Controller
 
     public function testProvider(string $provider): JsonResponse
     {
-        abort_unless(in_array($provider, ['lastfm', 'lrclib'], true), 404);
+        abort_unless(in_array($provider, ['lastfm', 'lrclib', 'musicbrainz'], true), 404);
 
         return response()->json($this->diagnostics->test($provider));
     }

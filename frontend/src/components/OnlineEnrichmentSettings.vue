@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useOnlineEnrichmentSettingsStore } from '@/stores/onlineEnrichmentSettings'
+import type { OnlineEnrichmentProvider } from '@/stores/onlineEnrichmentSettings'
 
 const { t } = useI18n()
 const enrichment = useOnlineEnrichmentSettingsStore()
@@ -33,7 +34,7 @@ async function clearCache() {
   clearCacheDialog.value = false
 }
 
-function providerResultText(provider: 'lastfm' | 'lrclib') {
+function providerResultText(provider: OnlineEnrichmentProvider) {
   const result = enrichment.providerTests[provider]
   if (!result) return ''
   if (result.status === 'error' && result.errorCode) {
@@ -43,7 +44,7 @@ function providerResultText(provider: 'lastfm' | 'lrclib') {
   return t(`settings.providerTestStatuses.${result.status}`)
 }
 
-function providerResultColor(provider: 'lastfm' | 'lrclib') {
+function providerResultColor(provider: OnlineEnrichmentProvider) {
   const status = enrichment.providerTests[provider]?.status
 
   return status === 'available' ? 'success' : status === 'error' ? 'error' : 'warning'
@@ -111,6 +112,24 @@ function providerResultColor(provider: 'lastfm' | 'lrclib') {
               variant="tonal"
             >
               {{ providerResultText('lastfm') }}
+            </v-chip>
+          </div>
+          <div class="provider-check">
+            <v-btn
+              prepend-icon="mdi-lan-connect"
+              :loading="enrichment.testingProvider === 'musicbrainz'"
+              variant="tonal"
+              @click="enrichment.testProvider('musicbrainz')"
+            >
+              {{ t('settings.testMusicBrainz') }}
+            </v-btn>
+            <v-chip
+              v-if="enrichment.providerTests.musicbrainz"
+              :color="providerResultColor('musicbrainz')"
+              size="small"
+              variant="tonal"
+            >
+              {{ providerResultText('musicbrainz') }}
             </v-chip>
           </div>
           <div class="provider-check">

@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useLastFmSettingsStore } from '@/stores/lastFmSettings'
+import { openExternalUrl } from '@/utils/externalLinks'
 
 const { t } = useI18n()
 const lastFm = useLastFmSettingsStore()
@@ -56,7 +57,7 @@ function openAuthorization() {
   const authorizationUrl = lastFm.settings.authorizationUrl
   if (!authorizationUrl) return
 
-  window.open(authorizationUrl, '_blank', 'noopener,noreferrer')
+  openExternalUrl(authorizationUrl)
 }
 </script>
 
@@ -103,7 +104,12 @@ function openAuthorization() {
       <template v-else>
         <v-alert class="mb-5" type="info" variant="tonal">
           {{ t('settings.lastFmCredentialsHint') }}
-          <a href="https://www.last.fm/api/account/create" rel="noreferrer" target="_blank">
+          <a
+            href="https://www.last.fm/api/account/create"
+            rel="noopener noreferrer"
+            target="_blank"
+            @click.prevent="openExternalUrl('https://www.last.fm/api/account/create')"
+          >
             {{ t('settings.lastFmCreateApiAccount') }}
           </a>
         </v-alert>

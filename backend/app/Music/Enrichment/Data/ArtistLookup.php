@@ -12,16 +12,18 @@ final readonly class ArtistLookup implements CacheableLookup
         public string $name,
         public array $externalIds = [],
         public string $language = 'en',
+        public ?string $cacheVariant = null,
     ) {
     }
 
     public function cachePayload(): array
     {
-        return [
+        return array_filter([
             'artistId' => $this->artistId,
             'name' => $this->name,
             'externalIds' => $this->externalIds,
             'language' => $this->language,
-        ];
+            'cacheVariant' => $this->cacheVariant,
+        ], static fn (mixed $value, string $key): bool => $key !== 'cacheVariant' || $value !== null, ARRAY_FILTER_USE_BOTH);
     }
 }

@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\ApplicationSetting;
+use App\Music\Enrichment\AmbiguousEnrichmentMatchException;
 use App\Music\Enrichment\Data\AlbumLookup;
 use App\Music\Enrichment\Data\ArtistLookup;
 use App\Music\Enrichment\Data\LyricsLookup;
 use App\Music\Enrichment\Providers\LastFmInformationProvider;
 use App\Music\Enrichment\Providers\LrclibLyricsProvider;
+use App\Music\Enrichment\Providers\MusicBrainzInformationProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -26,7 +28,10 @@ class OnlineEnrichmentProvidersTest extends TestCase
                     'mbid' => 'artist-mbid',
                     'url' => 'https://www.last.fm/music/Example+Artist',
                     'tags' => ['tag' => [['name' => 'Rock'], ['name' => 'Indie']]],
-                    'bio' => ['summary' => '<p>An example biography.</p> Read more on Last.fm'],
+                    'bio' => [
+                        'summary' => '<p>A short biography.</p> Read more on Last.fm',
+                        'content' => '<p>An example biography.</p> Read more on Last.fm',
+                    ],
                 ],
             ])
             ->push([
@@ -36,7 +41,10 @@ class OnlineEnrichmentProvidersTest extends TestCase
                     'mbid' => 'album-mbid',
                     'url' => 'https://www.last.fm/music/Example+Artist/Example+Album',
                     'tags' => ['tag' => ['name' => 'Alternative']],
-                    'wiki' => ['summary' => '<b>An album summary.</b>'],
+                    'wiki' => [
+                        'summary' => '<b>A short album summary.</b>',
+                        'content' => '<b>An album summary.</b>',
+                    ],
                 ],
             ]);
 
@@ -84,5 +92,74 @@ class OnlineEnrichmentProvidersTest extends TestCase
             && $request['artist_name'] === 'Example Artist'
             && $request['album_name'] === 'Example Album'
             && (int) $request['duration'] === 123);
+    }
+
+    public function test_musicbrainz_prefers_tagged_identifiers(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        Http::fakeSequence()
+            ->push([
+                'id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
+                'name' => 'Example Artist',
+                'country' => 'DE',
+                'life-span' => ['begin' => '1999', 'end' => null],
+                'tags' => [['name' => 'indie rock']],
+            ])
+            ->push([
+                'id' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+                'title' => 'Example Album',
+                'date' => '2020-03-06',
+                'artist-credit' => [['name' => 'Example Artist']],
+                'label-info' => [['label' => ['name' => 'Example Records']]],
+                'release-group' => ['primary-type' => 'Album'],
+            ]);
+
+        $provider = app(MusicBrainzInformationProvider::class);
+        $artist = $provider->fetchArtist(new ArtistLookup(1, 'Example Artist', [
+            'musicbrainz_artist' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
+        ]));
+        $album = $provider->fetchAlbum(new AlbumLookup(2, 'Example Album', 'Example Artist', externalIds: [
+            'musicbrainz_release' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+        ]));
+
+        $this->assertSame('tag', $artist?->matchMethod);
+        $this->assertSame(100, $artist?->matchConfidence);
+        $this->assertSame('DE', $artist?->country);
+        $this->assertSame('2020-03-06', $album?->releaseDate);
+        $this->assertSame('Example Records', $album?->label);
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/artist/5b11f4ce-a62d-471e-81fc-a69a8278c7da'));
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/release/18d5d0ca-1107-4df2-9d51-df1c5fe57490'));
+    }
+
+    public function test_musicbrainz_accepts_only_a_clear_exact_search_match(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        Http::fake(['*' => Http::response([
+            'artists' => [
+                ['id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'name' => 'Example Artist', 'score' => 100],
+                ['id' => '65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab', 'name' => 'Example Artists', 'score' => 70],
+            ],
+        ])]);
+
+        $artist = app(MusicBrainzInformationProvider::class)
+            ->fetchArtist(new ArtistLookup(1, 'Example Artist'));
+
+        $this->assertSame('search', $artist?->matchMethod);
+        $this->assertSame(100, $artist?->matchConfidence);
+    }
+
+    public function test_musicbrainz_rejects_ambiguous_search_results(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        Http::fake(['*' => Http::response([
+            'artists' => [
+                ['id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'name' => 'Example Artist', 'score' => 100],
+                ['id' => '65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab', 'name' => 'Example Artist', 'score' => 95],
+            ],
+        ])]);
+
+        $this->expectException(AmbiguousEnrichmentMatchException::class);
+
+        app(MusicBrainzInformationProvider::class)->fetchArtist(new ArtistLookup(1, 'Example Artist'));
     }
 }

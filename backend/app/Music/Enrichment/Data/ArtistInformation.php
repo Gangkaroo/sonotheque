@@ -14,6 +14,8 @@ final readonly class ArtistInformation
         public array $tags,
         public ProviderAttribution $attribution,
         public ?string $providerReference = null,
+        public ?string $matchMethod = null,
+        public ?int $matchConfidence = null,
     ) {
     }
 
@@ -29,6 +31,8 @@ final readonly class ArtistInformation
             'tags' => $this->tags,
             'attribution' => $this->attribution->toArray(),
             'providerReference' => $this->providerReference,
+            'matchMethod' => $this->matchMethod,
+            'matchConfidence' => $this->matchConfidence,
         ];
     }
 }

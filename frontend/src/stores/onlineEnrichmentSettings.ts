@@ -18,10 +18,12 @@ export interface OnlineEnrichmentCacheSummary {
 }
 
 export interface ProviderTestResult {
-  provider: 'lastfm' | 'lrclib'
+  provider: OnlineEnrichmentProvider
   status: 'available' | 'error' | 'not_configured'
   errorCode?: string | null
 }
+
+export type OnlineEnrichmentProvider = 'lastfm' | 'lrclib' | 'musicbrainz'
 
 const defaults: OnlineEnrichmentSettings = {
   informationEnabled: false,
@@ -34,8 +36,8 @@ export const useOnlineEnrichmentSettingsStore = defineStore('onlineEnrichmentSet
   const loading = ref(false)
   const saving = ref(false)
   const clearingCache = ref(false)
-  const testingProvider = ref<'lastfm' | 'lrclib' | null>(null)
-  const providerTests = ref<Partial<Record<'lastfm' | 'lrclib', ProviderTestResult>>>({})
+  const testingProvider = ref<OnlineEnrichmentProvider | null>(null)
+  const providerTests = ref<Partial<Record<OnlineEnrichmentProvider, ProviderTestResult>>>({})
   const error = ref<string | null>(null)
 
   async function load() {
@@ -84,7 +86,7 @@ export const useOnlineEnrichmentSettingsStore = defineStore('onlineEnrichmentSet
     }
   }
 
-  async function testProvider(provider: 'lastfm' | 'lrclib') {
+  async function testProvider(provider: OnlineEnrichmentProvider) {
     testingProvider.value = provider
     error.value = null
     try {

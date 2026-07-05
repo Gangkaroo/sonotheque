@@ -44,7 +44,10 @@ class LastFmInformationProvider implements AlbumInformationProvider, ArtistInfor
 
         return new ArtistInformation(
             name: $artist['name'],
-            biography: $this->summary($artist['bio']['summary'] ?? null),
+            biography: $this->description(
+                $artist['bio']['content'] ?? null,
+                $artist['bio']['summary'] ?? null,
+            ),
             country: null,
             activeFrom: null,
             activeTo: null,
@@ -80,7 +83,10 @@ class LastFmInformationProvider implements AlbumInformationProvider, ArtistInfor
         return new AlbumInformation(
             title: $album['name'],
             artistName: $this->text($album['artist'] ?? null) ?? $lookup->artistName,
-            summary: $this->summary($album['wiki']['summary'] ?? null),
+            summary: $this->description(
+                $album['wiki']['content'] ?? null,
+                $album['wiki']['summary'] ?? null,
+            ),
             releaseDate: null,
             label: null,
             releaseType: null,
@@ -124,17 +130,17 @@ class LastFmInformationProvider implements AlbumInformationProvider, ArtistInfor
         );
     }
 
-    private function summary(mixed $value): ?string
+    private function description(mixed $content, mixed $summary): ?string
     {
-        $summary = $this->text($value);
-        if ($summary === null) {
+        $description = $this->text($content) ?? $this->text($summary);
+        if ($description === null) {
             return null;
         }
 
-        $summary = html_entity_decode(strip_tags($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $summary = preg_replace('/\s*Read more on Last\.fm.*$/iu', '', $summary) ?? $summary;
+        $description = html_entity_decode(strip_tags($description), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $description = preg_replace('/\s*Read more on Last\.fm.*$/iu', '', $description) ?? $description;
 
-        return trim($summary) ?: null;
+        return trim($description) ?: null;
     }
 
     /** @return list<string> */

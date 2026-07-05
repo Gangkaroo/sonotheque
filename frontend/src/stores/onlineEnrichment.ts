@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
 
-export type EnrichmentStatus = 'disabled' | 'error' | 'not_configured' | 'not_found' | 'pending' | 'ready'
+export type EnrichmentStatus = 'ambiguous' | 'disabled' | 'error' | 'not_configured' | 'not_found' | 'pending' | 'ready'
 export type EnrichmentErrorCode =
   | 'connection'
   | 'invalid_response'
@@ -27,6 +27,9 @@ export interface ArtistInformation {
   activeTo?: string | null
   tags: string[]
   attribution: Attribution
+  providerReference?: string | null
+  matchMethod?: 'search' | 'tag' | null
+  matchConfidence?: number | null
 }
 
 export interface AlbumInformation {
@@ -38,6 +41,9 @@ export interface AlbumInformation {
   releaseType?: string | null
   tags: string[]
   attribution: Attribution
+  providerReference?: string | null
+  matchMethod?: 'search' | 'tag' | null
+  matchConfidence?: number | null
 }
 
 export interface LyricsInformation {
@@ -57,19 +63,25 @@ export interface EnrichmentResult<T> {
   errorCode?: EnrichmentErrorCode | null
 }
 
-interface TrackInformation {
+export interface TrackInformation {
   artist: EnrichmentResult<ArtistInformation>
   album: EnrichmentResult<AlbumInformation>
 }
 
+export type TrackIdentity = TrackInformation
+
 export const useOnlineEnrichmentStore = defineStore('onlineEnrichment', () => {
   const information = ref<TrackInformation | null>(null)
+  const identity = ref<TrackIdentity | null>(null)
   const lyrics = ref<EnrichmentResult<LyricsInformation> | null>(null)
   const informationLoading = ref(false)
+  const identityLoading = ref(false)
   const lyricsLoading = ref(false)
   const informationError = ref<string | null>(null)
+  const identityError = ref<string | null>(null)
   const lyricsError = ref<string | null>(null)
   let informationRequest = 0
+  let identityRequest = 0
   let lyricsRequest = 0
 
   async function loadInformation(trackId: number, language: string) {
@@ -108,14 +120,34 @@ export const useOnlineEnrichmentStore = defineStore('onlineEnrichment', () => {
     }
   }
 
+  async function loadIdentity(trackId: number) {
+    const request = ++identityRequest
+    identity.value = null
+    identityError.value = null
+    identityLoading.value = true
+
+    try {
+      const result = await apiRequest<TrackIdentity>(`/enrichment/tracks/${trackId}/identity`)
+      if (request === identityRequest) identity.value = result
+    } catch (cause) {
+      if (request === identityRequest) identityError.value = errorMessage(cause)
+    } finally {
+      if (request === identityRequest) identityLoading.value = false
+    }
+  }
+
   return {
     information,
+    identity,
     lyrics,
     informationLoading,
+    identityLoading,
     lyricsLoading,
     informationError,
+    identityError,
     lyricsError,
     loadInformation,
+    loadIdentity,
     loadLyrics,
   }
 })

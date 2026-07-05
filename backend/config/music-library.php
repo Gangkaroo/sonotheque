@@ -38,12 +38,29 @@ return [
             'lrclib' => [
                 'max_requests_per_minute' => (int) env('LRCLIB_REQUESTS_PER_MINUTE', 60),
             ],
+            'musicbrainz' => [
+                'max_requests_per_minute' => (int) env('MUSICBRAINZ_REQUESTS_PER_MINUTE', 55),
+                'minimum_interval_ms' => (int) env('MUSICBRAINZ_MINIMUM_INTERVAL_MS', 1100),
+            ],
         ],
         'lrclib' => [
             'api_url' => env('LRCLIB_API_URL', 'https://lrclib.net/api'),
             'timeout_seconds' => (int) env('LRCLIB_TIMEOUT_SECONDS', 20),
             'proxy' => env('LRCLIB_PROXY', ''),
             'ca_bundle' => env('LRCLIB_CA_BUNDLE') ?: $enrichmentCaBundle,
+        ],
+        'musicbrainz' => [
+            'api_url' => env('MUSICBRAINZ_API_URL', 'https://musicbrainz.org/ws/2'),
+            'web_url' => env('MUSICBRAINZ_WEB_URL', 'https://musicbrainz.org'),
+            'user_agent' => env(
+                'MUSICBRAINZ_USER_AGENT',
+                'MusicLibrary/0.1 (https://github.com/Gangkaroo/music-library)',
+            ),
+            'timeout_seconds' => (int) env('MUSICBRAINZ_TIMEOUT_SECONDS', 20),
+            'proxy' => env('MUSICBRAINZ_PROXY', ''),
+            'ca_bundle' => env('MUSICBRAINZ_CA_BUNDLE') ?: $enrichmentCaBundle,
+            'minimum_match_score' => (int) env('MUSICBRAINZ_MINIMUM_MATCH_SCORE', 95),
+            'ambiguity_score_gap' => (int) env('MUSICBRAINZ_AMBIGUITY_SCORE_GAP', 10),
         ],
     ],
 

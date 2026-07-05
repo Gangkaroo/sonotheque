@@ -108,7 +108,41 @@ class OnlineEnrichmentApiTest extends TestCase
             ->assertJsonPath('data', null);
     }
 
-    private function createTrack(): Track
+    public function test_musicbrainz_identity_uses_identifiers_retained_during_the_scan(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        $track = $this->createTrack([
+            'comments' => [
+                'musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da'],
+                'musicbrainz_albumid' => ['18d5d0ca-1107-4df2-9d51-df1c5fe57490'],
+            ],
+        ]);
+        ApplicationSetting::current()->update(['online_information_enabled' => true]);
+        Http::fakeSequence()
+            ->push([
+                'id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
+                'name' => 'Example Artist',
+                'country' => 'DE',
+            ])
+            ->push([
+                'id' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+                'title' => 'Example Album',
+                'date' => '2020-03-06',
+                'artist-credit' => [['name' => 'Example Artist']],
+                'release-group' => ['primary-type' => 'Album'],
+            ]);
+
+        $this->getJson("/api/enrichment/tracks/{$track->id}/identity")
+            ->assertOk()
+            ->assertJsonPath('artist.status', 'ready')
+            ->assertJsonPath('artist.data.matchMethod', 'tag')
+            ->assertJsonPath('artist.data.country', 'DE')
+            ->assertJsonPath('album.status', 'ready')
+            ->assertJsonPath('album.data.releaseDate', '2020-03-06');
+    }
+
+    /** @param array<string, mixed> $rawMetadata */
+    private function createTrack(array $rawMetadata = []): Track
     {
         $artist = Artist::create([
             'name' => 'Example Artist',
@@ -136,6 +170,7 @@ class OnlineEnrichmentApiTest extends TestCase
             'file_size' => 1,
             'modified_at' => now(),
             'last_seen_at' => now(),
+            'raw_metadata' => $rawMetadata,
         ]);
         $track = Track::create([
             'album_id' => $album->id,

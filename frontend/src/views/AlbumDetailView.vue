@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { apiRequest } from '@/api/client'
@@ -524,6 +525,8 @@ onUnmounted(() => {
       </v-list-item>
     </v-list>
     <EmptyCatalogState v-else :title="t('albums.noTracksTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
+
+    <AlbumOnlineInformation v-if="tracks[0]" class="mt-8" :track-id="tracks[0].id" />
   </template>
 
   <v-dialog v-model="artworkDialog" class="album-artwork-dialog" max-width="none">

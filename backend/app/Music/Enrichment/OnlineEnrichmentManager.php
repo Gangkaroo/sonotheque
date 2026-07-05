@@ -14,18 +14,90 @@ use App\Music\Enrichment\Data\ArtistLookup;
 use App\Music\Enrichment\Data\LyricsLookup;
 use App\Music\Enrichment\Providers\LastFmInformationProvider;
 use App\Music\Enrichment\Providers\LrclibLyricsProvider;
+use App\Music\Enrichment\Providers\MusicBrainzInformationProvider;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 
 class OnlineEnrichmentManager
 {
+    private const LASTFM_CACHE_VARIANT = 'full-description-v1';
+
     public function __construct(
         private readonly OnlineContentCacheRepository $cache,
         private readonly ProviderRequestGate $requestGate,
+        private readonly MusicBrainzTagIdentifierReader $musicBrainzTags,
         private readonly LastFmInformationProvider $informationProvider,
+        private readonly MusicBrainzInformationProvider $identityProvider,
         private readonly LrclibLyricsProvider $lyricsProvider,
     ) {
+    }
+
+    /** @return array{artist: array<string, mixed>, album: array<string, mixed>} */
+    public function identityForTrack(Track $track): array
+    {
+        if (! ApplicationSetting::current()->online_information_enabled) {
+            return [
+                'artist' => $this->state('disabled'),
+                'album' => $this->state('disabled'),
+            ];
+        }
+
+        $track->loadMissing([
+            'album.primaryArtist:id,name',
+            'artists:id,name',
+            'mediaFile:id,raw_metadata',
+        ]);
+        $album = $track->album;
+        $artist = $album?->primaryArtist ?? $track->artists->first();
+        if ($artist === null) {
+            return [
+                'artist' => $this->state('not_found', $this->identityProvider->key()),
+                'album' => $this->state('not_found', $this->identityProvider->key()),
+            ];
+        }
+
+        $identifiers = $this->musicBrainzTags->read($track->mediaFile?->raw_metadata ?? []);
+        $artistIdentifier = $identifiers['albumArtist'] ?? $identifiers['artist'] ?? null;
+        $artistLookup = new ArtistLookup(
+            $artist->id,
+            $artist->name,
+            array_filter(['musicbrainz_artist' => $artistIdentifier]),
+        );
+        $artistResult = $this->resolve(
+            $this->identityProvider->key(),
+            OnlineContentType::Artist,
+            $artistLookup,
+            fn () => $this->identityProvider->fetchArtist($artistLookup),
+        );
+
+        if ($album === null) {
+            return [
+                'artist' => $artistResult,
+                'album' => $this->state('not_found', $this->identityProvider->key()),
+            ];
+        }
+
+        $albumLookup = new AlbumLookup(
+            $album->id,
+            $album->title,
+            $artist->name,
+            $album->original_release_year,
+            array_filter([
+                'musicbrainz_release' => $identifiers['release'] ?? null,
+                'musicbrainz_release_group' => $identifiers['releaseGroup'] ?? null,
+            ]),
+        );
+
+        return [
+            'artist' => $artistResult,
+            'album' => $this->resolve(
+                $this->identityProvider->key(),
+                OnlineContentType::Album,
+                $albumLookup,
+                fn () => $this->identityProvider->fetchAlbum($albumLookup),
+            ),
+        ];
     }
 
     /** @return array{artist: array<string, mixed>, album: array<string, mixed>} */
@@ -56,7 +128,12 @@ class OnlineEnrichmentManager
             ];
         }
 
-        $artistLookup = new ArtistLookup($artist->id, $artist->name, language: $language);
+        $artistLookup = new ArtistLookup(
+            $artist->id,
+            $artist->name,
+            language: $language,
+            cacheVariant: self::LASTFM_CACHE_VARIANT,
+        );
         $artistResult = $this->resolve(
             $this->informationProvider->key(),
             OnlineContentType::Artist,
@@ -77,6 +154,7 @@ class OnlineEnrichmentManager
             $artist->name,
             $album->original_release_year,
             language: $language,
+            cacheVariant: self::LASTFM_CACHE_VARIANT,
         );
 
         return [
@@ -240,6 +318,17 @@ class OnlineEnrichmentManager
             return $this->cachedState($cache, false);
         } catch (EnrichmentProviderException $exception) {
             return $this->storeFailure($provider, $type, $lookup, $previous, $exception);
+        } catch (AmbiguousEnrichmentMatchException) {
+            $cache = $this->cache->store(
+                $provider,
+                $type,
+                $lookup,
+                OnlineContentStatus::Ambiguous,
+                null,
+                now()->addHours(max(1, (int) config('music-library.enrichment.not_found_cache_hours', 24))),
+            );
+
+            return $this->cachedState($cache, false);
         }
     }
 
@@ -372,6 +461,7 @@ class OnlineEnrichmentManager
         return match ($provider) {
             'lastfm' => $settings->online_information_enabled && filled($settings->lastfm_api_key),
             'lrclib' => $settings->online_lyrics_enabled,
+            'musicbrainz' => $settings->online_information_enabled,
             default => false,
         };
     }
@@ -385,6 +475,7 @@ class OnlineEnrichmentManager
                 (string) ($payload['name'] ?? ''),
                 is_array($payload['externalIds'] ?? null) ? $payload['externalIds'] : [],
                 (string) ($payload['language'] ?? 'en'),
+                isset($payload['cacheVariant']) ? (string) $payload['cacheVariant'] : null,
             ),
             OnlineContentType::Album => new AlbumLookup(
                 (int) ($payload['albumId'] ?? 0),
@@ -393,6 +484,7 @@ class OnlineEnrichmentManager
                 isset($payload['releaseYear']) ? (int) $payload['releaseYear'] : null,
                 is_array($payload['externalIds'] ?? null) ? $payload['externalIds'] : [],
                 (string) ($payload['language'] ?? 'en'),
+                isset($payload['cacheVariant']) ? (string) $payload['cacheVariant'] : null,
             ),
             OnlineContentType::Lyrics => new LyricsLookup(
                 (int) ($payload['trackId'] ?? 0),
@@ -409,6 +501,8 @@ class OnlineEnrichmentManager
         return match (true) {
             $provider === 'lastfm' && $lookup instanceof ArtistLookup => $this->informationProvider->fetchArtist($lookup),
             $provider === 'lastfm' && $lookup instanceof AlbumLookup => $this->informationProvider->fetchAlbum($lookup),
+            $provider === 'musicbrainz' && $lookup instanceof ArtistLookup => $this->identityProvider->fetchArtist($lookup),
+            $provider === 'musicbrainz' && $lookup instanceof AlbumLookup => $this->identityProvider->fetchAlbum($lookup),
             $provider === 'lrclib' && $lookup instanceof LyricsLookup => $this->lyricsProvider->fetchLyrics($lookup),
             default => throw new InvalidArgumentException('Unsupported online enrichment provider or lookup type.'),
         };

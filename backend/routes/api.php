@@ -57,6 +57,7 @@ Route::patch('/settings/online-enrichment', [OnlineEnrichmentSettingsController:
 Route::delete('/settings/online-enrichment/cache', [OnlineEnrichmentSettingsController::class, 'clearCache']);
 Route::post('/settings/online-enrichment/providers/{provider}/test', [OnlineEnrichmentSettingsController::class, 'testProvider']);
 Route::get('/enrichment/tracks/{track}/information', [OnlineEnrichmentController::class, 'information']);
+Route::get('/enrichment/tracks/{track}/identity', [OnlineEnrichmentController::class, 'identity']);
 Route::get('/enrichment/tracks/{track}/lyrics', [OnlineEnrichmentController::class, 'lyrics']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);

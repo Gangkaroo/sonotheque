@@ -29,4 +29,9 @@ class OnlineEnrichmentController extends Controller
     {
         return response()->json($this->enrichment->lyricsForTrack($track));
     }
+
+    public function identity(Track $track): JsonResponse
+    {
+        return response()->json($this->enrichment->identityForTrack($track));
+    }
 }

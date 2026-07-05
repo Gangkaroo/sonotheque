@@ -596,24 +596,31 @@ Last.fm integration.
   exponential failure backoff, configurable provider request limits, cache
   statistics, and confirmation-protected cache clearing.)
 - Prefer MusicBrainz identifiers from scanned tags; otherwise use conservative
-  name and duration matching with explicit confidence and ambiguity handling.
+  name matching with explicit confidence and ambiguity handling. (Complete for
+  artist and album identity: retained Picard IDs are authoritative, exact
+  normalized search is the fallback, and uncertain candidates remain
+  unmatched.)
 - Expose local read endpoints for the current artist, album, and track lyrics;
-  never expose provider credentials to Vue. (Track-scoped information and
-  lyrics endpoints complete.)
+  never expose provider credentials to Vue. (Track-scoped information,
+  MusicBrainz identity, and lyrics endpoints complete.)
 - Add an Info/Lyrics area to the player that handles loading, unavailable,
   ambiguous, stale-cache, and provider-error states without interrupting audio.
-  (Complete for Last.fm artist/album context and LRCLIB plain lyrics.)
+  (Complete for Last.fm artist/album context, MusicBrainz identity, and plain
+  or synchronized LRCLIB lyrics.)
 - Dispatch enrichment independently after playback starts; never place an
   external request on the playback, seeking, or queue-progression path.
 - First support cached artist/album context and plain lyrics with source
   attribution. Add synchronized lyric scrolling only after the plain-lyrics
-  workflow is stable. (First slice complete.)
+  workflow is stable. (Complete: synchronized LRCLIB lyrics now highlight and
+  auto-center against the local playback clock, support line seeking, and fall
+  back to plain lyrics when timestamps are unavailable.)
 - Add fake-provider tests for matching, caching, disabled settings, throttling,
   provider failure, and prevention of outbound requests when enrichment is off.
-  (Complete for the Last.fm/LRCLIB slice, including lock contention and stale
-  refresh behavior.)
-- Consider artist/album detail-page enrichment and multiple-provider fallback
-  after the current-playing workflow is stable.
+  (Complete for Last.fm, MusicBrainz, and LRCLIB, including tagged and searched
+  identity matches, ambiguity, lock contention, and stale refresh behavior.)
+- Extend cached enrichment to detail pages after the current-playing workflow
+  is stable. (Complete for album details with separate album/artist tabs;
+  a dedicated artist detail page and multiple-provider fallback remain later.)
 
 ### 6. Settings and Scan Management
 
@@ -673,11 +680,16 @@ content, atomic request deduplication, stale background refresh, configurable
 request limits, failure backoff, provider checks, and cache management are in
 place without coupling playback to provider availability.
 
-The next enrichment milestone is identity and matching through MusicBrainz.
-Scanned MusicBrainz identifiers should be preferred where present, with
-conservative name-based fallback, explicit confidence, and an ambiguous state
-instead of silently attaching uncertain data. Synchronized lyric scrolling and
-additional display providers remain later refinements after matching is stable.
+The MusicBrainz identity milestone and synchronized-lyrics workflow are
+complete for the current-playing workflow. It reads retained Picard identifiers
+without requiring a rescan,
+uses conservative exact-name fallback searches, exposes confidence and
+ambiguity explicitly, respects MusicBrainz request pacing, and displays compact
+structured identity alongside Last.fm context. Timestamped LRCLIB lyrics now
+follow playback and allow direct seeking while plain lyrics remain the fallback.
+Album details now reuse the cached MusicBrainz and Last.fm results in a tabbed,
+attributed panel. A dedicated artist detail route and additional provider
+fallback remain later refinements.
 
 Two additional catalog refinements are planned. A session-wide root selector
 will restrict catalog queries and metrics to one physical library root while

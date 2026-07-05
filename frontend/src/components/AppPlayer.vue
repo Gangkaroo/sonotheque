@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, mergeProps, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, mergeProps, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
@@ -15,6 +15,8 @@ import {
 } from '@/stores/onlineEnrichment'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
+import { openExternalUrl } from '@/utils/externalLinks'
+import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
 const { locale, t } = useI18n()
 const MINIMUM_COUNTED_TRACK_SECONDS = 30
@@ -44,6 +46,9 @@ const isRestoringPlayback = ref(player.isPlaying)
 const isRestoringPosition = ref(player.playbackPosition > 0)
 const isSeeking = ref(false)
 const showSeekLoading = ref(false)
+const lyricsContainer = ref<HTMLElement | null>(null)
+const artistDescriptionExpanded = ref(false)
+const albumDescriptionExpanded = ref(false)
 const reportedPlayKey = ref<string | null>(null)
 let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -109,6 +114,17 @@ const playlistFolderOptions = computed(() => [
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
 ])
 const canCreateQueuePlaylist = computed(() => queuePlaylistName.value.trim().length > 0 && player.queue.length > 0 && !playlists.saving)
+const artistDescription = computed(() => enrichment.information?.artist.data?.biography ?? '')
+const albumDescription = computed(() => enrichment.information?.album.data?.summary ?? '')
+const artistDescriptionIsLong = computed(() => artistDescription.value.length > 500)
+const albumDescriptionIsLong = computed(() => albumDescription.value.length > 500)
+const synchronizedLyricLines = computed(() => parseSynchronizedLyrics(
+  enrichment.lyrics?.data?.synchronizedLyrics,
+))
+const activeLyricIndex = computed(() => activeSynchronizedLyricIndex(
+  synchronizedLyricLines.value,
+  currentTime.value,
+))
 
 interface TrackPlayResponse {
   counted: boolean
@@ -125,6 +141,8 @@ watch(
     isRestoringPosition.value = player.playbackPosition > 0
     resumeAfterMetadata.value = player.isPlaying
     isRestoringPlayback.value = false
+    artistDescriptionExpanded.value = false
+    albumDescriptionExpanded.value = false
   },
   { flush: 'sync' },
 )
@@ -139,8 +157,13 @@ watch(
   ([isOpen, activeTab, trackId, language]) => {
     if (!isOpen || !trackId) return
 
-    if (activeTab === 'info') void enrichment.loadInformation(trackId, language)
-    if (activeTab === 'lyrics') void enrichment.loadLyrics(trackId)
+    if (activeTab === 'info') {
+      void enrichment.loadInformation(trackId, language)
+      void enrichment.loadIdentity(trackId)
+    }
+    if (activeTab === 'lyrics') {
+      void enrichment.loadLyrics(trackId).then(() => scrollActiveLyricIntoView(activeLyricIndex.value))
+    }
   },
   { immediate: true },
 )
@@ -149,6 +172,19 @@ function enrichmentStateText(status: EnrichmentStatus | undefined, errorCode?: E
   if (status === 'error' && errorCode) return t(`player.enrichmentErrors.${errorCode}`)
 
   return status ? t(`player.enrichmentStates.${status}`) : ''
+}
+
+function identityMatchText(method?: 'search' | 'tag' | null, confidence?: number | null) {
+  if (method === 'tag') return t('player.matchFromTags')
+  if (method === 'search' && confidence) return t('player.matchFromSearch', { confidence })
+
+  return null
+}
+
+function activePeriod(from?: string | null, to?: string | null) {
+  if (!from && !to) return null
+
+  return `${from ?? '?'} - ${to ?? t('player.present')}`
 }
 
 watch(
@@ -181,6 +217,36 @@ watch(createQueuePlaylistDialog, (open) => {
   queuePlaylistFolderId.value = null
   void playlists.loadAll()
 })
+
+watch([
+  activeLyricIndex,
+  () => nowPlayingPanel.isOpen,
+  () => nowPlayingPanel.activeTab,
+], ([index, isOpen, activeTab]) => {
+  if (typeof index !== 'number' || index < 0 || !isOpen || activeTab !== 'lyrics') return
+
+  void scrollActiveLyricIntoView(index)
+})
+
+async function scrollActiveLyricIntoView(index: number) {
+  if (index < 0) return
+
+  await nextTick()
+  const line = lyricsContainer.value
+    ?.querySelector<HTMLElement>(`[data-lyric-index="${index}"]`)
+  const drawer = line?.closest<HTMLElement>('.v-navigation-drawer__content')
+  if (!line || !drawer) return
+
+  const lineBounds = line.getBoundingClientRect()
+  const drawerBounds = drawer.getBoundingClientRect()
+  drawer.scrollTo({
+    top: drawer.scrollTop
+      + lineBounds.top
+      - drawerBounds.top
+      - ((drawer.clientHeight - lineBounds.height) / 2),
+    behavior: player.isPlaying ? 'smooth' : 'auto',
+  })
+}
 
 async function playAudio(showError = true) {
   try {
@@ -1069,19 +1135,35 @@ onMounted(() => {
 
       <v-window-item value="info">
         <div class="now-playing-tab-content pa-4">
-          <v-skeleton-loader v-if="enrichment.informationLoading" type="article@2" />
+          <v-skeleton-loader
+            v-if="enrichment.informationLoading && enrichment.identityLoading"
+            type="article@2"
+          />
           <v-alert
-            v-else-if="enrichment.informationError"
+            v-if="enrichment.informationError"
             class="mb-4"
             type="error"
             variant="tonal"
           >
             {{ enrichment.informationError }}
           </v-alert>
+          <v-alert
+            v-if="enrichment.identityError"
+            class="mb-4"
+            type="warning"
+            variant="tonal"
+          >
+            {{ enrichment.identityError }}
+          </v-alert>
 
-          <template v-else>
+          <template v-if="!enrichment.informationLoading || !enrichment.identityLoading">
             <v-alert
-              v-if="enrichment.information?.artist.stale || enrichment.information?.album.stale"
+              v-if="
+                enrichment.information?.artist.stale
+                  || enrichment.information?.album.stale
+                  || enrichment.identity?.artist.stale
+                  || enrichment.identity?.album.stale
+              "
               class="mb-4"
               icon="mdi-cached"
               :text="t('player.enrichmentStale')"
@@ -1100,79 +1182,227 @@ onMounted(() => {
             <v-card class="mb-4" rounded="lg" variant="outlined">
               <v-card-item prepend-icon="mdi-account-music-outline">
                 <v-card-title>{{ t('player.artistInformation') }}</v-card-title>
-                <v-card-subtitle>{{ enrichment.information?.artist.data?.name ?? artistNames }}</v-card-subtitle>
+                <v-card-subtitle>
+                  {{ enrichment.identity?.artist.data?.name ?? enrichment.information?.artist.data?.name ?? artistNames }}
+                </v-card-subtitle>
               </v-card-item>
-              <v-card-text v-if="enrichment.information?.artist.status === 'ready'">
-                <p v-if="enrichment.information.artist.data?.biography" class="enrichment-copy">
-                  {{ enrichment.information.artist.data.biography }}
-                </p>
-                <div v-if="enrichment.information.artist.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
-                  <v-chip v-for="tag in enrichment.information.artist.data.tags" :key="tag" size="small" variant="tonal">
+              <v-card-text>
+                <v-progress-linear
+                  v-if="enrichment.identityLoading"
+                  class="mb-4"
+                  color="primary"
+                  indeterminate
+                />
+                <div
+                  v-if="enrichment.identity?.artist.status === 'ready'"
+                  class="d-flex flex-wrap align-center ga-2 mb-4"
+                >
+                  <v-chip
+                    v-if="identityMatchText(
+                      enrichment.identity.artist.data?.matchMethod,
+                      enrichment.identity.artist.data?.matchConfidence,
+                    )"
+                    prepend-icon="mdi-check-decagram-outline"
+                    size="small"
+                    variant="tonal"
+                  >
+                    {{ identityMatchText(
+                      enrichment.identity.artist.data?.matchMethod,
+                      enrichment.identity.artist.data?.matchConfidence,
+                    ) }}
+                  </v-chip>
+                  <v-chip v-if="enrichment.identity.artist.data?.country" size="small" variant="outlined">
+                    {{ t('player.country') }}: {{ enrichment.identity.artist.data.country }}
+                  </v-chip>
+                  <v-chip
+                    v-if="activePeriod(
+                      enrichment.identity.artist.data?.activeFrom,
+                      enrichment.identity.artist.data?.activeTo,
+                    )"
+                    size="small"
+                    variant="outlined"
+                  >
+                    {{ t('player.activePeriod') }}:
+                    {{ activePeriod(
+                      enrichment.identity.artist.data?.activeFrom,
+                      enrichment.identity.artist.data?.activeTo,
+                    ) }}
+                  </v-chip>
+                  <v-btn
+                    v-if="enrichment.identity.artist.data?.attribution.sourceUrl"
+                    append-icon="mdi-open-in-new"
+                    size="small"
+                    variant="text"
+                    @click="openExternalUrl(enrichment.identity.artist.data.attribution.sourceUrl)"
+                  >
+                    MusicBrainz
+                  </v-btn>
+                </div>
+                <v-alert
+                  v-else-if="enrichment.identity?.artist.status === 'ambiguous'"
+                  class="mb-4"
+                  density="compact"
+                  type="warning"
+                  variant="tonal"
+                >
+                  {{ t('player.enrichmentStates.ambiguous') }}
+                </v-alert>
+                <template v-if="artistDescription">
+                  <p
+                    class="enrichment-copy"
+                    :class="{ 'enrichment-copy--collapsed': artistDescriptionIsLong && !artistDescriptionExpanded }"
+                  >
+                    {{ artistDescription }}
+                  </p>
+                  <v-btn
+                    v-if="artistDescriptionIsLong"
+                    class="mt-1 px-0"
+                    :append-icon="artistDescriptionExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                    size="small"
+                    variant="text"
+                    @click="artistDescriptionExpanded = !artistDescriptionExpanded"
+                  >
+                    {{ artistDescriptionExpanded ? t('player.showLess') : t('player.showMore') }}
+                  </v-btn>
+                </template>
+                <div v-if="enrichment.information?.artist.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
+                  <v-chip v-for="tag in enrichment.information?.artist.data?.tags ?? []" :key="tag" size="small" variant="tonal">
                     {{ tag }}
                   </v-chip>
                 </div>
                 <v-btn
-                  v-if="enrichment.information.artist.data?.attribution.sourceUrl"
+                  v-if="enrichment.information?.artist.data?.attribution.sourceUrl"
                   class="mt-4 px-0"
                   append-icon="mdi-open-in-new"
-                  :href="enrichment.information.artist.data.attribution.sourceUrl"
-                  rel="noopener noreferrer"
-                  target="_blank"
                   variant="text"
+                  @click="openExternalUrl(enrichment.information?.artist.data?.attribution.sourceUrl)"
                 >
-                  {{ t('player.source', { source: enrichment.information.artist.data.attribution.label }) }}
+                  {{ t('player.source', { source: enrichment.information?.artist.data?.attribution.label }) }}
                 </v-btn>
-              </v-card-text>
-              <v-card-text v-else class="text-medium-emphasis">
-                {{
+                <div
+                  v-else-if="!enrichment.informationLoading && enrichment.information?.artist.status !== 'ready'"
+                  class="text-medium-emphasis"
+                >
+                  {{
                   enrichmentStateText(
                     enrichment.information?.artist.status,
                     enrichment.information?.artist.errorCode,
                   )
-                }}
+                  }}
+                </div>
               </v-card-text>
             </v-card>
 
             <v-card rounded="lg" variant="outlined">
               <v-card-item prepend-icon="mdi-album">
                 <v-card-title>{{ t('player.albumInformation') }}</v-card-title>
-                <v-card-subtitle>{{ enrichment.information?.album.data?.title ?? albumTitle }}</v-card-subtitle>
+                <v-card-subtitle>
+                  {{ enrichment.identity?.album.data?.title ?? enrichment.information?.album.data?.title ?? albumTitle }}
+                </v-card-subtitle>
               </v-card-item>
-              <v-card-text v-if="enrichment.information?.album.status === 'ready'">
-                <p v-if="enrichment.information.album.data?.summary" class="enrichment-copy">
-                  {{ enrichment.information.album.data.summary }}
-                </p>
-                <div v-if="enrichment.information.album.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
-                  <v-chip v-for="tag in enrichment.information.album.data.tags" :key="tag" size="small" variant="tonal">
+              <v-card-text>
+                <v-progress-linear
+                  v-if="enrichment.identityLoading"
+                  class="mb-4"
+                  color="primary"
+                  indeterminate
+                />
+                <div
+                  v-if="enrichment.identity?.album.status === 'ready'"
+                  class="d-flex flex-wrap align-center ga-2 mb-4"
+                >
+                  <v-chip
+                    v-if="identityMatchText(
+                      enrichment.identity.album.data?.matchMethod,
+                      enrichment.identity.album.data?.matchConfidence,
+                    )"
+                    prepend-icon="mdi-check-decagram-outline"
+                    size="small"
+                    variant="tonal"
+                  >
+                    {{ identityMatchText(
+                      enrichment.identity.album.data?.matchMethod,
+                      enrichment.identity.album.data?.matchConfidence,
+                    ) }}
+                  </v-chip>
+                  <v-chip v-if="enrichment.identity.album.data?.releaseDate" size="small" variant="outlined">
+                    {{ t('player.releaseDate') }}: {{ enrichment.identity.album.data.releaseDate }}
+                  </v-chip>
+                  <v-chip v-if="enrichment.identity.album.data?.label" size="small" variant="outlined">
+                    {{ t('player.label') }}: {{ enrichment.identity.album.data.label }}
+                  </v-chip>
+                  <v-chip v-if="enrichment.identity.album.data?.releaseType" size="small" variant="outlined">
+                    {{ t('player.releaseType') }}: {{ enrichment.identity.album.data.releaseType }}
+                  </v-chip>
+                  <v-btn
+                    v-if="enrichment.identity.album.data?.attribution.sourceUrl"
+                    append-icon="mdi-open-in-new"
+                    size="small"
+                    variant="text"
+                    @click="openExternalUrl(enrichment.identity.album.data.attribution.sourceUrl)"
+                  >
+                    MusicBrainz
+                  </v-btn>
+                </div>
+                <v-alert
+                  v-else-if="enrichment.identity?.album.status === 'ambiguous'"
+                  class="mb-4"
+                  density="compact"
+                  type="warning"
+                  variant="tonal"
+                >
+                  {{ t('player.enrichmentStates.ambiguous') }}
+                </v-alert>
+                <template v-if="albumDescription">
+                  <p
+                    class="enrichment-copy"
+                    :class="{ 'enrichment-copy--collapsed': albumDescriptionIsLong && !albumDescriptionExpanded }"
+                  >
+                    {{ albumDescription }}
+                  </p>
+                  <v-btn
+                    v-if="albumDescriptionIsLong"
+                    class="mt-1 px-0"
+                    :append-icon="albumDescriptionExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                    size="small"
+                    variant="text"
+                    @click="albumDescriptionExpanded = !albumDescriptionExpanded"
+                  >
+                    {{ albumDescriptionExpanded ? t('player.showLess') : t('player.showMore') }}
+                  </v-btn>
+                </template>
+                <div v-if="enrichment.information?.album.data?.tags.length" class="d-flex flex-wrap ga-2 mt-4">
+                  <v-chip v-for="tag in enrichment.information?.album.data?.tags ?? []" :key="tag" size="small" variant="tonal">
                     {{ tag }}
                   </v-chip>
                 </div>
                 <v-btn
-                  v-if="enrichment.information.album.data?.attribution.sourceUrl"
+                  v-if="enrichment.information?.album.data?.attribution.sourceUrl"
                   class="mt-4 px-0"
                   append-icon="mdi-open-in-new"
-                  :href="enrichment.information.album.data.attribution.sourceUrl"
-                  rel="noopener noreferrer"
-                  target="_blank"
                   variant="text"
+                  @click="openExternalUrl(enrichment.information?.album.data?.attribution.sourceUrl)"
                 >
-                  {{ t('player.source', { source: enrichment.information.album.data.attribution.label }) }}
+                  {{ t('player.source', { source: enrichment.information?.album.data?.attribution.label }) }}
                 </v-btn>
-              </v-card-text>
-              <v-card-text v-else class="text-medium-emphasis">
-                {{
+                <div
+                  v-else-if="!enrichment.informationLoading && enrichment.information?.album.status !== 'ready'"
+                  class="text-medium-emphasis"
+                >
+                  {{
                   enrichmentStateText(
                     enrichment.information?.album.status,
                     enrichment.information?.album.errorCode,
                   )
-                }}
+                  }}
+                </div>
               </v-card-text>
             </v-card>
           </template>
         </div>
       </v-window-item>
 
-      <v-window-item value="lyrics">
+      <v-window-item eager value="lyrics">
         <div v-if="enrichment.lyricsLoading" class="pa-4">
           <v-skeleton-loader type="article" />
         </div>
@@ -1192,15 +1422,36 @@ onMounted(() => {
             <v-icon class="mb-4" color="primary" icon="mdi-music-note-off-outline" size="48" />
             <div class="text-h6 font-weight-bold">{{ t('player.instrumentalTrack') }}</div>
           </div>
+          <div
+            v-else-if="synchronizedLyricLines.length"
+            ref="lyricsContainer"
+            class="synchronized-lyrics"
+          >
+            <button
+              v-for="(line, index) in synchronizedLyricLines"
+              :key="`${line.timeSeconds}-${index}`"
+              :aria-current="index === activeLyricIndex ? 'true' : undefined"
+              :aria-label="t('player.seekToLyric', { time: formatTime(line.timeSeconds), lyric: line.text })"
+              class="synchronized-lyric-line"
+              :class="{
+                'synchronized-lyric-line--active': index === activeLyricIndex,
+                'synchronized-lyric-line--past': index < activeLyricIndex,
+              }"
+              :data-lyric-index="index"
+              type="button"
+              @click="seekTo(line.timeSeconds)"
+            >
+              <span class="synchronized-lyric-time">{{ formatTime(line.timeSeconds) }}</span>
+              <span>{{ line.text }}</span>
+            </button>
+          </div>
           <pre v-else class="lyrics-copy">{{ enrichment.lyrics.data?.plainLyrics }}</pre>
           <v-btn
             v-if="enrichment.lyrics.data?.attribution.sourceUrl"
             class="mt-4 px-0"
             append-icon="mdi-open-in-new"
-            :href="enrichment.lyrics.data.attribution.sourceUrl"
-            rel="noopener noreferrer"
-            target="_blank"
             variant="text"
+            @click="openExternalUrl(enrichment.lyrics.data.attribution.sourceUrl)"
           >
             {{ t('player.source', { source: enrichment.lyrics.data.attribution.label }) }}
           </v-btn>
@@ -1524,9 +1775,73 @@ onMounted(() => {
   white-space: pre-wrap;
 }
 
+.enrichment-copy--collapsed {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  display: -webkit-box;
+  overflow: hidden;
+}
+
 .lyrics-copy {
   font: inherit;
   margin: 0;
+}
+
+.synchronized-lyrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-block: 1rem;
+  scroll-behavior: smooth;
+}
+
+.synchronized-lyric-line {
+  align-items: baseline;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: rgb(var(--v-theme-on-surface));
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 0.75rem;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  line-height: 1.5;
+  opacity: 0.58;
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+  width: 100%;
+}
+
+.synchronized-lyric-line:hover,
+.synchronized-lyric-line:focus-visible {
+  background: rgba(var(--v-theme-primary), 0.08);
+  opacity: 1;
+  outline: none;
+}
+
+.synchronized-lyric-line--past {
+  opacity: 0.4;
+}
+
+.synchronized-lyric-line--active {
+  background: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+  font-weight: 700;
+  opacity: 1;
+}
+
+.synchronized-lyric-time {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+.synchronized-lyric-line > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .now-playing-empty-state {
