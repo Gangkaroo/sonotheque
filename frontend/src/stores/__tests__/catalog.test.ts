@@ -35,6 +35,26 @@ describe('catalog store', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/artists?page=1&search=art&initial=A', expect.any(Object))
   })
 
+  it('loads artist details with an enrichment track anchor', async () => {
+    const detail = {
+      id: 7,
+      name: 'Artist',
+      browseInitial: 'A',
+      albumCount: 3,
+      trackCount: 24,
+      representativeTrackId: 91,
+      playStatistics: { playCount: 42, playedTrackCount: 8, lastPlayedAt: '2026-06-02T12:00:00Z' },
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(detail), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadArtist(7)
+
+    expect(store.artistDetail).toEqual(detail)
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/artists/7', expect.any(Object))
+  })
+
   it('loads album, track, and genre pages independently', async () => {
     const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify({
       items: [],

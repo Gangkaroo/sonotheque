@@ -11,6 +11,7 @@ use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class OnlineEnrichmentApiTest extends TestCase
@@ -106,6 +107,102 @@ class OnlineEnrichmentApiTest extends TestCase
             ->assertJsonPath('status', 'error')
             ->assertJsonPath('errorCode', 'tls_certificate')
             ->assertJsonPath('data', null);
+    }
+
+    public function test_artist_image_is_resolved_from_wikimedia_and_cached(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        $track = $this->createTrack([
+            'comments' => [
+                'musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da'],
+                'musicbrainz_albumid' => ['18d5d0ca-1107-4df2-9d51-df1c5fe57490'],
+            ],
+        ]);
+        ApplicationSetting::current()->update([
+            'online_information_enabled' => true,
+        ]);
+        Storage::fake('local');
+        $artistImage = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+        Http::fake([
+            '*musicbrainz.org*' => Http::sequence()
+                ->push(['id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'name' => 'Example Artist'])
+                ->push([
+                    'id' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+                    'title' => 'Example Album',
+                    'artist-credit' => [['name' => 'Example Artist']],
+                ]),
+            '*query.wikidata.org*' => Http::response([
+                'results' => ['bindings' => [[
+                    'item' => ['value' => 'http://www.wikidata.org/entity/Q123'],
+                    'image' => ['value' => 'http://commons.wikimedia.org/wiki/Special:FilePath/Example%20Artist.png'],
+                ]]],
+            ]),
+            '*commons.wikimedia.org*' => Http::response([
+                'query' => ['pages' => [[
+                    'imageinfo' => [[
+                        'thumburl' => 'https://upload.wikimedia.org/example-artist.png',
+                        'thumbwidth' => 600,
+                        'thumbheight' => 600,
+                        'descriptionurl' => 'https://commons.wikimedia.org/wiki/File:Example_Artist.png',
+                        'extmetadata' => [
+                            'Artist' => ['value' => 'Example Photographer'],
+                            'LicenseShortName' => ['value' => 'CC BY 4.0'],
+                            'LicenseUrl' => ['value' => 'https://creativecommons.org/licenses/by/4.0/'],
+                        ],
+                    ]],
+                ]]],
+            ]),
+            'https://upload.wikimedia.org/*' => Http::response($artistImage, 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $metadataUrl = "/api/enrichment/tracks/{$track->id}/artist-image-information";
+        $this->getJson($metadataUrl)
+            ->assertOk()
+            ->assertJsonPath('status', 'ready')
+            ->assertJsonPath('data.imageUrl', "/api/enrichment/tracks/{$track->id}/artist-image")
+            ->assertJsonPath('data.author', 'Example Photographer')
+            ->assertJsonPath('data.licenseName', 'CC BY 4.0');
+        $this->getJson($metadataUrl)->assertJsonPath('cached', true);
+
+        $imageUrl = "/api/enrichment/tracks/{$track->id}/artist-image";
+        $this->get($imageUrl)->assertOk()->assertHeader('Content-Type', 'image/png')->assertContent($artistImage);
+        $this->get($imageUrl)->assertOk()->assertContent($artistImage);
+
+        Http::assertSentCount(5);
+    }
+
+    public function test_artist_image_proxy_rejects_non_wikimedia_hosts(): void
+    {
+        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        $track = $this->createTrack([
+            'comments' => ['musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da']],
+        ]);
+        ApplicationSetting::current()->update(['online_information_enabled' => true]);
+        Http::fake([
+            '*musicbrainz.org*' => Http::response([
+                'id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
+                'name' => 'Example Artist',
+            ]),
+            '*query.wikidata.org*' => Http::response([
+                'results' => ['bindings' => [[
+                    'item' => ['value' => 'http://www.wikidata.org/entity/Q123'],
+                    'image' => ['value' => 'http://commons.wikimedia.org/wiki/Special:FilePath/Example.png'],
+                ]]],
+            ]),
+            '*commons.wikimedia.org*' => Http::response([
+                'query' => ['pages' => [[
+                    'imageinfo' => [[
+                        'thumburl' => 'https://example.com/artist.png',
+                        'descriptionurl' => 'https://commons.wikimedia.org/wiki/File:Example.png',
+                    ]],
+                ]]],
+            ]),
+        ]);
+
+        $this->getJson("/api/enrichment/tracks/{$track->id}/artist-image-information")->assertOk();
+        $this->get("/api/enrichment/tracks/{$track->id}/artist-image")->assertNotFound();
+
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'example.com'));
     }
 
     public function test_musicbrainz_identity_uses_identifiers_retained_during_the_scan(): void

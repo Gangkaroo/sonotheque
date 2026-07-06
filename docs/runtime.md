@@ -267,7 +267,8 @@ enabled, scans import `PLAY_COUNT`, `FIRST_PLAYED_TIMESTAMP`, and
 `LAST_PLAYED_TIMESTAMP`. A newly counted app play queues a coalesced write-back
 job after a short delay.
 
-Export currently supports MP3 files with ordinary ID3v2.3 or ID3v2.4 tags.
+Export currently supports MP3 files with ordinary ID3v2.3 or ID3v2.4 tags and
+converts safely mappable ID3v2.2 tags to ID3v2.3 before writing.
 Unrelated ID3 frames and audio bytes are preserved and the written values are
 verified before replacing the original file. Unsupported formats and unusual
 ID3 layouts remain database-only; playback itself is never blocked by export.
@@ -277,7 +278,9 @@ The queue listener must be running for write-back jobs to execute.
 
 Track detail pages can edit title, track artists, composers, performers,
 comment, track number, disc number, and year for MP3 files with ordinary
-ID3v2.3 or ID3v2.4 tags. The UI first requests a fingerprinted preview and
+ID3v2.3 or ID3v2.4 tags. ID3v2.2 tags are converted to ID3v2.3 when every
+legacy frame has a lossless mapping; unknown frames and compressed or
+unsynchronized v2.2 tags are rejected. The UI first requests a fingerprinted preview and
 displays every changed value. Confirmation creates a queued edit;
 the worker writes a temporary file, verifies the resulting tags, replaces the
 original with a short-lived rollback copy, and refreshes the database fingerprint

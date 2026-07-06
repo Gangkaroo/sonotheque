@@ -104,7 +104,7 @@ onMounted(() => {
               <template v-if="play.track.artists.length">
                 <template v-for="(artist, index) in play.track.artists" :key="artist.id">
                   <span v-if="index > 0">, </span>
-                  <RouterLink class="history-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }">
+                  <RouterLink class="history-link" :to="{ name: 'artist-detail', params: { id: artist.id } }">
                     {{ artist.name }}
                   </RouterLink>
                 </template>
@@ -183,7 +183,7 @@ onMounted(() => {
               <template v-if="track.artists.length">
                 <template v-for="(artist, index) in track.artists" :key="artist.id">
                   <span v-if="index > 0">, </span>
-                  <RouterLink class="history-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }">
+                  <RouterLink class="history-link" :to="{ name: 'artist-detail', params: { id: artist.id } }">
                     {{ artist.name }}
                   </RouterLink>
                 </template>

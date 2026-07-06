@@ -88,6 +88,24 @@ export const useFavoritesStore = defineStore('favorites', () => {
     trackIds.value = [...trackIds.value, id]
   }
 
+  async function setTracksFavorite(ids: number[], favorite = true) {
+    const uniqueIds = [...new Set(ids)]
+    const changedIds = uniqueIds.filter((id) => isTrackFavorite(id) !== favorite)
+    await Promise.all(changedIds.map((id) => apiRequest<void>(`/favorites/tracks/${id}`, {
+      method: favorite ? 'POST' : 'DELETE',
+    })))
+
+    if (favorite) {
+      trackIds.value = [...new Set([...trackIds.value, ...changedIds])]
+      return
+    }
+
+    const removed = new Set(changedIds)
+    trackIds.value = trackIds.value.filter((id) => !removed.has(id))
+    tracks.value.items = tracks.value.items.filter((track) => !removed.has(track.id))
+    tracks.value.total = Math.max(0, tracks.value.total - changedIds.length)
+  }
+
   async function toggleAlbum(id: number) {
     if (isAlbumFavorite(id)) {
       await apiRequest<void>(`/favorites/albums/${id}`, { method: 'DELETE' })
@@ -117,6 +135,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     loadTracks,
     loadAlbums,
     toggleTrack,
+    setTracksFavorite,
     toggleAlbum,
   }
 })

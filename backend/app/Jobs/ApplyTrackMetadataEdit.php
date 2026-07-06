@@ -2,13 +2,11 @@
 
 namespace App\Jobs;
 
-use App\Models\Artist;
-use App\Models\Genre;
 use App\Models\MetadataEditJob;
 use App\Music\Metadata\MetadataBackupManager;
+use App\Music\Metadata\TrackMetadataCatalogUpdater;
 use App\Music\Metadata\TrackMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
-use App\Music\Scanning\ArtistName;
 use App\Music\Scanning\LibraryPathGuard;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -20,7 +18,7 @@ class ApplyTrackMetadataEdit implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+    public int $tries = 1;
 
     public int $timeout = 180;
 
@@ -28,17 +26,11 @@ class ApplyTrackMetadataEdit implements ShouldQueue
     {
     }
 
-    /** @return list<int> */
-    public function backoff(): array
-    {
-        return [30, 120, 300];
-    }
-
     public function handle(
         TrackMetadataEditing $editing,
         TrackMetadataWriter $writer,
+        TrackMetadataCatalogUpdater $catalogUpdater,
         LibraryPathGuard $pathGuard,
-        ArtistName $artistName,
         MetadataBackupManager $backups,
     ): void {
         $edit = MetadataEditJob::with(['track.mediaFile.libraryRoot'])->findOrFail($this->metadataEditJobId);
@@ -72,59 +64,35 @@ class ApplyTrackMetadataEdit implements ShouldQueue
                 throw new RuntimeException('The updated audio-file fingerprint could not be read.');
             }
 
-            $track->update([
-                'title' => $metadata->title,
-                'sort_title' => $metadata->title,
-                'track_number' => $metadata->trackNumber,
-                'disc_number' => $metadata->discNumber,
-                'year' => $metadata->year,
-                'comment' => $metadata->comment,
-                'composers' => $metadata->composers ?: null,
-                'performers' => $metadata->performers ?: null,
-                'metadata' => $metadata->rawMetadata,
-            ]);
-            $previousArtistIds = $track->artists()->pluck('artists.id');
-            $artistPivots = [];
-            foreach ($metadata->artists as $position => $name) {
-                $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()
-                    ?? Artist::create([
-                        'name' => $name,
-                        'sort_name' => $name,
-                        'browse_initial' => $artistName->browseInitial($name),
-                    ]);
-                $artistPivots[$artist->id] = ['role' => 'primary', 'position' => $position];
-            }
-            $track->artists()->sync($artistPivots);
-            Artist::query()
-                ->whereIn('id', $previousArtistIds)
-                ->whereDoesntHave('albums')
-                ->whereDoesntHave('tracks')
-                ->delete();
-            $previousGenreIds = $track->genres()->pluck('genres.id');
-            $genreIds = collect($metadata->genres)->map(function (string $name): int {
-                return Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()?->id
-                    ?? Genre::create(['name' => $name])->id;
-            })->all();
-            $track->genres()->sync($genreIds);
-            Genre::query()
-                ->whereIn('id', $previousGenreIds)
-                ->whereDoesntHave('tracks')
-                ->delete();
-            $mediaFile->update([
-                'file_size' => $fileSize,
-                'modified_at' => CarbonImmutable::createFromTimestampUTC($modifiedAt),
-                'raw_metadata' => $metadata->rawMetadata,
-            ]);
+            $catalogUpdater->apply(
+                $track,
+                $metadata,
+                $fileSize,
+                CarbonImmutable::createFromTimestampUTC($modifiedAt),
+            );
             $edit->update(['status' => 'completed', 'finished_at' => now()]);
         } catch (Throwable $exception) {
-            $willRetry = $this->attempts() < $this->tries;
             $edit->update([
-                'status' => $willRetry ? 'pending' : 'failed',
+                'status' => 'failed',
                 'error' => mb_substr($exception->getMessage(), 0, 4000),
-                'finished_at' => $willRetry ? null : now(),
+                'finished_at' => now(),
             ]);
 
             throw $exception;
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        $edit = MetadataEditJob::find($this->metadataEditJobId);
+        if ($edit === null || $edit->status === 'completed') {
+            return;
+        }
+
+        $edit->update([
+            'status' => 'failed',
+            'error' => mb_substr($exception?->getMessage() ?? 'The metadata edit could not be completed.', 0, 4000),
+            'finished_at' => now(),
+        ]);
     }
 }

@@ -15,6 +15,7 @@ use App\Music\Enrichment\Data\LyricsLookup;
 use App\Music\Enrichment\Providers\LastFmInformationProvider;
 use App\Music\Enrichment\Providers\LrclibLyricsProvider;
 use App\Music\Enrichment\Providers\MusicBrainzInformationProvider;
+use App\Music\Enrichment\Providers\WikimediaArtistImageProvider;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
@@ -30,6 +31,7 @@ class OnlineEnrichmentManager
         private readonly LastFmInformationProvider $informationProvider,
         private readonly MusicBrainzInformationProvider $identityProvider,
         private readonly LrclibLyricsProvider $lyricsProvider,
+        private readonly WikimediaArtistImageProvider $artistImageProvider,
     ) {
     }
 
@@ -194,6 +196,40 @@ class OnlineEnrichmentManager
             OnlineContentType::Lyrics,
             $lookup,
             fn () => $this->lyricsProvider->fetchLyrics($lookup),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function artistImageForTrack(Track $track): array
+    {
+        if (! ApplicationSetting::current()->online_information_enabled) {
+            return $this->state('disabled');
+        }
+
+        $identity = $this->identityForTrack($track)['artist'];
+        $musicBrainzId = $identity['data']['providerReference'] ?? null;
+        if (($identity['status'] ?? null) !== 'ready' || ! is_string($musicBrainzId)) {
+            return $identity;
+        }
+
+        $track->loadMissing(['album.primaryArtist:id,name', 'artists:id,name']);
+        $artist = $track->album?->primaryArtist ?? $track->artists->first();
+        if ($artist === null) {
+            return $this->state('not_found', $this->artistImageProvider->key());
+        }
+
+        $lookup = new ArtistLookup(
+            $artist->id,
+            $artist->name,
+            ['musicbrainz_artist' => $musicBrainzId],
+            cacheVariant: 'wikimedia-image-v1',
+        );
+
+        return $this->resolve(
+            $this->artistImageProvider->key(),
+            OnlineContentType::Artist,
+            $lookup,
+            fn () => $this->artistImageProvider->fetchArtistImage($lookup),
         );
     }
 
@@ -462,6 +498,7 @@ class OnlineEnrichmentManager
             'lastfm' => $settings->online_information_enabled && filled($settings->lastfm_api_key),
             'lrclib' => $settings->online_lyrics_enabled,
             'musicbrainz' => $settings->online_information_enabled,
+            'wikimedia' => $settings->online_information_enabled,
             default => false,
         };
     }
@@ -503,6 +540,7 @@ class OnlineEnrichmentManager
             $provider === 'lastfm' && $lookup instanceof AlbumLookup => $this->informationProvider->fetchAlbum($lookup),
             $provider === 'musicbrainz' && $lookup instanceof ArtistLookup => $this->identityProvider->fetchArtist($lookup),
             $provider === 'musicbrainz' && $lookup instanceof AlbumLookup => $this->identityProvider->fetchAlbum($lookup),
+            $provider === 'wikimedia' && $lookup instanceof ArtistLookup => $this->artistImageProvider->fetchArtistImage($lookup),
             $provider === 'lrclib' && $lookup instanceof LyricsLookup => $this->lyricsProvider->fetchLyrics($lookup),
             default => throw new InvalidArgumentException('Unsupported online enrichment provider or lookup type.'),
         };

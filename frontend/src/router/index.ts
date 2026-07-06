@@ -5,6 +5,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
     { path: '/artists', name: 'artists', component: () => import('@/views/ArtistsView.vue') },
+    { path: '/artists/:id', name: 'artist-detail', component: () => import('@/views/ArtistDetailView.vue') },
     { path: '/albums', name: 'albums', component: () => import('@/views/AlbumsView.vue') },
     { path: '/albums/:id', name: 'album-detail', component: () => import('@/views/AlbumDetailView.vue') },
     { path: '/genres', name: 'genres', component: () => import('@/views/GenresView.vue') },

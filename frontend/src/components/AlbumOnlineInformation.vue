@@ -6,6 +6,7 @@ import { apiRequest } from '@/api/client'
 import type {
   AlbumInformation,
   ArtistInformation,
+  ArtistImageInformation,
   EnrichmentErrorCode,
   EnrichmentResult,
   EnrichmentStatus,
@@ -14,11 +15,20 @@ import type {
 } from '@/stores/onlineEnrichment'
 import { openExternalUrl } from '@/utils/externalLinks'
 
-const props = defineProps<{ trackId: number }>()
+const props = withDefaults(defineProps<{
+  trackId: number
+  content?: 'all' | 'artist'
+}>(), {
+  content: 'all',
+})
+const emit = defineEmits<{
+  artistImage: [url: string | null]
+}>()
 const { locale, t } = useI18n()
-const activeTab = ref<'album' | 'artist'>('album')
+const activeTab = ref<'album' | 'artist'>(props.content === 'artist' ? 'artist' : 'album')
 const identity = ref<TrackIdentity | null>(null)
 const information = ref<TrackInformation | null>(null)
+const artistImage = ref<EnrichmentResult<ArtistImageInformation> | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const albumExpanded = ref(false)
@@ -28,12 +38,16 @@ let requestId = 0
 const isVisible = computed(() => {
   if (loading.value || error.value) return true
 
-  return [
-    identity.value?.album.status,
-    identity.value?.artist.status,
-    information.value?.album.status,
-    information.value?.artist.status,
-  ].some((status) => status && !['disabled', 'not_configured', 'not_found'].includes(status))
+  const statuses = props.content === 'artist'
+    ? [identity.value?.artist.status, information.value?.artist.status]
+    : [
+        identity.value?.album.status,
+        identity.value?.artist.status,
+        information.value?.album.status,
+        information.value?.artist.status,
+      ]
+
+  return statuses.some((status) => status && !['disabled', 'not_configured', 'not_found'].includes(status))
 })
 const albumDescription = computed(() => information.value?.album.data?.summary ?? '')
 const artistDescription = computed(() => information.value?.artist.data?.biography ?? '')
@@ -46,10 +60,16 @@ watch(
   { immediate: true },
 )
 
+watch(() => props.content, (content) => {
+  activeTab.value = content === 'artist' ? 'artist' : 'album'
+})
+
 async function load(trackId: number, language: string) {
   const request = ++requestId
   loading.value = true
   error.value = null
+  artistImage.value = null
+  emit('artistImage', null)
   albumExpanded.value = false
   artistExpanded.value = false
 
@@ -64,12 +84,27 @@ async function load(trackId: number, language: string) {
 
     identity.value = nextIdentity
     information.value = nextInformation
+    if (props.content === 'artist') void loadArtistImage(trackId, request)
   } catch (cause) {
     if (request === requestId) {
       error.value = cause instanceof Error ? cause.message : t('player.enrichmentLoadFailed')
     }
   } finally {
     if (request === requestId) loading.value = false
+  }
+}
+
+async function loadArtistImage(trackId: number, request: number) {
+  try {
+    const result = await apiRequest<EnrichmentResult<ArtistImageInformation>>(
+      `/enrichment/tracks/${trackId}/artist-image-information`,
+    )
+    if (request !== requestId) return
+
+    artistImage.value = result
+    emit('artistImage', ready(result) ? result.data.imageUrl : null)
+  } catch {
+    if (request === requestId) emit('artistImage', null)
   }
 }
 
@@ -94,7 +129,7 @@ function activePeriod(data?: ArtistInformation | null) {
   return `${data.activeFrom ?? '?'} - ${data.activeTo ?? t('player.present')}`
 }
 
-function ready<T>(result?: EnrichmentResult<T>): result is EnrichmentResult<T> & { data: T } {
+function ready<T>(result?: EnrichmentResult<T> | null): result is EnrichmentResult<T> & { data: T } {
   return result?.status === 'ready' && result.data !== null && result.data !== undefined
 }
 </script>
@@ -103,14 +138,16 @@ function ready<T>(result?: EnrichmentResult<T>): result is EnrichmentResult<T> &
   <v-card v-if="isVisible" border class="mb-8" rounded="xl">
     <v-card-item prepend-icon="mdi-information-slab-circle-outline">
       <v-card-title>{{ t('albums.onlineInformation') }}</v-card-title>
-      <v-card-subtitle>{{ t('albums.onlineInformationDescription') }}</v-card-subtitle>
+      <v-card-subtitle>
+        {{ props.content === 'artist' ? t('artists.onlineInformationDescription') : t('albums.onlineInformationDescription') }}
+      </v-card-subtitle>
     </v-card-item>
 
-    <v-tabs v-model="activeTab" color="primary" grow>
+    <v-tabs v-if="props.content === 'all'" v-model="activeTab" color="primary" grow>
       <v-tab prepend-icon="mdi-album" value="album">{{ t('player.albumInformation') }}</v-tab>
       <v-tab prepend-icon="mdi-account-music-outline" value="artist">{{ t('player.artistInformation') }}</v-tab>
     </v-tabs>
-    <v-divider />
+    <v-divider v-if="props.content === 'all'" />
 
     <v-card-text v-if="loading">
       <v-skeleton-loader type="article" />
@@ -119,7 +156,7 @@ function ready<T>(result?: EnrichmentResult<T>): result is EnrichmentResult<T> &
       <v-alert type="error" variant="tonal">{{ error }}</v-alert>
     </v-card-text>
     <v-window v-else v-model="activeTab">
-      <v-window-item value="album">
+      <v-window-item v-if="props.content === 'all'" value="album">
         <v-card-text>
           <v-alert
             v-if="identity?.album.stale || information?.album.stale"
@@ -252,6 +289,30 @@ function ready<T>(result?: EnrichmentResult<T>): result is EnrichmentResult<T> &
           >
             {{ t('player.source', { source: information.artist.data.attribution.label }) }}
           </v-btn>
+          <div v-if="ready(artistImage)" class="artist-image-attribution d-flex flex-wrap align-center ga-2 mt-4">
+            <v-icon icon="mdi-camera-outline" size="small" />
+            <span class="text-caption">
+              {{ t('artists.photoCredit', { author: artistImage.data.author ?? artistImage.data.attribution.label }) }}
+            </span>
+            <v-btn
+              v-if="artistImage.data.attribution.sourceUrl"
+              append-icon="mdi-open-in-new"
+              size="small"
+              variant="text"
+              @click="openExternalUrl(artistImage.data.attribution.sourceUrl)"
+            >
+              {{ artistImage.data.attribution.label }}
+            </v-btn>
+            <v-btn
+              v-if="artistImage.data.licenseName && artistImage.data.licenseUrl"
+              append-icon="mdi-open-in-new"
+              size="small"
+              variant="text"
+              @click="openExternalUrl(artistImage.data.licenseUrl)"
+            >
+              {{ artistImage.data.licenseName }}
+            </v-btn>
+          </div>
           <div v-else-if="!ready(identity?.artist) && !ready(information?.artist)" class="text-medium-emphasis">
             {{ stateText(information?.artist.status ?? identity?.artist.status, information?.artist.errorCode ?? identity?.artist.errorCode) }}
           </div>
@@ -273,5 +334,9 @@ function ready<T>(result?: EnrichmentResult<T>): result is EnrichmentResult<T> &
   -webkit-line-clamp: 8;
   display: -webkit-box;
   overflow: hidden;
+}
+
+.artist-image-attribution {
+  color: rgb(var(--v-theme-on-surface-variant));
 }
 </style>

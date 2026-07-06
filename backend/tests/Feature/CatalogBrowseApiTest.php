@@ -55,6 +55,15 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.playStatistics.lastPlayedAt', '2026-06-02T12:00:00.000000Z')
             ->assertJsonPath('total', 1);
 
+        $this->getJson("/api/catalog/artists/{$artist->id}")
+            ->assertOk()
+            ->assertJsonPath('id', $artist->id)
+            ->assertJsonPath('name', 'Artist')
+            ->assertJsonPath('albumCount', 2)
+            ->assertJsonPath('trackCount', 1)
+            ->assertJsonPath('playStatistics.playCount', 3)
+            ->assertJsonPath('representativeTrackId', $track->id);
+
         $this->getJson('/api/catalog/albums?search=Artist')
             ->assertOk()
             ->assertJsonPath('items.0.id', $album->id)

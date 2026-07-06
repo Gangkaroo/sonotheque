@@ -9,6 +9,26 @@ use Throwable;
 
 class Mp3Id3v2TagEditor
 {
+    /** @var array<string, string> */
+    private const V22_FRAME_MAP = [
+        'BUF' => 'RBUF', 'CNT' => 'PCNT', 'COM' => 'COMM', 'CRA' => 'AENC',
+        'ETC' => 'ETCO', 'EQU' => 'EQUA', 'GEO' => 'GEOB', 'IPL' => 'IPLS',
+        'LNK' => 'LINK', 'MCI' => 'MCDI', 'MLL' => 'MLLT', 'PIC' => 'APIC',
+        'POP' => 'POPM', 'REV' => 'RVRB', 'RVA' => 'RVAD', 'SLT' => 'SYLT',
+        'STC' => 'SYTC', 'TAL' => 'TALB', 'TBP' => 'TBPM', 'TCM' => 'TCOM',
+        'TCO' => 'TCON', 'TCR' => 'TCOP', 'TDA' => 'TDAT', 'TDY' => 'TDLY',
+        'TEN' => 'TENC', 'TFT' => 'TFLT', 'TIM' => 'TIME', 'TKE' => 'TKEY',
+        'TLA' => 'TLAN', 'TLE' => 'TLEN', 'TMT' => 'TMED', 'TOA' => 'TOPE',
+        'TOF' => 'TOFN', 'TOL' => 'TOLY', 'TOR' => 'TORY', 'TOT' => 'TOAL',
+        'TP1' => 'TPE1', 'TP2' => 'TPE2', 'TP3' => 'TPE3', 'TP4' => 'TPE4',
+        'TPA' => 'TPOS', 'TPB' => 'TPUB', 'TRC' => 'TSRC', 'TRD' => 'TRDA',
+        'TRK' => 'TRCK', 'TSI' => 'TSIZ', 'TSS' => 'TSSE', 'TT1' => 'TIT1',
+        'TT2' => 'TIT2', 'TT3' => 'TIT3', 'TXT' => 'TEXT', 'TXX' => 'TXXX',
+        'TYE' => 'TYER', 'UFI' => 'UFID', 'ULT' => 'USLT', 'WAF' => 'WOAF',
+        'WAR' => 'WOAR', 'WAS' => 'WOAS', 'WCM' => 'WCOM', 'WCP' => 'WCOP',
+        'WPB' => 'WPUB', 'WXX' => 'WXXX',
+    ];
+
     public const ISSUE_UNSYNCHRONIZATION = 'id3v2_unsynchronization';
 
     public const ISSUE_EXTENDED_HEADER = 'id3v2_extended_header';
@@ -16,6 +36,8 @@ class Mp3Id3v2TagEditor
     public const ISSUE_EXPERIMENTAL = 'id3v2_experimental';
 
     public const ISSUE_FOOTER = 'id3v2_footer';
+
+    public const ISSUE_COMPRESSION = 'id3v2_compression';
 
     public function supports(string $path): bool
     {
@@ -30,11 +52,11 @@ class Mp3Id3v2TagEditor
         }
 
         $majorVersion = ord($header[3]);
-        if (! in_array($majorVersion, [3, 4], true)) {
+        if (! in_array($majorVersion, [2, 3, 4], true)) {
             throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$majorVersion} tags are not supported for editing.");
         }
 
-        return $majorVersion;
+        return $majorVersion === 2 ? 3 : $majorVersion;
     }
 
     /** @param array<string, mixed> $rawMetadata */
@@ -47,8 +69,9 @@ class Mp3Id3v2TagEditor
 
         return match (true) {
             ($flags['unsynch'] ?? false) === true && $majorVersion !== 4 => self::ISSUE_UNSYNCHRONIZATION,
-            ($flags['exthead'] ?? false) === true => self::ISSUE_EXTENDED_HEADER,
-            ($flags['experim'] ?? false) === true => self::ISSUE_EXPERIMENTAL,
+            $majorVersion === 2 && (($flags['compression'] ?? $flags['iscompression'] ?? false) === true) => self::ISSUE_COMPRESSION,
+            $majorVersion !== 2 && ($flags['exthead'] ?? false) === true => self::ISSUE_EXTENDED_HEADER,
+            $majorVersion !== 2 && ($flags['experim'] ?? false) === true => self::ISSUE_EXPERIMENTAL,
             ($flags['isfooter'] ?? false) === true => self::ISSUE_FOOTER,
             default => null,
         };
@@ -61,6 +84,7 @@ class Mp3Id3v2TagEditor
             self::ISSUE_EXTENDED_HEADER => 'ID3v2 extended headers are not supported for safe editing.',
             self::ISSUE_EXPERIMENTAL => 'Experimental ID3v2 tags are not supported for safe editing.',
             self::ISSUE_FOOTER => 'ID3v2 footers are not supported for safe editing.',
+            self::ISSUE_COMPRESSION => 'Compressed ID3v2.2 tags are not supported for safe conversion.',
             default => 'This ID3v2 tag structure is not supported for safe editing.',
         };
     }
@@ -156,7 +180,7 @@ class Mp3Id3v2TagEditor
             $payload .= str_repeat("\0", $existing['payloadSize'] - strlen($payload));
 
             return [
-                'original' => $existing['header'].$existing['payload'],
+                'original' => $existing['originalHeader'].$existing['originalPayload'],
                 'replacement' => $existing['header'].$payload,
             ];
         } finally {
@@ -362,7 +386,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  resource  $source
-     * @return null|array{header: string, majorVersion: int, revision: int, flags: int, payloadSize: int, payload: string}
+     * @return null|array{originalHeader: string, originalPayload: string, header: string, majorVersion: int, revision: int, flags: int, payloadSize: int, payload: string}
      */
     private function readExistingTag($source): ?array
     {
@@ -373,26 +397,104 @@ class Mp3Id3v2TagEditor
             return null;
         }
 
-        $majorVersion = ord($header[3]);
+        $sourceMajorVersion = ord($header[3]);
         $revision = ord($header[4]);
         $flags = ord($header[5]);
-        if (! in_array($majorVersion, [3, 4], true)) {
-            throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$majorVersion} tags are not supported for editing.");
+        if (! in_array($sourceMajorVersion, [2, 3, 4], true)) {
+            throw new UnsupportedPlaybackStatisticsTagFormat("ID3v2.{$sourceMajorVersion} tags are not supported for editing.");
         }
-        if ($issue = $this->headerSupportIssue($majorVersion, $flags)) {
+        if ($issue = $this->headerSupportIssue($sourceMajorVersion, $flags)) {
             throw new UnsupportedPlaybackStatisticsTagFormat($this->supportIssueMessage($issue));
         }
 
         $payloadSize = $this->decodeSynchsafe(substr($header, 6, 4));
+        $originalPayload = $this->read($source, $payloadSize);
+        $majorVersion = $sourceMajorVersion === 2 ? 3 : $sourceMajorVersion;
+        $targetRevision = $sourceMajorVersion === 2 ? 0 : $revision;
+        $targetFlags = $sourceMajorVersion === 2 ? 0 : $flags;
+        $payload = $sourceMajorVersion === 2
+            ? $this->convertV22Payload($originalPayload)
+            : $originalPayload;
 
         return [
-            'header' => $header,
+            'originalHeader' => $header,
+            'originalPayload' => $originalPayload,
+            'header' => 'ID3'.chr($majorVersion).chr($targetRevision).chr($targetFlags).$this->encodeSynchsafe($payloadSize),
             'majorVersion' => $majorVersion,
-            'revision' => $revision,
-            'flags' => $flags,
+            'revision' => $targetRevision,
+            'flags' => $targetFlags,
             'payloadSize' => $payloadSize,
-            'payload' => $this->read($source, $payloadSize),
+            'payload' => $payload,
         ];
+    }
+
+    private function convertV22Payload(string $payload): string
+    {
+        $offset = 0;
+        $converted = '';
+        $payloadLength = strlen($payload);
+
+        while ($offset + 6 <= $payloadLength) {
+            $frameId = substr($payload, $offset, 3);
+            if ($frameId === "\0\0\0") {
+                break;
+            }
+            if (preg_match('/^[A-Z0-9]{3}$/', $frameId) !== 1) {
+                throw new RuntimeException('The existing ID3v2.2 frame layout could not be converted safely.');
+            }
+
+            $sizeBytes = array_values(unpack('C3', substr($payload, $offset + 3, 3)));
+            $frameSize = ($sizeBytes[0] << 16) | ($sizeBytes[1] << 8) | $sizeBytes[2];
+            $frameLength = 6 + $frameSize;
+            if ($offset + $frameLength > $payloadLength) {
+                throw new RuntimeException('The existing ID3v2.2 frame size is invalid.');
+            }
+            if ($frameSize === 0) {
+                $offset += $frameLength;
+
+                continue;
+            }
+
+            $targetFrameId = self::V22_FRAME_MAP[$frameId] ?? null;
+            if ($targetFrameId === null) {
+                throw new UnsupportedPlaybackStatisticsTagFormat(
+                    "ID3v2.2 frame [{$frameId}] cannot be converted without risking metadata loss.",
+                );
+            }
+
+            $framePayload = substr($payload, $offset + 6, $frameSize);
+            if ($frameId === 'PIC') {
+                $framePayload = $this->convertV22Picture($framePayload);
+            }
+            $converted .= $this->frame(3, $targetFrameId, $framePayload);
+            $offset += $frameLength;
+        }
+
+        if (trim(substr($payload, $offset), "\0") !== '') {
+            throw new RuntimeException('The existing ID3v2.2 padding contains data that cannot be converted safely.');
+        }
+
+        return $converted;
+    }
+
+    private function convertV22Picture(string $payload): string
+    {
+        if (strlen($payload) < 5) {
+            throw new RuntimeException('The existing ID3v2.2 picture frame is invalid.');
+        }
+
+        $format = strtoupper(substr($payload, 1, 3));
+        if (preg_match('/^[A-Z0-9]{3}$/', $format) !== 1) {
+            throw new RuntimeException('The existing ID3v2.2 picture format is invalid.');
+        }
+        $mimeType = match ($format) {
+            'JPG' => 'image/jpeg',
+            'PNG' => 'image/png',
+            'GIF' => 'image/gif',
+            default => 'image/'.strtolower($format),
+        };
+
+        return $payload[0].$mimeType."\0".substr($payload, 4);
     }
 
     /**
@@ -426,8 +528,13 @@ class Mp3Id3v2TagEditor
                 ? $this->decodeSynchsafe($frameSizeBytes)
                 : unpack('Nsize', $frameSizeBytes)['size'];
             $frameLength = 10 + $frameSize;
-            if ($frameSize < 1 || $offset + $frameLength > $payloadLength) {
+            if ($offset + $frameLength > $payloadLength) {
                 throw new RuntimeException('The existing ID3v2 frame size is invalid.');
+            }
+            if ($frameSize === 0) {
+                $offset += $frameLength;
+
+                continue;
             }
 
             $frame = substr($payload, $offset, $frameLength);
@@ -454,6 +561,15 @@ class Mp3Id3v2TagEditor
 
     private function headerSupportIssue(int $majorVersion, int $flags): ?string
     {
+        if ($majorVersion === 2) {
+            return match (true) {
+                ($flags & 0x80) !== 0 => self::ISSUE_UNSYNCHRONIZATION,
+                ($flags & 0x40) !== 0 => self::ISSUE_COMPRESSION,
+                ($flags & ~0xC0) !== 0 => 'id3v2_unknown_flags',
+                default => null,
+            };
+        }
+
         return match (true) {
             ($flags & 0x80) !== 0 && $majorVersion !== 4 => self::ISSUE_UNSYNCHRONIZATION,
             ($flags & 0x40) !== 0 => self::ISSUE_EXTENDED_HEADER,

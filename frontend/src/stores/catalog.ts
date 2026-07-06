@@ -16,6 +16,10 @@ export interface Artist {
   }
 }
 
+export interface ArtistDetail extends Artist {
+  representativeTrackId?: number | null
+}
+
 interface NamedCatalogItem {
   id: number
   name: string
@@ -142,18 +146,21 @@ function queryPath(path: string, query: CatalogQuery): string {
 
 export const useCatalogStore = defineStore('catalog', () => {
   const artists = ref<CatalogPage<Artist>>(emptyPage())
+  const artistDetail = ref<ArtistDetail | null>(null)
   const albums = ref<CatalogPage<Album>>(emptyPage())
   const albumDetail = ref<AlbumDetail | null>(null)
   const tracks = ref<CatalogPage<Track>>(emptyPage())
   const trackDetail = ref<TrackDetail | null>(null)
   const genres = ref<CatalogPage<Genre>>(emptyPage())
   const artistsLoading = ref(false)
+  const artistDetailLoading = ref(false)
   const albumsLoading = ref(false)
   const albumDetailLoading = ref(false)
   const tracksLoading = ref(false)
   const trackDetailLoading = ref(false)
   const genresLoading = ref(false)
   const artistsError = ref<string | null>(null)
+  const artistDetailError = ref<string | null>(null)
   const albumsError = ref<string | null>(null)
   const albumDetailError = ref<string | null>(null)
   const tracksError = ref<string | null>(null)
@@ -165,6 +172,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   const metricsError = ref<string | null>(null)
   let metricsRequest = 0
   let artistsRequest = 0
+  let artistDetailRequest = 0
   let albumsRequest = 0
   let albumDetailRequest = 0
   let tracksRequest = 0
@@ -209,6 +217,21 @@ export const useCatalogStore = defineStore('catalog', () => {
       if (request === artistsRequest) artistsError.value = errorMessage(cause)
     } finally {
       if (request === artistsRequest) artistsLoading.value = false
+    }
+  }
+
+  async function loadArtist(id: number) {
+    const request = ++artistDetailRequest
+    artistDetail.value = null
+    artistDetailLoading.value = true
+    artistDetailError.value = null
+    try {
+      const result = await apiRequest<ArtistDetail>(`/catalog/artists/${id}`)
+      if (request === artistDetailRequest) artistDetail.value = result
+    } catch (cause) {
+      if (request === artistDetailRequest) artistDetailError.value = errorMessage(cause)
+    } finally {
+      if (request === artistDetailRequest) artistDetailLoading.value = false
     }
   }
 
@@ -308,18 +331,21 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   return {
     artists,
+    artistDetail,
     albums,
     albumDetail,
     tracks,
     trackDetail,
     genres,
     artistsLoading,
+    artistDetailLoading,
     albumsLoading,
     albumDetailLoading,
     tracksLoading,
     trackDetailLoading,
     genresLoading,
     artistsError,
+    artistDetailError,
     albumsError,
     albumDetailError,
     tracksError,
@@ -333,6 +359,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadMetrics,
     invalidateMetrics,
     loadArtists,
+    loadArtist,
     loadAlbums,
     loadAlbum,
     loadTracks,

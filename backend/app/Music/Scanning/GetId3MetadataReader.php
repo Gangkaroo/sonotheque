@@ -34,7 +34,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             artists: $this->values($comments, ['artist', 'artists']),
             composers: $this->values($comments, ['composer']),
             performers: $this->values($comments, ['performer', 'conductor']),
-            comment: $this->first($comments, ['comment']),
+            comment: $this->comment($information, $comments),
             genres: $this->id3v2TextValues($information, 'TCON') ?: $this->values($comments, ['genre']),
             year: $year,
             originalReleaseYear: $originalReleaseYear,
@@ -81,6 +81,37 @@ class GetId3MetadataReader implements AudioMetadataReader
         }
 
         return [];
+    }
+
+    /**
+     * Described ID3 comment frames are commonly used for technical values such as
+     * iTunNORM. Only an undescribed COMM frame represents the editable comment.
+     *
+     * @param  array<string, mixed>  $information
+     * @param  array<string, mixed>  $comments
+     */
+    private function comment(array $information, array $comments): ?string
+    {
+        $frames = $information['id3v2']['COMM'] ?? null;
+        if (! is_array($frames)) {
+            return $this->first($comments, ['comment']);
+        }
+
+        foreach ($frames as $frame) {
+            if (! is_array($frame)
+                || trim((string) ($frame['description'] ?? '')) !== ''
+                || ! is_string($frame['data'] ?? null)) {
+                continue;
+            }
+
+            $encoding = is_string($frame['encoding'] ?? null) ? $frame['encoding'] : 'ISO-8859-1';
+            $comment = trim(mb_convert_encoding($frame['data'], 'UTF-8', $encoding), "\0 \t\n\r\x0B");
+            if ($comment !== '') {
+                return $comment;
+            }
+        }
+
+        return null;
     }
 
     /** @param array<string, mixed> $information

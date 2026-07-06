@@ -10,6 +10,7 @@ use App\Music\Enrichment\Data\LyricsLookup;
 use App\Music\Enrichment\Providers\LastFmInformationProvider;
 use App\Music\Enrichment\Providers\LrclibLyricsProvider;
 use App\Music\Enrichment\Providers\MusicBrainzInformationProvider;
+use App\Music\Enrichment\Providers\WikimediaArtistImageProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -62,6 +63,43 @@ class OnlineEnrichmentProvidersTest extends TestCase
             && $request['api_key'] === 'test-key');
         Http::assertSent(fn ($request): bool => $request['method'] === 'album.getInfo'
             && $request['album'] === 'Example Album');
+    }
+
+    public function test_wikimedia_resolves_an_attributed_artist_image_by_musicbrainz_id(): void
+    {
+        Http::fakeSequence()
+            ->push([
+                'results' => ['bindings' => [[
+                    'item' => ['value' => 'http://www.wikidata.org/entity/Q123'],
+                    'image' => ['value' => 'http://commons.wikimedia.org/wiki/Special:FilePath/Example%20Artist.jpg'],
+                ]]],
+            ])
+            ->push([
+                'query' => ['pages' => [[
+                    'imageinfo' => [[
+                        'thumburl' => 'https://upload.wikimedia.org/example-artist.jpg',
+                        'thumbwidth' => 600,
+                        'thumbheight' => 400,
+                        'descriptionurl' => 'https://commons.wikimedia.org/wiki/File:Example_Artist.jpg',
+                        'extmetadata' => [
+                            'Artist' => ['value' => '<a>Example Photographer</a>'],
+                            'LicenseShortName' => ['value' => 'CC BY-SA 4.0'],
+                            'LicenseUrl' => ['value' => 'https://creativecommons.org/licenses/by-sa/4.0/'],
+                        ],
+                    ]],
+                ]]],
+            ]);
+
+        $image = app(WikimediaArtistImageProvider::class)->fetchArtistImage(new ArtistLookup(
+            1,
+            'Example Artist',
+            ['musicbrainz_artist' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da'],
+        ));
+
+        $this->assertSame('https://upload.wikimedia.org/example-artist.jpg', $image?->imageUrl);
+        $this->assertSame('Example Photographer', $image?->author);
+        $this->assertSame('CC BY-SA 4.0', $image?->licenseName);
+        $this->assertSame('Wikimedia Commons', $image?->attribution->label);
     }
 
     public function test_lrclib_uses_the_exact_track_signature(): void

@@ -32,6 +32,17 @@ export interface ArtistInformation {
   matchConfidence?: number | null
 }
 
+export interface ArtistImageInformation {
+  imageUrl: string
+  width?: number | null
+  height?: number | null
+  author?: string | null
+  licenseName?: string | null
+  licenseUrl?: string | null
+  attribution: Attribution
+  providerReference?: string | null
+}
+
 export interface AlbumInformation {
   title: string
   artistName: string

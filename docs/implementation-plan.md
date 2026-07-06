@@ -216,7 +216,8 @@ add an owner without changing the scanned catalog.
 
 ### Editable Metadata
 
-Tag editing is implemented for ordinary MP3 ID3v2.3/ID3v2.4 files and uses
+Tag editing is implemented for ordinary MP3 ID3v2.3/ID3v2.4 files and
+losslessly mappable ID3v2.2 files, which are converted to ID3v2.3. It uses
 stronger safety guarantees than catalog browsing because it writes back to
 music files.
 
@@ -228,11 +229,11 @@ The UI should distinguish album-level metadata from track-level metadata:
   composer, performer, comment, track genres, and other values that can differ
   per file.
 
-The database can continue to store scanned metadata as normalized catalog data,
-but tag edits should be tracked as explicit edit operations before they are
-written to files. A future implementation should add an audit table such as
-`metadata_edit_jobs` or `tag_write_jobs` that stores the target files, requested
-changes, status, error details, and timestamps.
+The database continues to store scanned metadata as normalized catalog data,
+while tag edits are tracked as explicit operations before they are written to
+files. `metadata_edit_jobs` and item records store target files, requested
+changes, status, progress, error details, backup ownership, and timestamps for
+individual, album-wide, and selected-track edits.
 
 Important safety rules:
 
@@ -279,7 +280,8 @@ handling. Unchanged files are imported from cached raw metadata, so enabling
 the setting does not force a full metadata re-read.
 
 Counted app plays enqueue a coalesced write-back job after a short delay. The
-first export implementation supports MP3 ID3v2.3 and ID3v2.4 tags without using
+first export implementation supports MP3 ID3v2.3 and ID3v2.4 tags plus
+losslessly mappable ID3v2.2 tags through conversion to ID3v2.3, without using
 getID3's unsafe generic merge mode: only the `PLAY_COUNT`,
 `FIRST_PLAYED_TIMESTAMP`, and `LAST_PLAYED_TIMESTAMP` TXXX frames are replaced,
 while unrelated frames and audio bytes are preserved. Values are verified on a
@@ -527,6 +529,12 @@ File writes remain queued and require a preview and explicit confirmation.
 - Add album edit forms for shared fields such as album title, album artist,
   release year/date, and album genres. (Complete for MP3 album title, album
   artist, release year, total discs, and shared genres)
+- Add album-track selection with bulk playback, queue, playlist, favorite, and
+  metadata actions. The metadata mask must show common or mixed current values
+  and leave every field untouched unless it is explicitly enabled. (Complete)
+- Add selected-track metadata batches for track artist, composer, performer,
+  comment, track/disc number, year, and genres with per-file minimization,
+  preview, backup, verification, progress, and partial failures. (Complete)
 - Support bulk album edits that can update all tracks in an album while allowing
   per-track exceptions for title, track number, and disc number. (Complete for
   sequential MP3 batches; track-specific fields are preserved)
@@ -619,8 +627,8 @@ Last.fm integration.
   (Complete for Last.fm, MusicBrainz, and LRCLIB, including tagged and searched
   identity matches, ambiguity, lock contention, and stale refresh behavior.)
 - Extend cached enrichment to detail pages after the current-playing workflow
-  is stable. (Complete for album details with separate album/artist tabs;
-  a dedicated artist detail page and multiple-provider fallback remain later.)
+  is stable. (Complete for album details with separate album/artist tabs and
+  for dedicated artist details; multiple-provider fallback remains later.)
 
 ### 6. Settings and Scan Management
 
@@ -665,8 +673,11 @@ uses a configurable location and retention period, preserves source-relative
 paths in unique copies, records checksums and edit ownership, exposes recovery
 details, and provides cleanup and path-checked restore commands.
 
-The planned MP3 metadata field set is complete. A browsable backup audit in
-Settings remains as a later workflow refinement.
+The planned MP3 metadata field set is complete. Album track selection now adds
+bulk playback, queue, playlist, favorite, and metadata actions; selected-track
+metadata edits show common and mixed values and only write explicitly enabled
+fields. A browsable backup audit in Settings remains as a later workflow
+refinement.
 
 The first Last.fm connector milestone is complete: account authorization,
 encrypted local credentials, opt-in scrobbling, shared local/Last.fm eligibility
@@ -688,8 +699,12 @@ ambiguity explicitly, respects MusicBrainz request pacing, and displays compact
 structured identity alongside Last.fm context. Timestamped LRCLIB lyrics now
 follow playback and allow direct seeking while plain lyrics remain the fallback.
 Album details now reuse the cached MusicBrainz and Last.fm results in a tabbed,
-attributed panel. A dedicated artist detail route and additional provider
-fallback remain later refinements.
+attributed panel. Artist names open a dedicated page with summary statistics,
+paginated album and track tabs, playback actions, and cached artist context.
+Optional artist portraits are resolved from MusicBrainz IDs through Wikidata,
+downloaded from Wikimedia Commons through a host-restricted Laravel proxy,
+attributed, validated, cached privately, and shown with a local fallback.
+Additional provider fallback remains a later refinement.
 
 Two additional catalog refinements are planned. A session-wide root selector
 will restrict catalog queries and metrics to one physical library root while

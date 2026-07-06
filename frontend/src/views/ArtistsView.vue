@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore } from '@/stores/catalog'
 
 const { locale, t } = useI18n()
@@ -80,7 +79,12 @@ onUnmounted(() => {
   <v-alert v-if="catalog.artistsError" type="error" variant="tonal">{{ catalog.artistsError }}</v-alert>
   <v-skeleton-loader v-else-if="catalog.artistsLoading" type="list-item-two-line@6" />
   <v-list v-else-if="catalog.artists.items.length" border rounded="xl" lines="two">
-    <v-list-item v-for="artist in catalog.artists.items" :key="artist.id" prepend-icon="mdi-account-music-outline">
+    <v-list-item
+      v-for="artist in catalog.artists.items"
+      :key="artist.id"
+      prepend-icon="mdi-account-music-outline"
+      :to="{ name: 'artist-detail', params: { id: artist.id } }"
+    >
       <v-list-item-title class="font-weight-bold">{{ artist.name }}</v-list-item-title>
       <v-list-item-subtitle>{{ t('artists.albumCount', { count: artist.albumCount }) }}</v-list-item-subtitle>
       <template #append>
@@ -96,23 +100,7 @@ onUnmounted(() => {
               <div v-for="(line, index) in playCountTooltip(artist)" :key="index">{{ line }}</div>
             </div>
           </v-tooltip>
-          <TooltipIconButton
-            :text="t('artists.viewAlbums', { name: artist.name })"
-            :aria-label="t('artists.viewAlbums', { name: artist.name })"
-            :disabled="artist.albumCount === 0"
-            icon="mdi-album"
-            size="small"
-            :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }"
-            variant="text"
-          />
-          <TooltipIconButton
-            :text="t('artists.viewTracks', { name: artist.name })"
-            :aria-label="t('artists.viewTracks', { name: artist.name })"
-            icon="mdi-music-note"
-            size="small"
-            :to="{ name: 'tracks', query: { artist: artist.id, artistName: artist.name } }"
-            variant="text"
-          />
+          <v-icon icon="mdi-chevron-right" size="small" />
         </div>
       </template>
     </v-list-item>

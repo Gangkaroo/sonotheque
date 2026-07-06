@@ -31,6 +31,10 @@ return [
         'max_error_retry_minutes' => (int) env('ENRICHMENT_MAX_ERROR_RETRY_MINUTES', 360),
         'lock_seconds' => (int) env('ENRICHMENT_LOCK_SECONDS', 30),
         'lock_wait_seconds' => (int) env('ENRICHMENT_LOCK_WAIT_SECONDS', 12),
+        'image_disk' => env('ENRICHMENT_IMAGE_DISK', 'local'),
+        'image_path' => env('ENRICHMENT_IMAGE_PATH', 'enrichment-images'),
+        'image_max_bytes' => (int) env('ENRICHMENT_IMAGE_MAX_BYTES', 8 * 1024 * 1024),
+        'image_max_pixels' => (int) env('ENRICHMENT_IMAGE_MAX_PIXELS', 40_000_000),
         'providers' => [
             'lastfm' => [
                 'max_requests_per_minute' => (int) env('LASTFM_ENRICHMENT_REQUESTS_PER_MINUTE', 30),
@@ -41,6 +45,9 @@ return [
             'musicbrainz' => [
                 'max_requests_per_minute' => (int) env('MUSICBRAINZ_REQUESTS_PER_MINUTE', 55),
                 'minimum_interval_ms' => (int) env('MUSICBRAINZ_MINIMUM_INTERVAL_MS', 1100),
+            ],
+            'wikimedia' => [
+                'max_requests_per_minute' => (int) env('WIKIMEDIA_REQUESTS_PER_MINUTE', 30),
             ],
         ],
         'lrclib' => [
@@ -61,6 +68,17 @@ return [
             'ca_bundle' => env('MUSICBRAINZ_CA_BUNDLE') ?: $enrichmentCaBundle,
             'minimum_match_score' => (int) env('MUSICBRAINZ_MINIMUM_MATCH_SCORE', 95),
             'ambiguity_score_gap' => (int) env('MUSICBRAINZ_AMBIGUITY_SCORE_GAP', 10),
+        ],
+        'wikimedia' => [
+            'wikidata_query_url' => env('WIKIDATA_QUERY_URL', 'https://query.wikidata.org/sparql'),
+            'commons_api_url' => env('WIKIMEDIA_COMMONS_API_URL', 'https://commons.wikimedia.org/w/api.php'),
+            'user_agent' => env(
+                'WIKIMEDIA_USER_AGENT',
+                env('MUSICBRAINZ_USER_AGENT', 'MusicLibrary/0.1 (https://github.com/Gangkaroo/music-library)'),
+            ),
+            'timeout_seconds' => (int) env('WIKIMEDIA_TIMEOUT_SECONDS', 20),
+            'proxy' => env('WIKIMEDIA_PROXY', ''),
+            'ca_bundle' => env('WIKIMEDIA_CA_BUNDLE') ?: $enrichmentCaBundle,
         ],
     ],
 

@@ -27,43 +27,32 @@ class CatalogBrowseController extends Controller
             'initial' => ['sometimes', 'nullable', 'string', 'in:#,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z'],
         ]);
 
-        $artists = Artist::query()
-            ->select(['id', 'name', 'sort_name', 'browse_initial'])
-            ->where(fn (Builder $query) => $query->whereHas('albums')->orWhereHas('tracks'))
-            ->addSelect([
-                'play_count' => TrackPlayStatistic::query()
-                    ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id'),
-                'played_track_count' => TrackPlayStatistic::query()
-                    ->selectRaw('count(*)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id')
-                    ->where('track_play_statistics.play_count', '>', 0),
-                'last_played_at' => TrackPlayStatistic::query()
-                    ->selectRaw('max(track_play_statistics.last_played_at)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id'),
-            ])
-            ->withCount(['albums', 'tracks'])
+        $artists = $this->artistCatalogQuery()
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('browse_initial', $initial))
             ->orderByRaw('coalesce(sort_name, name)')
             ->orderBy('name')
             ->paginate(50);
 
-        return response()->json($this->payloads->paginated($artists, fn (Artist $artist) => [
-            'id' => $artist->id,
-            'name' => $artist->name,
-            'browseInitial' => $artist->browse_initial,
-            'albumCount' => $artist->albums_count,
-            'trackCount' => $artist->tracks_count,
-            'playStatistics' => [
-                'playCount' => (int) $artist->play_count,
-                'playedTrackCount' => (int) $artist->played_track_count,
-                'lastPlayedAt' => $artist->last_played_at ? Carbon::parse($artist->last_played_at)->toJSON() : null,
-            ],
-        ]));
+        return response()->json($this->payloads->paginated($artists, fn (Artist $artist) => $this->artistPayload($artist)));
+    }
+
+    public function artist(Artist $artist): JsonResponse
+    {
+        $artist = $this->artistCatalogQuery()->findOrFail($artist->id);
+        $representativeTrackId = Track::query()
+            ->whereHas('album', fn (Builder $query) => $query->where('primary_artist_id', $artist->id))
+            ->whereHas('mediaFile')
+            ->orderBy('album_id')
+            ->orderBy('disc_number')
+            ->orderBy('track_number')
+            ->orderBy('id')
+            ->value('id');
+
+        return response()->json([
+            ...$this->artistPayload($artist),
+            'representativeTrackId' => $representativeTrackId,
+        ]);
     }
 
     public function albums(Request $request): JsonResponse
@@ -237,6 +226,46 @@ class CatalogBrowseController extends Controller
     private function loadPlayableTrack(Track $track): Track
     {
         return $track->load(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
+    }
+
+    private function artistCatalogQuery(): Builder
+    {
+        return Artist::query()
+            ->select(['id', 'name', 'sort_name', 'browse_initial'])
+            ->where(fn (Builder $query) => $query->whereHas('albums')->orWhereHas('tracks'))
+            ->addSelect([
+                'play_count' => TrackPlayStatistic::query()
+                    ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id'),
+                'played_track_count' => TrackPlayStatistic::query()
+                    ->selectRaw('count(*)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id')
+                    ->where('track_play_statistics.play_count', '>', 0),
+                'last_played_at' => TrackPlayStatistic::query()
+                    ->selectRaw('max(track_play_statistics.last_played_at)')
+                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+                    ->whereColumn('artist_track.artist_id', 'artists.id'),
+            ])
+            ->withCount(['albums', 'tracks']);
+    }
+
+    /** @return array<string, mixed> */
+    private function artistPayload(Artist $artist): array
+    {
+        return [
+            'id' => $artist->id,
+            'name' => $artist->name,
+            'browseInitial' => $artist->browse_initial,
+            'albumCount' => $artist->albums_count,
+            'trackCount' => $artist->tracks_count,
+            'playStatistics' => [
+                'playCount' => (int) $artist->play_count,
+                'playedTrackCount' => (int) $artist->played_track_count,
+                'lastPlayedAt' => $artist->last_played_at ? Carbon::parse($artist->last_played_at)->toJSON() : null,
+            ],
+        ];
     }
 
     /** @return list<int> */

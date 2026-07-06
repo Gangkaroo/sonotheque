@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ApplicationSetting;
+use App\Music\Enrichment\ArtistImageCache;
 use App\Music\Enrichment\OnlineContentCacheRepository;
 use App\Music\Enrichment\OnlineEnrichmentDiagnostics;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ class OnlineEnrichmentSettingsController extends Controller
     public function __construct(
         private readonly OnlineContentCacheRepository $cache,
         private readonly OnlineEnrichmentDiagnostics $diagnostics,
+        private readonly ArtistImageCache $images,
     ) {
     }
 
@@ -39,6 +41,7 @@ class OnlineEnrichmentSettingsController extends Controller
     public function clearCache(): JsonResponse
     {
         $deleted = $this->cache->clear();
+        $this->images->clear();
 
         return response()->json([
             'deleted' => $deleted,

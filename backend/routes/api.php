@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminAccessController;
 use App\Http\Controllers\AlbumMetadataController;
+use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\TrackPlayStatisticsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/catalog/artists', [CatalogBrowseController::class, 'artists']);
+Route::get('/catalog/artists/{artist}', [CatalogBrowseController::class, 'artist']);
 Route::get('/catalog/albums', [CatalogBrowseController::class, 'albums']);
 Route::get('/catalog/playback/albums/random', [CatalogBrowseController::class, 'randomAlbum']);
 Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::class, 'nextAlbum']);
@@ -29,6 +31,8 @@ Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album'])
 Route::get('/albums/{album}/artwork/original', [ArtworkThumbnailController::class, 'albumOriginal']);
 Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
+Route::post('/albums/{album}/tracks/metadata/preview', [AlbumTrackMetadataController::class, 'preview']);
+Route::post('/albums/{album}/tracks/metadata-edits', [AlbumTrackMetadataController::class, 'store']);
 Route::get('/catalog/tracks', [CatalogBrowseController::class, 'tracks']);
 Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track']);
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
@@ -58,6 +62,8 @@ Route::delete('/settings/online-enrichment/cache', [OnlineEnrichmentSettingsCont
 Route::post('/settings/online-enrichment/providers/{provider}/test', [OnlineEnrichmentSettingsController::class, 'testProvider']);
 Route::get('/enrichment/tracks/{track}/information', [OnlineEnrichmentController::class, 'information']);
 Route::get('/enrichment/tracks/{track}/identity', [OnlineEnrichmentController::class, 'identity']);
+Route::get('/enrichment/tracks/{track}/artist-image', [OnlineEnrichmentController::class, 'artistImage']);
+Route::get('/enrichment/tracks/{track}/artist-image-information', [OnlineEnrichmentController::class, 'artistImageInformation']);
 Route::get('/enrichment/tracks/{track}/lyrics', [OnlineEnrichmentController::class, 'lyrics']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);

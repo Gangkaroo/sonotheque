@@ -17,6 +17,7 @@ use App\Music\Metadata\TrackMetadataWriter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Fakes\FakeTrackMetadataWriter;
 use Tests\TestCase;
+use RuntimeException;
 
 class ApplyTrackMetadataEditJobTest extends TestCase
 {
@@ -103,6 +104,56 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $this->getJson("/api/metadata-edits/{$edit->id}")
             ->assertOk()
             ->assertJsonPath('backup.id', $backup->id);
+    }
+
+    public function test_the_job_records_a_write_failure_without_leaving_the_edit_pending(): void
+    {
+        $this->app->instance(TrackMetadataWriter::class, new class () implements TrackMetadataWriter {
+            public function supports(string $path): bool
+            {
+                return true;
+            }
+
+            public function write(string $path, array $values): \App\Music\Scanning\AudioMetadata
+            {
+                throw new RuntimeException('Simulated write failure.');
+            }
+        });
+        $track = $this->createTrack();
+        $path = $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'track.mp3';
+        file_put_contents($path, 'audio');
+        $editing = $this->app->make(TrackMetadataEditing::class);
+        $values = [
+            'title' => 'Changed title',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'genres' => ['Old genre'],
+            'comment' => null,
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2000,
+        ];
+        $preview = $editing->preview($track, $values);
+        $edit = MetadataEditJob::create([
+            'track_id' => $track->id,
+            'media_file_id' => $track->media_file_id,
+            'status' => 'pending',
+            'fingerprint' => $preview['fingerprint'],
+            'requested_changes' => $values,
+            'preview' => $preview,
+        ]);
+
+        try {
+            $this->app->call([new ApplyTrackMetadataEdit($edit->id), 'handle']);
+            $this->fail('Expected the metadata write to fail.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Simulated write failure.', $exception->getMessage());
+        }
+
+        $this->assertSame('failed', $edit->fresh()->status);
+        $this->assertSame('Simulated write failure.', $edit->fresh()->error);
+        $this->assertNotNull($edit->fresh()->finished_at);
     }
 
     private function createTrack(): Track

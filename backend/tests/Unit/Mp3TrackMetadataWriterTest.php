@@ -140,6 +140,31 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame([], glob($path.'.music-library-tag-*.bak') ?: []);
     }
 
+    public function test_it_discards_empty_frames_while_preserving_non_empty_frames_and_audio(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'empty-frames.mp3';
+        $emptyUrlFrame = $this->frame('WOAF', '');
+        $privateFrame = $this->frame('PRIV', "owner\0data");
+        $audio = str_repeat("\xFF\xFB\x90\x64", 128);
+        $payload = $emptyUrlFrame
+            .$this->frame('TIT2', "\0Track title")
+            .$this->frame('TCON', "\0Old genre")
+            .$privateFrame;
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['genres' => ['Progressive Rock']]);
+
+        $written = (string) file_get_contents($path);
+        $this->assertSame(['Progressive Rock'], $metadata->genres);
+        $this->assertStringNotContainsString($emptyUrlFrame, $written);
+        $this->assertStringContainsString($privateFrame, $written);
+        $this->assertStringEndsWith($audio, $written);
+    }
+
     public function test_it_restores_the_original_tag_when_in_place_verification_fails(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'rollback.mp3';
@@ -225,6 +250,75 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame(['Synthpop'], $metadata->genres);
     }
 
+    public function test_it_converts_id3v22_to_v23_while_preserving_comments_picture_and_audio(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-v22.mp3';
+        $picture = "\x89PNG\r\n\x1A\nlegacy-picture";
+        $describedComment = "\0engSOURCE\0Keep this source";
+        $emptyUrlFrame = $this->frameV22('WAF', '');
+        $audio = str_repeat("\xFF\xFB\x90\x64", 128);
+        $payload = $emptyUrlFrame
+            .$this->frameV22('TT2', "\0Legacy title")
+            .$this->frameV22('TCO', "\0Old genre")
+            .$this->frameV22('COM', $describedComment)
+            .$this->frameV22('PIC', "\0PNG".chr(3)."\0".$picture);
+        $payload .= str_repeat("\0", 4096 - strlen($payload));
+        file_put_contents($path, 'ID3'.chr(2).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['genres' => ['Psychedelic Rock']]);
+
+        $written = file_get_contents($path);
+        $this->assertSame(3, ord($written[3]));
+        $this->assertSame(['Psychedelic Rock'], $metadata->genres);
+        $this->assertStringContainsString('COMM', $written);
+        $this->assertStringContainsString('Keep this source', $written);
+        $this->assertStringContainsString('APIC', $written);
+        $this->assertStringContainsString("image/png\0", $written);
+        $this->assertStringContainsString($picture, $written);
+        $this->assertStringNotContainsString($emptyUrlFrame, $written);
+        $this->assertStringEndsWith($audio, $written);
+    }
+
+    public function test_it_ignores_described_technical_comments_when_clearing_the_track_comment(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'technical-comments.mp3';
+        $technicalComment = $this->frame('COMM', "\0engiTunPGAP\0".chr(0).chr(0));
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$technicalComment
+            .$this->frame('COMM', "\0eng\0User comment");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.str_repeat("\xFF\xFB\x90\x64", 64));
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['comment' => null]);
+
+        $this->assertNull($metadata->comment);
+        $this->assertStringContainsString($technicalComment, (string) file_get_contents($path));
+    }
+
+    public function test_it_rejects_an_unknown_id3v22_frame_without_changing_the_file(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-unknown.mp3';
+        $payload = $this->frameV22('ZZZ', "\0unknown").str_repeat("\0", 128);
+        $original = 'ID3'.chr(2).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+            .str_repeat("\xFF\xFB\x90\x64", 32);
+        file_put_contents($path, $original);
+
+        try {
+            (new Mp3Id3v2TagEditor())->write($path, ['TIT2' => 'New title'], [], static fn () => null);
+            $this->fail('Expected an unsupported legacy frame error.');
+        } catch (\App\Music\PlaybackStatistics\UnsupportedPlaybackStatisticsTagFormat $exception) {
+            $this->assertStringContainsString('frame [ZZZ]', $exception->getMessage());
+        }
+
+        $this->assertSame($original, file_get_contents($path));
+    }
+
     public function test_it_identifies_unsupported_id3v2_header_features_from_scanned_metadata(): void
     {
         $editor = new Mp3Id3v2TagEditor();
@@ -239,6 +333,12 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame(
             Mp3Id3v2TagEditor::ISSUE_EXTENDED_HEADER,
             $editor->supportIssue(['id3v2' => ['flags' => ['exthead' => true]]]),
+        );
+        $this->assertSame(
+            Mp3Id3v2TagEditor::ISSUE_COMPRESSION,
+            $editor->supportIssue([
+                'id3v2' => ['majorversion' => 2, 'flags' => ['compression' => true]],
+            ]),
         );
         $this->assertNull($editor->supportIssue(['id3v2' => ['flags' => []]]));
     }
@@ -272,6 +372,13 @@ class Mp3TrackMetadataWriterTest extends TestCase
     private function frameV4(string $name, string $payload, string $flags = "\0\0"): string
     {
         return $name.$this->synchsafe(strlen($payload)).$flags.$payload;
+    }
+
+    private function frameV22(string $name, string $payload): string
+    {
+        $length = strlen($payload);
+
+        return $name.pack('C3', ($length >> 16) & 0xFF, ($length >> 8) & 0xFF, $length & 0xFF).$payload;
     }
 
     private function synchsafe(int $value): string

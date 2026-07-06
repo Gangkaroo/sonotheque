@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { apiRequest } from '@/api/client'
 import type { Track } from '@/stores/catalog'
@@ -31,6 +32,12 @@ const metadataPreview = ref<AlbumMetadataPreview | null>(null)
 const metadataJob = ref<AlbumMetadataJob | null>(null)
 const metadataForm = reactive({ albumTitle: '', albumArtist: '', releaseYear: '', totalDiscs: '', genres: [] as string[] })
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
+const selectionMode = ref(false)
+const selectedTrackIds = ref<number[]>([])
+const selectionMessage = ref('')
+const selectionMessageVisible = ref(false)
+const selectionMessageColor = ref<'error' | 'success'>('success')
+const batchMetadataDialog = ref(false)
 
 interface AlbumMetadataValues {
   albumTitle: string
@@ -97,6 +104,11 @@ interface AlbumMetadataJob {
 const albumId = computed(() => Number(route.params.id))
 const album = computed(() => catalog.albumDetail)
 const tracks = computed(() => album.value?.tracks ?? [])
+const selectedTracks = computed(() => {
+  const selected = new Set(selectedTrackIds.value)
+  return tracks.value.filter((track) => selected.has(track.id))
+})
+const allTracksSelected = computed(() => tracks.value.length > 0 && selectedTrackIds.value.length === tracks.value.length)
 const albumGenres = computed(() => album.value?.genres ?? [])
 const artworkUrl = computed(() => album.value?.artworkUrl ?? album.value?.artworkThumbnailUrl ?? null)
 const artworkStyle = computed(() => ({
@@ -199,6 +211,70 @@ function addAlbumToPlaylist() {
 function addTrackToPlaylist(track: Track) {
   playlistTracks.value = [track]
   addToPlaylistDialog.value = true
+}
+
+function enterSelectionMode() {
+  selectionMode.value = true
+  selectedTrackIds.value = []
+}
+
+function exitSelectionMode() {
+  selectionMode.value = false
+  selectedTrackIds.value = []
+}
+
+function toggleTrackSelection(trackId: number) {
+  selectedTrackIds.value = selectedTrackIds.value.includes(trackId)
+    ? selectedTrackIds.value.filter((id) => id !== trackId)
+    : [...selectedTrackIds.value, trackId]
+}
+
+function toggleAllTracks() {
+  selectedTrackIds.value = allTracksSelected.value ? [] : tracks.value.map((track) => track.id)
+}
+
+function playSelectedTracks() {
+  const [firstTrack] = selectedTracks.value
+  if (!firstTrack) return
+
+  player.playTrack(firstTrack, selectedTracks.value, 'album')
+}
+
+function queueSelectedTracks() {
+  player.queueTracks(selectedTracks.value, 'album')
+}
+
+function addSelectedTracksToPlaylist() {
+  playlistTracks.value = [...selectedTracks.value]
+  addToPlaylistDialog.value = true
+}
+
+async function addSelectedTracksToFavorites() {
+  if (!selectedTrackIds.value.length) return
+
+  try {
+    await favorites.setTracksFavorite(selectedTrackIds.value)
+    selectionMessageColor.value = 'success'
+    selectionMessage.value = t('albums.selectedTracksFavorited', { count: selectedTrackIds.value.length })
+    selectionMessageVisible.value = true
+  } catch (cause) {
+    selectionMessageColor.value = 'error'
+    selectionMessage.value = cause instanceof Error ? cause.message : t('albums.selectionActionFailed')
+    selectionMessageVisible.value = true
+  }
+}
+
+function openBatchMetadataEditor() {
+  if (selectedTrackIds.value.length) batchMetadataDialog.value = true
+}
+
+async function batchMetadataCompleted(count: number) {
+  selectionMessageColor.value = 'success'
+  selectionMessage.value = t('albums.batchMetadataCompleted', { count })
+  selectionMessageVisible.value = true
+  exitSelectionMode()
+  catalog.invalidateMetrics()
+  await catalog.loadAlbum(albumId.value)
 }
 
 function openMetadataEditor() {
@@ -350,6 +426,7 @@ function toggleTrack(track: Track) {
 }
 
 watch(albumId, (id) => {
+  exitSelectionMode()
   if (Number.isInteger(id) && id > 0) void catalog.loadAlbum(id)
 }, { immediate: true })
 
@@ -454,14 +531,98 @@ onUnmounted(() => {
       </v-col>
     </v-row>
 
+    <div v-if="tracks.length" class="selection-toolbar mb-2">
+      <v-btn
+        v-if="!selectionMode"
+        prepend-icon="mdi-checkbox-multiple-marked-outline"
+        size="small"
+        variant="tonal"
+        @click="enterSelectionMode"
+      >
+        {{ t('albums.selectTracks') }}
+      </v-btn>
+      <template v-else>
+        <v-chip color="primary" prepend-icon="mdi-checkbox-marked-circle-outline" size="small" variant="tonal">
+          {{ t('albums.selectedTracks', { count: selectedTrackIds.length }) }}
+        </v-chip>
+        <v-btn size="small" variant="text" @click="toggleAllTracks">
+          {{ allTracksSelected ? t('albums.clearSelection') : t('albums.selectAllTracks') }}
+        </v-btn>
+        <v-spacer />
+        <TooltipIconButton
+          :text="t('albums.playSelected')"
+          :aria-label="t('albums.playSelected')"
+          :disabled="!selectedTrackIds.length"
+          icon="mdi-play"
+          size="small"
+          variant="tonal"
+          @click="playSelectedTracks"
+        />
+        <TooltipIconButton
+          :text="t('albums.queueSelected')"
+          :aria-label="t('albums.queueSelected')"
+          :disabled="!selectedTrackIds.length"
+          icon="mdi-playlist-plus"
+          size="small"
+          variant="tonal"
+          @click="queueSelectedTracks"
+        />
+        <TooltipIconButton
+          :text="t('playlists.addTracksTitle', { count: selectedTrackIds.length })"
+          :aria-label="t('playlists.addTracksTitle', { count: selectedTrackIds.length })"
+          :disabled="!selectedTrackIds.length"
+          icon="mdi-playlist-music"
+          size="small"
+          variant="tonal"
+          @click="addSelectedTracksToPlaylist"
+        />
+        <TooltipIconButton
+          :text="t('albums.addSelectedToFavorites')"
+          :aria-label="t('albums.addSelectedToFavorites')"
+          :disabled="!selectedTrackIds.length"
+          icon="mdi-heart-plus-outline"
+          size="small"
+          variant="tonal"
+          @click="void addSelectedTracksToFavorites()"
+        />
+        <v-btn
+          color="primary"
+          :disabled="!selectedTrackIds.length"
+          prepend-icon="mdi-tag-edit-outline"
+          size="small"
+          variant="tonal"
+          @click="void openBatchMetadataEditor()"
+        >
+          {{ t('albums.editSelectedMetadata') }}
+        </v-btn>
+        <TooltipIconButton
+          :text="t('settings.cancel')"
+          :aria-label="t('settings.cancel')"
+          icon="mdi-close"
+          size="small"
+          variant="text"
+          @click="exitSelectionMode"
+        />
+      </template>
+    </div>
+
     <v-list v-if="tracks.length" border rounded="xl" lines="two">
       <v-list-item
         v-for="track in tracks"
         :key="track.id"
         class="track-list-item"
-        :class="{ 'current-track': isCurrentTrack(track) }"
+        :class="{ 'current-track': isCurrentTrack(track), 'selection-active': selectionMode }"
+        @click="selectionMode && toggleTrackSelection(track.id)"
       >
         <template #prepend>
+          <v-checkbox-btn
+            v-if="selectionMode"
+            class="track-selection-checkbox"
+            color="primary"
+            :model-value="selectedTrackIds.includes(track.id)"
+            @click.stop
+            @update:model-value="toggleTrackSelection(track.id)"
+          />
           <span
             class="track-number"
             :class="isCurrentTrack(track) ? 'text-primary font-weight-bold' : 'text-medium-emphasis'"
@@ -470,7 +631,9 @@ onUnmounted(() => {
           </span>
         </template>
         <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': isCurrentTrack(track) }">
+          <span v-if="selectionMode">{{ track.title }}</span>
           <RouterLink
+            v-else
             class="track-detail-link"
             :to="{ name: 'track-detail', params: { id: track.id }, query: { backAlbum: album.id } }"
           >
@@ -480,7 +643,7 @@ onUnmounted(() => {
         <v-list-item-subtitle>
           {{ track.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist') }}
         </v-list-item-subtitle>
-        <template #append>
+        <template v-if="!selectionMode" #append>
           <div class="track-actions">
             <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
             <v-tooltip location="top">
@@ -671,8 +834,18 @@ onUnmounted(() => {
     </v-card>
   </v-dialog>
 
+  <TrackBatchMetadataDialog
+    v-model="batchMetadataDialog"
+    :album-id="albumId"
+    :tracks="selectedTracks"
+    @completed="batchMetadataCompleted"
+  />
+
   <v-snackbar v-model="metadataSuccess" color="success" timeout="3000">
     {{ t('albums.metadataCompleted') }}
+  </v-snackbar>
+  <v-snackbar v-model="selectionMessageVisible" :color="selectionMessageColor" timeout="3000">
+    {{ selectionMessage }}
   </v-snackbar>
 </template>
 
@@ -752,6 +925,23 @@ onUnmounted(() => {
   background: rgba(var(--v-theme-primary), 0.12);
 }
 
+.selection-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-height: 36px;
+}
+
+.selection-active {
+  cursor: pointer;
+}
+
+.track-selection-checkbox {
+  margin-inline-end: 4px;
+}
+
 .track-number {
   display: inline-flex;
   justify-content: end;
@@ -801,5 +991,6 @@ onUnmounted(() => {
   .play-count {
     display: none;
   }
+
 }
 </style>

@@ -92,9 +92,9 @@ const albumRoute = computed(() => {
 
   return albumId ? { name: 'album-detail', params: { id: albumId } } : null
 })
-const artistAlbumsRoute = computed(() => {
+const artistRoute = computed(() => {
   return primaryArtist.value
-    ? { name: 'albums', query: { artist: primaryArtist.value.id, artistName: primaryArtist.value.name } }
+    ? { name: 'artist-detail', params: { id: primaryArtist.value.id } }
     : null
 })
 const playbackStateText = computed(() => {
@@ -558,7 +558,7 @@ onMounted(() => {
         <div class="player-collapsed-secondary text-caption text-medium-emphasis">
           <span class="player-collapsed-artist">
             <span aria-hidden="true">&middot;</span>
-            <RouterLink v-if="artistAlbumsRoute" class="player-meta-link text-truncate" :to="artistAlbumsRoute">
+            <RouterLink v-if="artistRoute" class="player-meta-link text-truncate" :to="artistRoute">
               {{ artistNames }}
             </RouterLink>
             <span v-else class="text-truncate">{{ artistNames }}</span>
@@ -623,7 +623,7 @@ onMounted(() => {
           </div>
           <div class="player-meta-row text-caption text-medium-emphasis">
             <v-icon class="player-meta-icon" icon="mdi-account-music-outline" size="small" />
-            <RouterLink v-if="artistAlbumsRoute" class="player-meta-link text-truncate" :to="artistAlbumsRoute">
+            <RouterLink v-if="artistRoute" class="player-meta-link text-truncate" :to="artistRoute">
               {{ artistNames }}
             </RouterLink>
             <span v-else class="text-truncate">{{ artistNames }}</span>
@@ -813,9 +813,9 @@ onMounted(() => {
         </RouterLink>
         <div v-else class="text-subtitle-1 font-weight-bold text-truncate">{{ trackTitle }}</div>
         <RouterLink
-          v-if="artistAlbumsRoute"
+          v-if="artistRoute"
           class="now-playing-drawer-link text-body-2 text-medium-emphasis"
-          :to="artistAlbumsRoute"
+          :to="artistRoute"
           @click="nowPlayingPanel.close"
         >
           {{ artistNames }}
@@ -920,7 +920,7 @@ onMounted(() => {
             <template v-if="nowPlayingQueueItem.track.artists.length">
               <template v-for="(artist, artistIndex) in nowPlayingQueueItem.track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'artist-detail', params: { id: artist.id } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>
@@ -1003,7 +1003,7 @@ onMounted(() => {
             <template v-if="track.artists.length">
               <template v-for="(artist, artistIndex) in track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'artist-detail', params: { id: artist.id } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>
@@ -1086,7 +1086,7 @@ onMounted(() => {
             <template v-if="track.artists.length">
               <template v-for="(artist, artistIndex) in track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="queue-link" :to="{ name: 'albums', query: { artist: artist.id, artistName: artist.name } }" @click.stop>
+                <RouterLink class="queue-link" :to="{ name: 'artist-detail', params: { id: artist.id } }" @click.stop>
                   {{ artist.name }}
                 </RouterLink>
               </template>
