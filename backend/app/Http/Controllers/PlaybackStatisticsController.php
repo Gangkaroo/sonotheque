@@ -6,18 +6,23 @@ use App\Models\Album;
 use App\Models\Track;
 use App\Models\TrackPlayEvent;
 use App\Support\CatalogPayloads;
+use App\Support\LibraryRootScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 class PlaybackStatisticsController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly LibraryRootScope $libraryRootScope,
+    ) {
     }
 
     public function recentPlays(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
         ]);
@@ -25,7 +30,7 @@ class PlaybackStatisticsController extends Controller
         $events = TrackPlayEvent::query()
             ->select(['id', 'track_id', 'played_at'])
             ->where('counted', true)
-            ->whereHas('track')
+            ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
             ->with(['track' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
                 ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
@@ -42,6 +47,11 @@ class PlaybackStatisticsController extends Controller
 
     public function trackRecentPlays(Request $request, Track $track): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
+        abort_unless(
+            $this->libraryRootScope->tracks(Track::query(), $libraryRootId)->whereKey($track->id)->exists(),
+            404,
+        );
         $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
         ]);
@@ -66,11 +76,12 @@ class PlaybackStatisticsController extends Controller
 
     public function mostPlayedTracks(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
         ]);
 
-        $tracks = Track::query()
+        $tracks = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->join('track_play_statistics', 'track_play_statistics.track_id', '=', 'tracks.id')
             ->select(['tracks.id', 'tracks.title', 'tracks.sort_title', 'tracks.duration_ms', 'tracks.track_number', 'tracks.disc_number', 'tracks.album_id'])
             ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
@@ -85,11 +96,12 @@ class PlaybackStatisticsController extends Controller
 
     public function mostPlayedAlbums(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
         ]);
 
-        $albums = Album::query()
+        $albums = $this->libraryRootScope->albums(Album::query(), $libraryRootId, 'albums.library_root_id')
             ->join('tracks', 'tracks.album_id', '=', 'albums.id')
             ->join('track_play_statistics', 'track_play_statistics.track_id', '=', 'tracks.id')
             ->select([

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
 import type { Album, CatalogPage, Track } from '@/stores/catalog'
+import { withLibraryRootScope } from '@/stores/libraryRootScope'
 
 interface FavoriteIds {
   tracks: number[]
@@ -40,7 +41,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     idsLoading.value = true
     error.value = null
     try {
-      const result = await apiRequest<FavoriteIds>('/favorites')
+      const result = await apiRequest<FavoriteIds>(withLibraryRootScope('/favorites'))
       trackIds.value = result.tracks
       albumIds.value = result.albums
       idsLoaded.value = true
@@ -55,7 +56,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     tracksLoading.value = true
     error.value = null
     try {
-      tracks.value = await apiRequest<CatalogPage<Track>>(`/favorites/tracks?page=${page}`)
+      tracks.value = await apiRequest<CatalogPage<Track>>(withLibraryRootScope(`/favorites/tracks?page=${page}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -67,7 +68,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
     albumsLoading.value = true
     error.value = null
     try {
-      albums.value = await apiRequest<CatalogPage<Album>>(`/favorites/albums?page=${page}`)
+      albums.value = await apiRequest<CatalogPage<Album>>(withLibraryRootScope(`/favorites/albums?page=${page}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {

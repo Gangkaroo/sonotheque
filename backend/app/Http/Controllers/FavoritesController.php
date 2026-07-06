@@ -7,25 +7,42 @@ use App\Models\FavoriteAlbum;
 use App\Models\FavoriteTrack;
 use App\Models\Track;
 use App\Support\CatalogPayloads;
+use App\Support\LibraryRootScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class FavoritesController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly LibraryRootScope $libraryRootScope,
+    ) {
     }
 
-    public function ids(): JsonResponse
+    public function ids(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
+
         return response()->json([
-            'tracks' => FavoriteTrack::query()->orderBy('track_id')->pluck('track_id')->values(),
-            'albums' => FavoriteAlbum::query()->orderBy('album_id')->pluck('album_id')->values(),
+            'tracks' => FavoriteTrack::query()
+                ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
+                ->orderBy('track_id')
+                ->pluck('track_id')
+                ->values(),
+            'albums' => FavoriteAlbum::query()
+                ->whereHas('album', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
+                ->orderBy('album_id')
+                ->pluck('album_id')
+                ->values(),
         ]);
     }
 
-    public function tracks(): JsonResponse
+    public function tracks(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $favorites = FavoriteTrack::query()
+            ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
             ->with(['track.album:id,title,original_release_year,artwork_id', 'track.artists:id,name'])
             ->orderByDesc('created_at')
             ->paginate(50);
@@ -33,9 +50,11 @@ class FavoritesController extends Controller
         return response()->json($this->payloads->paginated($favorites, fn (FavoriteTrack $favorite) => $this->payloads->trackSummary($favorite->track)));
     }
 
-    public function albums(): JsonResponse
+    public function albums(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $favorites = FavoriteAlbum::query()
+            ->whereHas('album', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
             ->with(['album' => fn ($query) => $query
                 ->with(['primaryArtist:id,name', 'artwork:id'])
                 ->withCount('tracks')])
@@ -72,5 +91,4 @@ class FavoritesController extends Controller
 
         return response()->json(null, 204);
     }
-
 }

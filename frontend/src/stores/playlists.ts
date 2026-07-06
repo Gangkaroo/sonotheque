@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
+import { withLibraryRootScope } from '@/stores/libraryRootScope'
 import type { Track } from '@/stores/catalog'
 
 export interface PlaylistFolder {
@@ -58,7 +59,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     try {
       const [folderResult, playlistResult] = await Promise.all([
         apiRequest<FolderResponse>('/playlist-folders'),
-        apiRequest<PlaylistResponse>('/playlists'),
+        apiRequest<PlaylistResponse>(withLibraryRootScope('/playlists')),
       ])
       folders.value = folderResult.items
       playlists.value = sortPlaylists(playlistResult.items)
@@ -73,7 +74,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     loading.value = true
     error.value = null
     try {
-      current.value = await apiRequest<PlaylistDetail>(`/playlists/${id}`)
+      current.value = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${id}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -280,7 +281,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     saving.value = true
     error.value = null
     try {
-      const playlist = await apiRequest<PlaylistDetail>(`/playlists/${playlistId}/items`, {
+      const playlist = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${playlistId}/items`), {
         method: 'DELETE',
         body: JSON.stringify({ items: itemIds }),
       })
@@ -300,7 +301,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     saving.value = true
     error.value = null
     try {
-      const playlist = await apiRequest<PlaylistDetail>(`/playlists/${playlistId}/items/reorder`, {
+      const playlist = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${playlistId}/items/reorder`), {
         method: 'PATCH',
         body: JSON.stringify({ items: itemIds }),
       })

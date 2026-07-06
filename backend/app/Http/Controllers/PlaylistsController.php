@@ -7,6 +7,8 @@ use App\Models\PlaylistFolder;
 use App\Models\PlaylistItem;
 use App\Models\Track;
 use App\Support\CatalogPayloads;
+use App\Support\LibraryRootScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,8 +17,10 @@ use Illuminate\Validation\ValidationException;
 
 class PlaylistsController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly LibraryRootScope $libraryRootScope,
+    ) {
     }
 
     public function folders(): JsonResponse
@@ -69,11 +73,15 @@ class PlaylistsController extends Controller
 
     public function playlists(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $query = Playlist::query()
             ->select('playlists.*')
             ->leftJoin('playlist_folders', 'playlist_folders.id', '=', 'playlists.playlist_folder_id')
             ->with('folder:id,name')
-            ->withCount('items')
+            ->withCount(['items' => fn (Builder $items) => $items->whereHas(
+                'track',
+                fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+            )])
             ->orderByRaw('playlist_folders.id is null')
             ->orderByRaw('lower(playlist_folders.name)')
             ->orderByRaw('lower(playlists.name)');
@@ -91,10 +99,21 @@ class PlaylistsController extends Controller
         ]);
     }
 
-    public function playlist(Playlist $playlist): JsonResponse
+    public function playlist(Request $request, Playlist $playlist): JsonResponse
     {
-        $playlist->load(['folder:id,name', 'items.track.album:id,title,original_release_year,artwork_id', 'items.track.artists:id,name'])
-            ->loadCount('items');
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $playlist->load([
+            'folder:id,name',
+            'items' => fn ($items) => $items
+                ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
+                ->with([
+                    'track.album:id,title,original_release_year,artwork_id',
+                    'track.artists:id,name',
+                ]),
+        ])->loadCount(['items' => fn (Builder $items) => $items->whereHas(
+            'track',
+            fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+        )]);
 
         return response()->json($this->playlistDetailPayload($playlist));
     }
@@ -192,7 +211,7 @@ class PlaylistsController extends Controller
             $this->normalizeItemPositions($playlist);
         });
 
-        return $this->playlist($playlist);
+        return $this->playlist($request, $playlist);
     }
 
     public function reorderItems(Request $request, Playlist $playlist): JsonResponse
@@ -217,7 +236,7 @@ class PlaylistsController extends Controller
             });
         });
 
-        return $this->playlist($playlist);
+        return $this->playlist($request, $playlist);
     }
 
     /** @return array<string, mixed> */

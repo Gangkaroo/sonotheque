@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
 import type { Album, CatalogPage, Track } from '@/stores/catalog'
+import { withLibraryRootScope } from '@/stores/libraryRootScope'
 
 export interface RecentPlay {
   id: number
@@ -35,7 +36,7 @@ export const useStatisticsStore = defineStore('statistics', () => {
     recentPlaysLoading.value = true
     error.value = null
     try {
-      recentPlays.value = await apiRequest<CatalogPage<RecentPlay>>(`/statistics/recent-plays?page=${page}`)
+      recentPlays.value = await apiRequest<CatalogPage<RecentPlay>>(withLibraryRootScope(`/statistics/recent-plays?page=${page}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -47,7 +48,7 @@ export const useStatisticsStore = defineStore('statistics', () => {
     mostPlayedTracksLoading.value = true
     error.value = null
     try {
-      mostPlayedTracks.value = await apiRequest<CatalogPage<Track>>(`/statistics/most-played-tracks?page=${page}`)
+      mostPlayedTracks.value = await apiRequest<CatalogPage<Track>>(withLibraryRootScope(`/statistics/most-played-tracks?page=${page}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -59,7 +60,7 @@ export const useStatisticsStore = defineStore('statistics', () => {
     mostPlayedAlbumsLoading.value = true
     error.value = null
     try {
-      mostPlayedAlbums.value = await apiRequest<CatalogPage<MostPlayedAlbum>>(`/statistics/most-played-albums?page=${page}`)
+      mostPlayedAlbums.value = await apiRequest<CatalogPage<MostPlayedAlbum>>(withLibraryRootScope(`/statistics/most-played-albums?page=${page}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -71,7 +72,7 @@ export const useStatisticsStore = defineStore('statistics', () => {
     trackRecentPlaysLoading.value = true
     trackRecentPlaysError.value = null
     try {
-      trackRecentPlays.value = await apiRequest<CatalogPage<RecentPlay>>(`/statistics/tracks/${trackId}/recent-plays?page=${page}`)
+      trackRecentPlays.value = await apiRequest<CatalogPage<RecentPlay>>(withLibraryRootScope(`/statistics/tracks/${trackId}/recent-plays?page=${page}`))
     } catch (cause) {
       trackRecentPlaysError.value = errorMessage(cause)
     } finally {

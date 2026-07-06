@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
@@ -14,6 +15,7 @@ const { t } = useI18n()
 const route = useRoute()
 const playlists = usePlaylistsStore()
 const player = usePlayerStore()
+const libraryRootScope = useLibraryRootScopeStore()
 
 const playlistId = computed(() => Number(route.params.id))
 const playlist = computed(() => playlists.current)
@@ -27,6 +29,7 @@ const itemToRemove = ref<PlaylistItem | null>(null)
 const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [])
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
+const canReorder = computed(() => libraryRootScope.selectedRootId === null)
 
 function duration(milliseconds?: number) {
   if (!milliseconds) return '-'
@@ -92,6 +95,8 @@ async function removeSingleItem() {
 }
 
 async function moveItem(itemId: number, direction: -1 | 1) {
+  if (!canReorder.value) return
+
   const currentIds = [...itemIds.value]
   const index = currentIds.indexOf(itemId)
   const nextIndex = index + direction
@@ -107,6 +112,8 @@ async function moveItem(itemId: number, direction: -1 | 1) {
 }
 
 function startDragging(itemId: number, event: DragEvent) {
+  if (!canReorder.value) return
+
   draggedItemId.value = itemId
   event.dataTransfer?.setData('text/plain', String(itemId))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
@@ -128,6 +135,8 @@ function clearDropTarget(itemId: number) {
 }
 
 async function dropItem(targetItemId: number) {
+  if (!canReorder.value) return
+
   const sourceItemId = draggedItemId.value
   draggedItemId.value = null
   dropTargetItemId.value = null
@@ -201,6 +210,17 @@ watch(itemIds, (ids) => {
       </v-card-actions>
     </v-card>
 
+    <v-alert
+      v-if="!canReorder && playlist.items.length"
+      class="mb-3"
+      density="compact"
+      icon="mdi-information-outline"
+      type="info"
+      variant="tonal"
+    >
+      {{ t('libraryScope.reorderUnavailable') }}
+    </v-alert>
+
     <v-card v-if="playlist.items.length" border rounded="xl">
       <v-card-title class="playlist-toolbar">
         <div class="d-flex align-center ga-2">
@@ -238,7 +258,7 @@ watch(itemIds, (ids) => {
             'is-dragging': draggedItemId === item.id,
             'is-drop-target': dropTargetItemId === item.id && draggedItemId !== item.id,
           }"
-          draggable="true"
+          :draggable="canReorder"
           @dragend="stopDragging"
           @dragenter="markDropTarget(item.id)"
           @dragleave="clearDropTarget(item.id)"
@@ -260,7 +280,9 @@ watch(itemIds, (ids) => {
                   <v-icon
                     v-bind="props"
                     :aria-label="t('playlists.dragTrack')"
-                    class="playlist-drag-handle text-medium-emphasis"
+                    class="text-medium-emphasis"
+                    :class="{ 'playlist-drag-handle': canReorder }"
+                    :disabled="!canReorder"
                     icon="mdi-drag"
                     size="small"
                   />
@@ -301,7 +323,7 @@ watch(itemIds, (ids) => {
               <TooltipIconButton
                 :text="t('playlists.moveTrackUp')"
                 :aria-label="t('playlists.moveTrackUp')"
-                :disabled="index === 0 || playlists.saving"
+                :disabled="!canReorder || index === 0 || playlists.saving"
                 icon="mdi-arrow-up"
                 variant="text"
                 @click="moveItem(item.id, -1)"
@@ -309,7 +331,7 @@ watch(itemIds, (ids) => {
               <TooltipIconButton
                 :text="t('playlists.moveTrackDown')"
                 :aria-label="t('playlists.moveTrackDown')"
-                :disabled="index === playlist.items.length - 1 || playlists.saving"
+                :disabled="!canReorder || index === playlist.items.length - 1 || playlists.saving"
                 icon="mdi-arrow-down"
                 variant="text"
                 @click="moveItem(item.id, 1)"

@@ -6,6 +6,11 @@ export default {
   actions: {
     toggleNavigation: 'Navigation ein- oder ausblenden',
   },
+  libraryScope: {
+    label: 'Bibliotheksordner',
+    allRoots: 'Alle Bibliotheksordner',
+    reorderUnavailable: 'Playlists können neu sortiert werden, wenn alle Bibliotheksordner angezeigt werden.',
+  },
   navigation: {
     dashboard: 'Übersicht',
     artists: 'Interpreten',

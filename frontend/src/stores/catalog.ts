@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
+import { withLibraryRootScope } from '@/stores/libraryRootScope'
 
 export interface Artist {
   id: number
@@ -141,7 +142,7 @@ function queryPath(path: string, query: CatalogQuery): string {
     parameters.set('artist', String(query.artist).trim())
   }
   if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
-  return `${path}?${parameters}`
+  return withLibraryRootScope(`${path}?${parameters}`)
 }
 
 export const useCatalogStore = defineStore('catalog', () => {
@@ -188,7 +189,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     metricsLoading.value = true
     metricsError.value = null
     try {
-      const result = await apiRequest<CatalogMetrics>('/dashboard-metrics', { cache: 'no-store' })
+      const result = await apiRequest<CatalogMetrics>(withLibraryRootScope('/dashboard-metrics'), { cache: 'no-store' })
       if (request === metricsRequest) {
         metrics.value = result
         metricsLoaded.value = true
@@ -226,7 +227,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     artistDetailLoading.value = true
     artistDetailError.value = null
     try {
-      const result = await apiRequest<ArtistDetail>(`/catalog/artists/${id}`)
+      const result = await apiRequest<ArtistDetail>(withLibraryRootScope(`/catalog/artists/${id}`))
       if (request === artistDetailRequest) artistDetail.value = result
     } catch (cause) {
       if (request === artistDetailRequest) artistDetailError.value = errorMessage(cause)
@@ -255,7 +256,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     albumDetailLoading.value = true
     albumDetailError.value = null
     try {
-      const result = await apiRequest<AlbumDetail>(`/catalog/albums/${id}`)
+      const result = await apiRequest<AlbumDetail>(withLibraryRootScope(`/catalog/albums/${id}`))
       if (request === albumDetailRequest) albumDetail.value = result
     } catch (cause) {
       if (request === albumDetailRequest) albumDetailError.value = errorMessage(cause)
@@ -284,7 +285,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     trackDetailLoading.value = true
     trackDetailError.value = null
     try {
-      const result = await apiRequest<TrackDetail>(`/catalog/tracks/${id}`)
+      const result = await apiRequest<TrackDetail>(withLibraryRootScope(`/catalog/tracks/${id}`))
       if (request === trackDetailRequest) trackDetail.value = result
     } catch (cause) {
       if (request === trackDetailRequest) trackDetailError.value = errorMessage(cause)

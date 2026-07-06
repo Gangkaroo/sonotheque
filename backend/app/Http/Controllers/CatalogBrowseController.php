@@ -8,6 +8,7 @@ use App\Models\Genre;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Support\CatalogPayloads;
+use App\Support\LibraryRootScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,19 +16,22 @@ use Illuminate\Support\Carbon;
 
 class CatalogBrowseController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly LibraryRootScope $libraryRootScope,
+    ) {
     }
 
     public function artists(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
             'initial' => ['sometimes', 'nullable', 'string', 'in:#,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z'],
         ]);
 
-        $artists = $this->artistCatalogQuery()
+        $artists = $this->artistCatalogQuery($libraryRootId)
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('browse_initial', $initial))
             ->orderByRaw('coalesce(sort_name, name)')
@@ -37,10 +41,11 @@ class CatalogBrowseController extends Controller
         return response()->json($this->payloads->paginated($artists, fn (Artist $artist) => $this->artistPayload($artist)));
     }
 
-    public function artist(Artist $artist): JsonResponse
+    public function artist(Request $request, Artist $artist): JsonResponse
     {
-        $artist = $this->artistCatalogQuery()->findOrFail($artist->id);
-        $representativeTrackId = Track::query()
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $artist = $this->artistCatalogQuery($libraryRootId)->findOrFail($artist->id);
+        $representativeTrackId = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->whereHas('album', fn (Builder $query) => $query->where('primary_artist_id', $artist->id))
             ->whereHas('mediaFile')
             ->orderBy('album_id')
@@ -57,6 +62,7 @@ class CatalogBrowseController extends Controller
 
     public function albums(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
@@ -66,7 +72,7 @@ class CatalogBrowseController extends Controller
             'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
-        $albums = Album::query()
+        $albums = $this->libraryRootScope->albums(Album::query(), $libraryRootId, 'albums.library_root_id')
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
             ->select([
                 'albums.id',
@@ -100,19 +106,26 @@ class CatalogBrowseController extends Controller
         return response()->json($this->payloads->paginated($albums, fn (Album $album) => $this->payloads->albumSummary($album)));
     }
 
-    public function album(Album $album): JsonResponse
+    public function album(Request $request, Album $album): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
+        abort_unless(
+            $this->libraryRootScope->albums(Album::query(), $libraryRootId)->whereKey($album->id)->exists(),
+            404,
+        );
+
         return response()->json($this->payloads->albumDetail($album));
     }
 
     public function randomAlbum(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'exclude' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
-        $query = Album::query()->has('tracks');
-        if (Album::query()->has('tracks')->count() > 1 && ($filters['exclude'] ?? null)) {
+        $query = $this->libraryRootScope->albums(Album::query(), $libraryRootId)->has('tracks');
+        if ((clone $query)->count() > 1 && ($filters['exclude'] ?? null)) {
             $query->whereKeyNot($filters['exclude']);
         }
 
@@ -121,9 +134,10 @@ class CatalogBrowseController extends Controller
         return response()->json($this->payloads->albumDetail($album));
     }
 
-    public function nextAlbum(Album $album): JsonResponse
+    public function nextAlbum(Request $request, Album $album): JsonResponse
     {
-        $ids = $this->orderedAlbumIds();
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $ids = $this->orderedAlbumIds($libraryRootId);
         abort_if($ids === [], 404);
 
         $index = array_search($album->id, $ids, true);
@@ -134,12 +148,13 @@ class CatalogBrowseController extends Controller
 
     public function randomTrack(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'exclude' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
-        $query = Track::query();
-        if (Track::query()->count() > 1 && ($filters['exclude'] ?? null)) {
+        $query = $this->libraryRootScope->tracks(Track::query(), $libraryRootId);
+        if ((clone $query)->count() > 1 && ($filters['exclude'] ?? null)) {
             $query->whereKeyNot($filters['exclude']);
         }
 
@@ -148,9 +163,10 @@ class CatalogBrowseController extends Controller
         return response()->json($this->payloads->trackSummary($this->loadPlayableTrack($track)));
     }
 
-    public function nextTrack(Track $track): JsonResponse
+    public function nextTrack(Request $request, Track $track): JsonResponse
     {
-        $ids = $this->orderedTrackIds();
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $ids = $this->orderedTrackIds($libraryRootId);
         abort_if($ids === [], 404);
 
         $index = array_search($track->id, $ids, true);
@@ -161,6 +177,7 @@ class CatalogBrowseController extends Controller
 
     public function tracks(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:512'],
@@ -169,7 +186,7 @@ class CatalogBrowseController extends Controller
             'playStatus' => ['sometimes', 'nullable', 'string', 'in:never'],
         ]);
 
-        $tracks = Track::query()
+        $tracks = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
             ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->whereHas('artists', fn (Builder $artistQuery) => $artistQuery->whereKey($artist)))
@@ -196,13 +213,20 @@ class CatalogBrowseController extends Controller
         return response()->json($this->payloads->paginated($tracks, fn (Track $track) => $this->payloads->trackSummary($track)));
     }
 
-    public function track(Track $track): JsonResponse
+    public function track(Request $request, Track $track): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
+        abort_unless(
+            $this->libraryRootScope->tracks(Track::query(), $libraryRootId)->whereKey($track->id)->exists(),
+            404,
+        );
+
         return response()->json($this->payloads->trackDetail($track));
     }
 
     public function genres(Request $request): JsonResponse
     {
+        $libraryRootId = $this->libraryRootScope->id($request);
         $filters = $request->validate([
             'page' => ['sometimes', 'integer', 'min:1'],
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -210,8 +234,8 @@ class CatalogBrowseController extends Controller
 
         $genres = Genre::query()
             ->select(['id', 'name'])
-            ->has('tracks')
-            ->withCount('tracks')
+            ->whereHas('tracks', fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId))
+            ->withCount(['tracks' => fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId)])
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->orderBy('name')
             ->paginate(50);
@@ -228,27 +252,39 @@ class CatalogBrowseController extends Controller
         return $track->load(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
     }
 
-    private function artistCatalogQuery(): Builder
+    private function artistCatalogQuery(?int $libraryRootId): Builder
     {
+        $statistics = TrackPlayStatistic::query()
+            ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
+            ->join('tracks', 'tracks.id', '=', 'track_play_statistics.track_id')
+            ->join('media_files', 'media_files.id', '=', 'tracks.media_file_id')
+            ->join('library_roots', 'library_roots.id', '=', 'media_files.library_root_id')
+            ->whereColumn('artist_track.artist_id', 'artists.id')
+            ->where('library_roots.enabled', true)
+            ->when($libraryRootId, fn (Builder $query, int $id) => $query->where('media_files.library_root_id', $id));
+        $playCount = (clone $statistics)
+            ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)');
+        $playedTrackCount = (clone $statistics)
+            ->selectRaw('count(*)')
+            ->where('track_play_statistics.play_count', '>', 0);
+        $lastPlayedAt = (clone $statistics)
+            ->selectRaw('max(track_play_statistics.last_played_at)');
+
         return Artist::query()
             ->select(['id', 'name', 'sort_name', 'browse_initial'])
-            ->where(fn (Builder $query) => $query->whereHas('albums')->orWhereHas('tracks'))
+            ->where(function (Builder $query) use ($libraryRootId): void {
+                $query->whereHas('albums', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
+                    ->orWhereHas('tracks', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId));
+            })
             ->addSelect([
-                'play_count' => TrackPlayStatistic::query()
-                    ->selectRaw('coalesce(sum(track_play_statistics.play_count), 0)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id'),
-                'played_track_count' => TrackPlayStatistic::query()
-                    ->selectRaw('count(*)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id')
-                    ->where('track_play_statistics.play_count', '>', 0),
-                'last_played_at' => TrackPlayStatistic::query()
-                    ->selectRaw('max(track_play_statistics.last_played_at)')
-                    ->join('artist_track', 'artist_track.track_id', '=', 'track_play_statistics.track_id')
-                    ->whereColumn('artist_track.artist_id', 'artists.id'),
+                'play_count' => $playCount,
+                'played_track_count' => $playedTrackCount,
+                'last_played_at' => $lastPlayedAt,
             ])
-            ->withCount(['albums', 'tracks']);
+            ->withCount([
+                'albums' => fn (Builder $query) => $this->libraryRootScope->albums($query, $libraryRootId),
+                'tracks' => fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId),
+            ]);
     }
 
     /** @return array<string, mixed> */
@@ -269,9 +305,9 @@ class CatalogBrowseController extends Controller
     }
 
     /** @return list<int> */
-    private function orderedAlbumIds(): array
+    private function orderedAlbumIds(?int $libraryRootId): array
     {
-        return Album::query()
+        return $this->libraryRootScope->albums(Album::query(), $libraryRootId, 'albums.library_root_id')
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
             ->has('tracks')
             ->orderByRaw('primary_artists.name is null')
@@ -284,9 +320,9 @@ class CatalogBrowseController extends Controller
     }
 
     /** @return list<int> */
-    private function orderedTrackIds(): array
+    private function orderedTrackIds(?int $libraryRootId): array
     {
-        return Track::query()
+        return $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->join('albums', 'albums.id', '=', 'tracks.album_id')
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
             ->orderByRaw('primary_artists.name is null')

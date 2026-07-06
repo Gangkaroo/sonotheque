@@ -454,23 +454,25 @@ The implementation order changed from the original phase list. The scanner and a
 
 ### 4a. Session Library Scope And Personal Album Information
 
-- Add a global library-root selector with an explicit "All roots" option.
+- Add a global library-root selector with an explicit "All roots" option. (Complete)
 - Keep the selected root in Pinia backed by session storage so it survives page
-  refreshes but remains specific to the current browser session.
+  refreshes but remains specific to the current browser session. (Complete)
 - Apply the selected root to dashboard metrics, artists, albums, tracks, genres,
   search, list counts, filters, random selections, history, favorites, and
-  playlist contents. Settings and scan administration remain unscoped.
+  playlist contents. Settings and scan administration remain unscoped. (Complete)
 - Resolve root membership through `tracks -> media_files -> library_roots` and
   use distinct catalog entities so albums and artists shared by several roots
-  are not duplicated in results or counts.
+  are not duplicated in results or counts. (Complete for the current schema,
+  where each album belongs to one physical root)
 - Scope album details to tracks available in the selected root. Keep an album
-  visible only when at least one matching track remains.
+  visible only when at least one matching track remains. (Complete)
 - Do not stop current playback or discard the existing queue when the scope
   changes. Apply the new scope to subsequent browsing and newly generated play
-  or queue actions.
+  or queue actions. (Complete)
 - Ensure all relevant backend collection, aggregate, search, and random-item
   endpoints accept the same nullable library-root filter. `null` means all
-  enabled roots.
+  enabled roots. (Complete; playlist reordering intentionally remains available
+  only in the all-roots view)
 - Add album-detail editing for purchase source, physical-copy state, and
   optional personal notes without writing these values to audio tags.
 - Add physical-copy filters to album and track lists. Track filtering is based
@@ -706,13 +708,13 @@ downloaded from Wikimedia Commons through a host-restricted Laravel proxy,
 attributed, validated, cached privately, and shown with a local fallback.
 Additional provider fallback remains a later refinement.
 
-Two additional catalog refinements are planned. A session-wide root selector
-will restrict catalog queries and metrics to one physical library root while
-always offering an all-roots view. Personal album information will store
-purchase source, physical-copy state, and optional notes independently of
-scanned metadata, with physical-copy filters in album and track lists. The root
-scope is the more foundational change and should be implemented before personal
-album information because it affects nearly every catalog query.
+The session-wide library-root scope is complete. The app keeps the selection in
+session storage, applies it consistently to catalog data, metrics, generated
+playback choices, favorites, history, and playlist contents, and preserves the
+existing player queue when the selection changes. The next catalog refinement
+is personal album information: purchase source, physical-copy state, and notes
+stored independently of scanned metadata, followed by physical-copy filters in
+album and track lists.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, and

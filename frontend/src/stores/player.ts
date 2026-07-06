@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 
 import { apiRequest } from '@/api/client'
+import { withLibraryRootScope } from '@/stores/libraryRootScope'
 import type { AlbumDetail, Track } from '@/stores/catalog'
 
 export type PlayableTrack = Track
@@ -69,7 +70,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   async function playAlbumById(albumId: number) {
     try {
-      const album = await apiRequest<AlbumDetail>(`/catalog/albums/${albumId}`)
+      const album = await apiRequest<AlbumDetail>(withLibraryRootScope(`/catalog/albums/${albumId}`))
       playAlbum(album)
     } catch (cause) {
       setError(errorMessage(cause))
@@ -165,7 +166,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   async function playRandomAlbum() {
     try {
-      const album = await apiRequest<AlbumDetail>('/catalog/playback/albums/random')
+      const album = await apiRequest<AlbumDetail>(withLibraryRootScope('/catalog/playback/albums/random'))
       playAlbum(album)
     } catch (cause) {
       setError(errorMessage(cause))
@@ -174,7 +175,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   async function playRandomTrack() {
     try {
-      const track = await apiRequest<PlayableTrack>('/catalog/playback/tracks/random')
+      const track = await apiRequest<PlayableTrack>(withLibraryRootScope('/catalog/playback/tracks/random'))
       playTrack(track, [track], 'track-list')
     } catch (cause) {
       setError(errorMessage(cause))
@@ -305,7 +306,7 @@ export const usePlayerStore = defineStore('player', () => {
       const path = random
         ? `/catalog/playback/albums/random?exclude=${currentTrack.value.album.id}`
         : `/catalog/playback/albums/${currentTrack.value.album.id}/next`
-      const album = await apiRequest<AlbumDetail>(path)
+      const album = await apiRequest<AlbumDetail>(withLibraryRootScope(path))
       playAlbum(album)
     } catch (cause) {
       setError(errorMessage(cause))
@@ -322,7 +323,7 @@ export const usePlayerStore = defineStore('player', () => {
       const path = random
         ? `/catalog/playback/tracks/random?exclude=${currentTrack.value.id}`
         : `/catalog/playback/tracks/${currentTrack.value.id}/next`
-      const track = await apiRequest<PlayableTrack>(path)
+      const track = await apiRequest<PlayableTrack>(withLibraryRootScope(path))
       playTrack(track, [track], 'track-list')
     } catch (cause) {
       setError(errorMessage(cause))

@@ -5,18 +5,30 @@ import { useTheme } from 'vuetify'
 
 import AppPlayer from '@/components/AppPlayer.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
+import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { useNowPlayingPanelStore } from '@/stores/nowPlayingPanel'
 import { usePreferencesStore } from '@/stores/preferences'
 import { usePlayerStore } from '@/stores/player'
 
 const drawer = ref(/** @type {boolean | null} */ (null))
+const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRootScope = useLibraryRootScopeStore()
+const libraryRoots = useLibraryRootsStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
 const preferences = usePreferencesStore()
 const player = usePlayerStore()
 const { locale, t } = useI18n()
 const theme = useTheme()
+const libraryRootOptions = computed(() => [
+  { title: t('libraryScope.allRoots'), value: null },
+  ...libraryRoots.roots
+    .filter((root) => root.enabled)
+    .map((root) => ({ title: root.name, value: root.id })),
+])
 
 const navigation = computed(() => [
   { title: t('navigation.dashboard'), icon: 'mdi-view-dashboard-outline', to: '/' },
@@ -37,9 +49,19 @@ watch(
   { immediate: true },
 )
 
-onMounted(() => {
-  void favorites.loadIds()
+onMounted(async () => {
+  await Promise.all([libraryRoots.load(), favorites.loadIds()])
+  libraryRootScope.ensureValid(libraryRoots.roots)
 })
+
+watch(
+  () => libraryRootScope.selectedRootId,
+  () => {
+    catalog.invalidateMetrics()
+    void favorites.loadIds(true)
+  },
+  { flush: 'sync' },
+)
 
 watch(
   () => preferences.theme,
@@ -111,6 +133,19 @@ watch(
       <v-app-bar-title class="app-title">{{ t('app.name') }}</v-app-bar-title>
 
       <template #append>
+        <v-select
+          class="library-root-selector mr-2"
+          density="compact"
+          hide-details
+          item-title="title"
+          item-value="value"
+          :items="libraryRootOptions"
+          :label="t('libraryScope.label')"
+          :model-value="libraryRootScope.selectedRootId"
+          prepend-inner-icon="mdi-harddisk"
+          variant="outlined"
+          @update:model-value="libraryRootScope.select($event)"
+        />
         <TooltipIconButton
           v-if="player.currentTrack"
           :text="t('navigation.playbackDetails')"
@@ -126,7 +161,7 @@ watch(
 
     <v-main>
       <v-container class="page-container py-8" fluid>
-        <router-view />
+        <router-view :key="libraryRootScope.scopeKey" />
       </v-container>
     </v-main>
 
@@ -145,9 +180,17 @@ watch(
   max-width: 1600px;
 }
 
+.library-root-selector {
+  width: clamp(180px, 22vw, 300px);
+}
+
 @media (max-width: 500px) {
   .app-title {
     display: none;
+  }
+
+  .library-root-selector {
+    width: min(52vw, 220px);
   }
 }
 </style>

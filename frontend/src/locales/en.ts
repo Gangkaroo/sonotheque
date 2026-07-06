@@ -6,6 +6,11 @@ export default {
   actions: {
     toggleNavigation: 'Toggle navigation',
   },
+  libraryScope: {
+    label: 'Library root',
+    allRoots: 'All library roots',
+    reorderUnavailable: 'Playlist reordering is available when all library roots are shown.',
+  },
   navigation: {
     dashboard: 'Dashboard',
     artists: 'Artists',
