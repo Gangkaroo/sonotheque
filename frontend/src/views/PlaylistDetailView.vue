@@ -20,9 +20,10 @@ const libraryRootScope = useLibraryRootScopeStore()
 const playlistId = computed(() => Number(route.params.id))
 const playlist = computed(() => playlists.current)
 const tracks = computed(() => playlist.value?.items.map((item) => item.track) ?? [])
+const selectionMode = ref(false)
 const selectedItemIds = ref<number[]>([])
 const draggedItemId = ref<number | null>(null)
-const dropTargetItemId = ref<number | null>(null)
+const dropTargetIndex = ref<number | null>(null)
 const removeSelectedDialog = ref(false)
 const removeItemDialog = ref(false)
 const itemToRemove = ref<PlaylistItem | null>(null)
@@ -61,6 +62,22 @@ function toggleTrack(track: Track) {
   player.playTrack(track, tracks.value, 'track-list')
 }
 
+function enterSelectionMode() {
+  selectionMode.value = true
+  selectedItemIds.value = []
+}
+
+function exitSelectionMode() {
+  selectionMode.value = false
+  selectedItemIds.value = []
+}
+
+function toggleItemSelection(itemId: number) {
+  selectedItemIds.value = selectedItemIds.value.includes(itemId)
+    ? selectedItemIds.value.filter((id) => id !== itemId)
+    : [...selectedItemIds.value, itemId]
+}
+
 function toggleAllItems() {
   selectedItemIds.value = allSelected.value ? [] : [...itemIds.value]
 }
@@ -75,8 +92,8 @@ async function removeSelectedItems() {
   if (!playlist.value || !selectedItemIds.value.length) return
 
   await playlists.removeItems(playlist.value.id, selectedItemIds.value)
-  selectedItemIds.value = []
   removeSelectedDialog.value = false
+  exitSelectionMode()
 }
 
 function confirmRemoveItem(item: PlaylistItem) {
@@ -112,7 +129,7 @@ async function moveItem(itemId: number, direction: -1 | 1) {
 }
 
 function startDragging(itemId: number, event: DragEvent) {
-  if (!canReorder.value) return
+  if (!canReorder.value || selectionMode.value) return
 
   draggedItemId.value = itemId
   event.dataTransfer?.setData('text/plain', String(itemId))
@@ -121,39 +138,58 @@ function startDragging(itemId: number, event: DragEvent) {
 
 function stopDragging() {
   draggedItemId.value = null
-  dropTargetItemId.value = null
+  dropTargetIndex.value = null
 }
 
-function markDropTarget(itemId: number) {
-  if (draggedItemId.value !== null && draggedItemId.value !== itemId) {
-    dropTargetItemId.value = itemId
+function markDropTarget(index: number, event: DragEvent) {
+  if (draggedItemId.value === null || selectionMode.value) return
+
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  const bounds = target?.getBoundingClientRect()
+  const insertAfter = bounds ? event.clientY > bounds.top + (bounds.height / 2) : false
+  const nextDropIndex = insertAfter ? index + 1 : index
+  dropTargetIndex.value = isNoopDropIndex(nextDropIndex) ? null : nextDropIndex
+}
+
+function itemDropClass(index: number) {
+  return {
+    'has-drop-before': draggedItemId.value !== null && dropTargetIndex.value === index,
+    'has-drop-after': draggedItemId.value !== null
+      && playlist.value?.items.length === index + 1
+      && dropTargetIndex.value === index + 1,
   }
 }
 
-function clearDropTarget(itemId: number) {
-  if (dropTargetItemId.value === itemId) dropTargetItemId.value = null
+function isNoopDropIndex(targetIndex: number) {
+  const sourceIndex = draggedItemId.value === null ? -1 : itemIds.value.indexOf(draggedItemId.value)
+
+  return sourceIndex < 0 || targetIndex === sourceIndex || targetIndex === sourceIndex + 1
 }
 
-async function dropItem(targetItemId: number) {
-  if (!canReorder.value) return
+async function dropItem() {
+  if (!canReorder.value || selectionMode.value) return
 
   const sourceItemId = draggedItemId.value
+  const targetIndex = dropTargetIndex.value
   draggedItemId.value = null
-  dropTargetItemId.value = null
+  dropTargetIndex.value = null
 
-  if (!playlist.value || sourceItemId === null || sourceItemId === targetItemId) return
+  if (!playlist.value || sourceItemId === null || targetIndex === null) return
 
   const currentIds = [...itemIds.value]
   const sourceIndex = currentIds.indexOf(sourceItemId)
-  const targetIndex = currentIds.indexOf(targetItemId)
+  let insertionIndex = Math.min(currentIds.length, Math.max(0, targetIndex))
 
-  if (sourceIndex < 0 || targetIndex < 0) return
+  if (sourceIndex < 0) return
 
   const item = currentIds[sourceIndex]
   if (item === undefined) return
 
+  if (sourceIndex < insertionIndex) insertionIndex -= 1
+  if (sourceIndex === insertionIndex) return
+
   currentIds.splice(sourceIndex, 1)
-  currentIds.splice(targetIndex, 0, item)
+  currentIds.splice(insertionIndex, 0, item)
   await playlists.reorderItems(playlist.value.id, currentIds)
 }
 
@@ -162,7 +198,7 @@ watch(playlistId, (id) => {
 }, { immediate: true })
 
 watch(() => playlist.value?.id, () => {
-  selectedItemIds.value = []
+  exitSelectionMode()
   removeSelectedDialog.value = false
   removeItemDialog.value = false
   itemToRemove.value = null
@@ -224,27 +260,45 @@ watch(itemIds, (ids) => {
     <v-card v-if="playlist.items.length" border rounded="xl">
       <v-card-title class="playlist-toolbar">
         <div class="d-flex align-center ga-2">
-          <v-checkbox-btn
-            :aria-label="t('playlists.selectAllTracks')"
-            :model-value="allSelected"
-            color="primary"
-            density="compact"
-            @click.stop="toggleAllItems"
-          />
           <span>{{ t('playlists.trackList') }}</span>
-          <v-chip v-if="selectedCount" color="primary" size="small" variant="tonal">
-            {{ t('playlists.selectedTracks', { count: selectedCount }) }}
-          </v-chip>
+          <template v-if="selectionMode">
+            <v-chip color="primary" prepend-icon="mdi-checkbox-marked-circle-outline" size="small" variant="tonal">
+              {{ t('playlists.selectedTracks', { count: selectedCount }) }}
+            </v-chip>
+            <v-btn size="small" variant="text" @click="toggleAllItems">
+              {{ allSelected ? t('albums.clearSelection') : t('playlists.selectAllTracks') }}
+            </v-btn>
+          </template>
         </div>
+        <template v-if="selectionMode">
+          <v-btn
+            color="error"
+            prepend-icon="mdi-delete-outline"
+            :disabled="!selectedCount || playlists.saving"
+            :loading="playlists.saving && selectedCount > 0"
+            size="small"
+            variant="tonal"
+            @click="confirmRemoveSelectedItems"
+          >
+            {{ t('playlists.removeSelected') }}
+          </v-btn>
+          <TooltipIconButton
+            :text="t('settings.cancel')"
+            :aria-label="t('settings.cancel')"
+            icon="mdi-close"
+            size="small"
+            variant="text"
+            @click="exitSelectionMode"
+          />
+        </template>
         <v-btn
-          color="error"
-          prepend-icon="mdi-delete-outline"
-          :disabled="!selectedCount || playlists.saving"
-          :loading="playlists.saving && selectedCount > 0"
+          v-else
+          prepend-icon="mdi-checkbox-multiple-marked-outline"
+          size="small"
           variant="tonal"
-          @click="confirmRemoveSelectedItems"
+          @click="enterSelectionMode"
         >
-          {{ t('playlists.removeSelected') }}
+          {{ t('playlists.selectTracks') }}
         </v-btn>
       </v-card-title>
 
@@ -256,26 +310,31 @@ watch(itemIds, (ids) => {
           :class="{
             'current-track': player.currentTrack?.id === item.track.id,
             'is-dragging': draggedItemId === item.id,
-            'is-drop-target': dropTargetItemId === item.id && draggedItemId !== item.id,
+            'selection-active': selectionMode,
+            ...itemDropClass(index),
           }"
-          :draggable="canReorder"
+          :draggable="canReorder && !selectionMode"
+          @click="selectionMode && toggleItemSelection(item.id)"
           @dragend="stopDragging"
-          @dragenter="markDropTarget(item.id)"
-          @dragleave="clearDropTarget(item.id)"
-          @dragover.prevent
+          @dragenter="markDropTarget(index, $event)"
+          @dragover.prevent="markDropTarget(index, $event)"
           @dragstart="startDragging(item.id, $event)"
-          @drop="dropItem(item.id)"
+          @drop="dropItem"
         >
           <template #prepend>
-            <div class="d-flex align-center ga-1">
+            <div class="playlist-prepend">
               <v-checkbox-btn
-                v-model="selectedItemIds"
+                v-if="selectionMode"
+                class="playlist-selection-checkbox"
                 :aria-label="t('playlists.selectTrack', { title: item.track.title })"
-                :value="item.id"
                 color="primary"
                 density="compact"
+                :model-value="selectedItemIds.includes(item.id)"
+                @click.stop
+                @update:model-value="toggleItemSelection(item.id)"
               />
-              <v-tooltip :text="t('playlists.dragTrack')" location="top">
+              <span class="playlist-position text-caption text-medium-emphasis">{{ index + 1 }}</span>
+              <v-tooltip v-if="!selectionMode" :text="t('playlists.dragTrack')" location="top">
                 <template #activator="{ props }">
                   <v-icon
                     v-bind="props"
@@ -292,7 +351,8 @@ watch(itemIds, (ids) => {
           </template>
 
           <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': player.currentTrack?.id === item.track.id }">
-            <RouterLink class="playlist-track-link" :to="{ name: 'track-detail', params: { id: item.track.id } }">
+            <span v-if="selectionMode">{{ item.track.title }}</span>
+            <RouterLink v-else class="playlist-track-link" :to="{ name: 'track-detail', params: { id: item.track.id } }">
               {{ item.track.title }}
             </RouterLink>
           </v-list-item-title>
@@ -300,7 +360,8 @@ watch(itemIds, (ids) => {
             <template v-if="item.track.artists.length">
               <template v-for="(artist, artistIndex) in item.track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <RouterLink class="playlist-track-link" :to="{ name: 'artist-detail', params: { id: artist.id } }">
+                <span v-if="selectionMode">{{ artist.name }}</span>
+                <RouterLink v-else class="playlist-track-link" :to="{ name: 'artist-detail', params: { id: artist.id } }">
                   {{ artist.name }}
                 </RouterLink>
               </template>
@@ -308,16 +369,19 @@ watch(itemIds, (ids) => {
             <span v-else>{{ t('catalog.unknownArtist') }}</span>
           </v-list-item-subtitle>
           <v-list-item-subtitle>
-            <RouterLink
-              v-if="item.track.album"
-              class="playlist-track-link"
-              :to="{ name: 'album-detail', params: { id: item.track.album.id } }"
-            >
-              {{ item.track.album.title }}
-            </RouterLink>
+            <template v-if="item.track.album">
+              <span v-if="selectionMode">{{ item.track.album.title }}</span>
+              <RouterLink
+                v-else
+                class="playlist-track-link"
+                :to="{ name: 'album-detail', params: { id: item.track.album.id } }"
+              >
+                {{ item.track.album.title }}
+              </RouterLink>
+            </template>
             <span v-else>{{ t('catalog.unknownAlbum') }}</span>
           </v-list-item-subtitle>
-          <template #append>
+          <template v-if="!selectionMode" #append>
             <div class="playlist-actions">
               <span class="text-caption text-medium-emphasis">{{ duration(item.track.durationMs) }}</span>
               <TooltipIconButton
@@ -427,6 +491,7 @@ watch(itemIds, (ids) => {
 
 .playlist-item {
   cursor: grab;
+  position: relative;
 }
 
 .playlist-item:active {
@@ -437,10 +502,58 @@ watch(itemIds, (ids) => {
   opacity: 0.55;
 }
 
-.playlist-item.is-drop-target {
-  background: rgba(var(--v-theme-primary), 0.06);
-  outline: 2px solid rgba(var(--v-theme-primary), 0.45);
-  outline-offset: -4px;
+.playlist-item.selection-active {
+  cursor: pointer;
+}
+
+.playlist-item.has-drop-before::before,
+.playlist-item.has-drop-after::after {
+  background: rgb(var(--v-theme-primary));
+  border-radius: 999px;
+  content: "";
+  height: 3px;
+  left: 4.5rem;
+  pointer-events: none;
+  position: absolute;
+  right: 1rem;
+  z-index: 2;
+}
+
+.playlist-item.has-drop-before::before {
+  top: 0;
+}
+
+.playlist-item.has-drop-after::after {
+  bottom: 0;
+}
+
+.playlist-prepend {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.25rem;
+  min-height: 1.75rem;
+}
+
+.playlist-selection-checkbox {
+  flex: 0 0 auto;
+  margin-inline-end: 0.125rem;
+}
+
+.playlist-selection-checkbox :deep(.v-selection-control) {
+  align-items: center;
+  min-height: 1.75rem;
+}
+
+.playlist-selection-checkbox :deep(.v-selection-control__wrapper) {
+  height: 1.75rem;
+  width: 1.75rem;
+}
+
+.playlist-position {
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 1.75rem;
+  padding-inline-end: 0.5rem;
 }
 
 .playlist-drag-handle {

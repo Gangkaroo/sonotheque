@@ -558,6 +558,65 @@ class LibraryScannerTest extends TestCase
         $this->assertDatabaseCount(Album::class, 1);
     }
 
+    public function test_scanner_consolidates_legacy_disc_folder_albums_under_their_parent_album(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $firstDisc = $albumPath.DIRECTORY_SEPARATOR.'Disc 1 - Elephants';
+        $secondDisc = $albumPath.DIRECTORY_SEPARATOR.'Disc 2 - Teeth Sinking Into Heart';
+        mkdir($firstDisc);
+        mkdir($secondDisc);
+        $firstTrackPath = $firstDisc.DIRECTORY_SEPARATOR.'01.mp3';
+        $secondTrackPath = $secondDisc.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($firstTrackPath, 'first fake audio');
+        file_put_contents($secondTrackPath, 'second fake audio');
+        $root = $this->createRoot();
+        $artist = Artist::create(['name' => 'BjÃ¶rk', 'sort_name' => 'BjÃ¶rk', 'browse_initial' => 'B']);
+
+        foreach ([
+            ['Disc 1 - Elephants', $firstTrackPath, 'first fake audio'],
+            ['Disc 2 - Teeth Sinking Into Heart', $secondTrackPath, 'second fake audio'],
+        ] as $index => [$discFolder, $trackPath, $contents]) {
+            $albumRelativePath = 'Bjoerk/Debut/'.$discFolder;
+            $trackRelativePath = $albumRelativePath.'/01.mp3';
+            $album = Album::create([
+                'library_root_id' => $root->id,
+                'primary_artist_id' => $artist->id,
+                'title' => 'Debut',
+                'sort_title' => 'Debut',
+                'relative_path' => $albumRelativePath,
+                'relative_path_hash' => hash('sha256', strtolower($albumRelativePath)),
+            ]);
+            $mediaFile = MediaFile::create([
+                'library_root_id' => $root->id,
+                'album_id' => $album->id,
+                'relative_path' => $trackRelativePath,
+                'relative_path_hash' => hash('sha256', strtolower($trackRelativePath)),
+                'file_size' => strlen($contents),
+                'modified_at' => CarbonImmutable::createFromTimestamp(filemtime($trackPath)),
+                'last_seen_at' => now(),
+                'status' => MediaFileStatus::Available,
+            ]);
+            Track::create([
+                'album_id' => $album->id,
+                'media_file_id' => $mediaFile->id,
+                'title' => 'Track '.($index + 1),
+                'sort_title' => 'Track '.($index + 1),
+                'disc_number' => $index + 1,
+                'track_number' => 1,
+            ]);
+        }
+
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $album = Album::withCount(['mediaFiles', 'tracks'])->sole();
+        $this->assertSame('Bjoerk/Debut', $album->relative_path);
+        $this->assertSame(2, $album->media_files_count);
+        $this->assertSame(2, $album->tracks_count);
+        $this->assertSame([$album->id], MediaFile::query()->distinct()->pluck('album_id')->all());
+        $this->assertSame([$album->id], Track::query()->distinct()->pluck('album_id')->all());
+        $this->assertSame(2, $this->metadataReader->calls);
+    }
+
     public function test_successful_scan_deletes_albums_without_media_files(): void
     {
         $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';

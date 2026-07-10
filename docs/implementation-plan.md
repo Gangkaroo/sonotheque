@@ -74,7 +74,6 @@ The first usable release will provide:
 The following features are deferred until after the first stable local release:
 
 - User accounts and permissions
-- Session-wide catalog scoping to one library root or all roots
 - Personal album information, including purchase source and physical-copy state
 - Audio transcoding
 - Playlist import/export
@@ -383,6 +382,21 @@ Completed:
 - Add-to-playlist actions from tracks, albums, queue entries, and the player
 - Playlist detail pages with ordered track lists, play/queue actions, removal confirmations, and reorder controls
 - Creating a new playlist from the current playback queue
+- Playlist detail usability refinements: visible playlist positions,
+  selection mode for bulk removal, clearer drag-and-drop insertion feedback,
+  and compact playlist-folder grouping
+- Playback robustness for fast playlist switching, seeking, stale media events,
+  and page refresh restoration
+- Artist detail pages with cached artist context, album and track tabs, artist
+  images where available, contextual back navigation, and albums sorted by
+  release year
+- Preserved list filter state for albums, tracks, and artists across route
+  navigation and library-root switching
+- Top and bottom pagination on catalog lists and artist-detail tabs with
+  compact first/last page controls and result-top scrolling on page changes
+- Tokenized album and track search so combined artist/title or artist/album
+  searches work, plus aborting stale album and track search requests while
+  typing
 - Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
   Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup

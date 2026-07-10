@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useTheme } from 'vuetify'
 
 import AppPlayer from '@/components/AppPlayer.vue'
@@ -21,8 +22,17 @@ const libraryRoots = useLibraryRootsStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
 const preferences = usePreferencesStore()
 const player = usePlayerStore()
+const route = useRoute()
 const { locale, t } = useI18n()
 const theme = useTheme()
+const filterableListRoutes = new Set(['artists', 'albums', 'tracks', 'genres'])
+const viewKey = computed(() => {
+  const routeName = String(route.name ?? 'unknown')
+
+  return filterableListRoutes.has(routeName)
+    ? routeName
+    : `${routeName}:${libraryRootScope.scopeKey}`
+})
 const libraryRootOptions = computed(() => [
   { title: t('libraryScope.allRoots'), value: null },
   ...libraryRoots.roots
@@ -161,7 +171,7 @@ watch(
 
     <v-main>
       <v-container class="page-container py-8" fluid>
-        <router-view :key="libraryRootScope.scopeKey" />
+        <router-view :key="viewKey" />
       </v-container>
     </v-main>
 

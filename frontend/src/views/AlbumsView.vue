@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import CatalogPagination from '@/components/CatalogPagination.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Album } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 
 interface AlbumFilters {
@@ -24,6 +26,7 @@ const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRootScope = useLibraryRootScopeStore()
 const player = usePlayerStore()
 const storageKey = 'music-library:album-filters'
 const restoredFilters = initialFilters()
@@ -33,6 +36,7 @@ const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const year = ref<number | null>(restoredFilters.year)
 const page = ref(1)
+const resultsTop = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
 const releaseYears = computed(() => {
@@ -192,6 +196,15 @@ function clearGenreFilter() {
   page.value = 1
 }
 
+function changePage(value: number) {
+  if (value === page.value) return
+
+  page.value = value
+  void nextTick(() => {
+    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
+  })
+}
+
 function albumDetails(album: Album) {
   if (album.originalReleaseYear === undefined || album.originalReleaseYear === null) {
     return t('albums.trackCount', { count: album.trackCount })
@@ -220,7 +233,7 @@ watch([initial, year, genre, genreName], () => {
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre], load, { immediate: true })
+watch([page, initial, year, genre, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -294,6 +307,8 @@ onUnmounted(() => {
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
     </v-chip>
   </div>
+  <div ref="resultsTop" class="catalog-results-anchor" />
+  <CatalogPagination class="mb-4" :model-value="page" :length="catalog.albums.lastPage" @update:model-value="changePage" />
   <v-alert v-if="catalog.albumsError" type="error" variant="tonal">{{ catalog.albumsError }}</v-alert>
   <v-skeleton-loader v-else-if="catalog.albumsLoading" type="card@3" />
   <v-row v-else-if="catalog.albums.items.length">
@@ -334,7 +349,7 @@ onUnmounted(() => {
     </v-col>
   </v-row>
   <EmptyCatalogState v-else :title="t('albums.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-album" />
-  <v-pagination v-if="catalog.albums.lastPage > 1" v-model="page" class="mt-6" :length="catalog.albums.lastPage" />
+  <CatalogPagination class="mt-6" :model-value="page" :length="catalog.albums.lastPage" @update:model-value="changePage" />
 </template>
 
 <style scoped>

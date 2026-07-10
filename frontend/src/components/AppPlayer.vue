@@ -52,6 +52,7 @@ const albumDescriptionExpanded = ref(false)
 const reportedPlayKey = ref<string | null>(null)
 let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
+let playbackAttemptId = 0
 const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
   set: (value: number) => player.setVolume(value / 100),
@@ -134,6 +135,8 @@ interface TrackPlayResponse {
 watch(
   () => currentPlayKey.value,
   () => {
+    playbackAttemptId += 1
+    clearSeekFeedback()
     restoredTrackId.value = null
     reportedPlayKey.value = null
     currentTime.value = player.playbackPosition
@@ -196,6 +199,7 @@ watch(
       if (resumeAfterMetadata.value) return
       await playAudio()
     } else {
+      playbackAttemptId += 1
       audio.value.pause()
     }
   },
@@ -249,10 +253,18 @@ async function scrollActiveLyricIntoView(index: number) {
 }
 
 async function playAudio(showError = true) {
+  const element = audio.value
+  const playKey = currentPlayKey.value
+  const attemptId = ++playbackAttemptId
+
+  if (!element || !playKey) return
+
   try {
     player.setPlaybackState('loading')
-    await audio.value?.play()
+    await element.play()
   } catch {
+    if (!isCurrentPlaybackAttempt(playKey, element, attemptId)) return
+
     if (showError) {
       player.setError(t('player.playbackError'))
     } else {
@@ -282,12 +294,16 @@ function retryPlaybackAfterError() {
   audio.value.load()
 }
 
-function updateProgress() {
+function updateProgress(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   syncAudioProgress(!isRestoringPosition.value)
   maybeRecordCountedPlay()
 }
 
-function updateDuration() {
+function updateDuration(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   syncAudioProgress(false)
 }
 
@@ -315,7 +331,9 @@ function onEnded() {
   void player.next()
 }
 
-function onLoadedMetadata() {
+function onLoadedMetadata(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   syncAudioProgress(false)
   restorePlaybackPosition()
   maybeRecordCountedPlay()
@@ -327,7 +345,9 @@ function onLoadedMetadata() {
   }
 }
 
-function onError() {
+function onError(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   resumeAfterMetadata.value = false
   isRestoringPlayback.value = false
   isRestoringPosition.value = false
@@ -335,6 +355,8 @@ function onError() {
 }
 
 function onLoading(event: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   if (event.type === 'waiting' && (isSeeking.value || audio.value?.seeking)) {
     beginSeekFeedback()
     return
@@ -343,23 +365,30 @@ function onLoading(event: Event) {
   if (player.isPlaying) player.setPlaybackState('loading')
 }
 
-function onPause() {
+function onPause(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
   if (!player.currentTrack || player.playbackState === 'ended' || player.playbackState === 'error') return
 
   player.setPlaybackState('paused')
 }
 
-function onPlaying() {
+function onPlaying(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   endSeekFeedback()
   player.setPlaybackState('playing')
   maybeRecordCountedPlay()
 }
 
-function onSeeking() {
+function onSeeking(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   beginSeekFeedback()
 }
 
-function onSeeked() {
+function onSeeked(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   syncAudioProgress(true)
   endSeekFeedback()
 }
@@ -503,11 +532,42 @@ function endSeekFeedback() {
   }, 180)
 }
 
+function clearSeekFeedback() {
+  isSeeking.value = false
+  showSeekLoading.value = false
+  if (seekLoadingTimer) {
+    window.clearTimeout(seekLoadingTimer)
+    seekLoadingTimer = null
+  }
+  if (seekLoadingClearTimer) {
+    window.clearTimeout(seekLoadingClearTimer)
+    seekLoadingClearTimer = null
+  }
+}
+
+function isCurrentPlaybackAttempt(
+  playKey: string,
+  element: HTMLAudioElement,
+  attemptId: number,
+) {
+  return playKey === currentPlayKey.value
+    && element === audio.value
+    && attemptId === playbackAttemptId
+}
+
+function isCurrentMediaEvent(event?: Event) {
+  if (!event) return true
+  const target = event.currentTarget
+
+  return target instanceof HTMLAudioElement
+    && target === audio.value
+    && target.dataset.playKey === currentPlayKey.value
+}
+
 onBeforeUnmount(() => {
   persistCurrentPlaybackPosition()
   window.removeEventListener('beforeunload', persistCurrentPlaybackPosition)
-  if (seekLoadingTimer) window.clearTimeout(seekLoadingTimer)
-  if (seekLoadingClearTimer) window.clearTimeout(seekLoadingClearTimer)
+  clearSeekFeedback()
 })
 
 onMounted(() => {
@@ -520,6 +580,7 @@ onMounted(() => {
     <audio
       :key="currentPlayKey ?? undefined"
       ref="audio"
+      :data-play-key="currentPlayKey ?? ''"
       :src="player.currentTrack.streamUrl"
       preload="metadata"
       :volume="player.volume"

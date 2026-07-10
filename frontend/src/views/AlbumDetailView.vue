@@ -102,6 +102,14 @@ interface AlbumMetadataJob {
 }
 
 const albumId = computed(() => Number(route.params.id))
+const backArtistId = computed(() => {
+  const parsed = typeof route.query.backArtist === 'string' ? Number(route.query.backArtist) : NaN
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
+const backRoute = computed(() => backArtistId.value
+  ? { name: 'artist-detail', params: { id: backArtistId.value } }
+  : { name: 'albums' })
+const backLabel = computed(() => backArtistId.value ? t('albums.backToArtist') : t('albums.back'))
 const album = computed(() => catalog.albumDetail)
 const tracks = computed(() => album.value?.tracks ?? [])
 const selectedTracks = computed(() => {
@@ -442,8 +450,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-btn class="mb-4" variant="text" prepend-icon="mdi-arrow-left" :to="{ name: 'albums' }">
-    {{ t('albums.back') }}
+  <v-btn class="mb-4" variant="text" prepend-icon="mdi-arrow-left" :to="backRoute">
+    {{ backLabel }}
   </v-btn>
 
   <v-alert v-if="catalog.albumDetailError" type="error" variant="tonal">
@@ -480,7 +488,16 @@ onUnmounted(() => {
               </v-avatar>
             </template>
             <v-card-title>{{ album.title }}</v-card-title>
-            <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
+            <v-card-subtitle>
+              <RouterLink
+                v-if="album.primaryArtist"
+                class="artist-link"
+                :to="{ name: 'artist-detail', params: { id: album.primaryArtist.id } }"
+              >
+                {{ album.primaryArtist.name }}
+              </RouterLink>
+              <span v-else>{{ t('catalog.unknownArtist') }}</span>
+            </v-card-subtitle>
           </v-card-item>
           <v-card-text class="text-medium-emphasis">
             {{ albumDetails }}
@@ -641,7 +658,19 @@ onUnmounted(() => {
           </RouterLink>
         </v-list-item-title>
         <v-list-item-subtitle>
-          {{ track.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist') }}
+          <template v-if="track.artists.length">
+            <template v-for="(artist, artistIndex) in track.artists" :key="artist.id">
+              <span v-if="artistIndex > 0">, </span>
+              <RouterLink
+                class="artist-link"
+                :to="{ name: 'artist-detail', params: { id: artist.id } }"
+                @click.stop
+              >
+                {{ artist.name }}
+              </RouterLink>
+            </template>
+          </template>
+          <span v-else>{{ t('catalog.unknownArtist') }}</span>
         </v-list-item-subtitle>
         <template v-if="!selectionMode" #append>
           <div class="track-actions">
@@ -956,6 +985,15 @@ onUnmounted(() => {
 }
 
 .track-detail-link:hover {
+  text-decoration: underline;
+}
+
+.artist-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.artist-link:hover {
   text-decoration: underline;
 }
 

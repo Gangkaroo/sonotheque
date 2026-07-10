@@ -112,6 +112,11 @@ class AudioFileDiscoverer
                 $albumFolder = array_pop($segments);
                 $artistFolder = array_pop($segments);
 
+                if ($albumFolder !== null && $artistFolder !== null && $this->isDiscFolder($albumFolder)) {
+                    $albumFolder = $artistFolder;
+                    $artistFolder = array_pop($segments);
+                }
+
                 if ($fileName === null || $albumFolder === null || $artistFolder === null) {
                     $diagnostics->record(
                         'invalid_layout',
@@ -169,6 +174,11 @@ class AudioFileDiscoverer
         }
 
         return false;
+    }
+
+    private function isDiscFolder(string $folder): bool
+    {
+        return preg_match('/^(?:cd|disc|disk)[\s._-]*0*[1-9]\d*(?:\b|[\s._-].*)$/iu', trim($folder)) === 1;
     }
 
     private function isExcludedDirectory(string $relativePath, LibraryRoot $libraryRoot): bool

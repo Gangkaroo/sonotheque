@@ -179,6 +179,8 @@ export const useCatalogStore = defineStore('catalog', () => {
   let tracksRequest = 0
   let trackDetailRequest = 0
   let genresRequest = 0
+  let albumsAbortController: AbortController | null = null
+  let tracksAbortController: AbortController | null = null
 
   const metricsHaveCatalog = computed(() => metrics.value.albums > 0 || metrics.value.tracks > 0)
 
@@ -238,15 +240,23 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadAlbums(query: CatalogQuery = {}) {
     const request = ++albumsRequest
+    albumsAbortController?.abort()
+    albumsAbortController = new AbortController()
     albumsLoading.value = true
     albumsError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Album>>(queryPath('/catalog/albums', query))
+      const result = await apiRequest<CatalogPage<Album>>(queryPath('/catalog/albums', query), {
+        signal: albumsAbortController.signal,
+      })
       if (request === albumsRequest) albums.value = result
     } catch (cause) {
+      if (isAbortError(cause)) return
       if (request === albumsRequest) albumsError.value = errorMessage(cause)
     } finally {
-      if (request === albumsRequest) albumsLoading.value = false
+      if (request === albumsRequest) {
+        albumsLoading.value = false
+        albumsAbortController = null
+      }
     }
   }
 
@@ -267,15 +277,23 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadTracks(query: CatalogQuery = {}) {
     const request = ++tracksRequest
+    tracksAbortController?.abort()
+    tracksAbortController = new AbortController()
     tracksLoading.value = true
     tracksError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Track>>(queryPath('/catalog/tracks', query))
+      const result = await apiRequest<CatalogPage<Track>>(queryPath('/catalog/tracks', query), {
+        signal: tracksAbortController.signal,
+      })
       if (request === tracksRequest) tracks.value = result
     } catch (cause) {
+      if (isAbortError(cause)) return
       if (request === tracksRequest) tracksError.value = errorMessage(cause)
     } finally {
-      if (request === tracksRequest) tracksLoading.value = false
+      if (request === tracksRequest) {
+        tracksLoading.value = false
+        tracksAbortController = null
+      }
     }
   }
 
@@ -372,4 +390,8 @@ export const useCatalogStore = defineStore('catalog', () => {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Unable to load the music catalog.'
+}
+
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === 'AbortError'
 }

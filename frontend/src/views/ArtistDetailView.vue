@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
+import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
@@ -20,6 +21,8 @@ const activeTab = ref<'albums' | 'tracks'>('albums')
 const albumPage = ref(1)
 const trackPage = ref(1)
 const artistImageUrl = ref<string | null>(null)
+const albumResultsTop = ref<HTMLElement | null>(null)
+const trackResultsTop = ref<HTMLElement | null>(null)
 
 const artistId = computed(() => Number(route.params.id))
 const artist = computed(() => catalog.artistDetail)
@@ -40,6 +43,24 @@ watch(albumPage, (page, previousPage) => {
 watch(trackPage, (page, previousPage) => {
   if (page !== previousPage) void catalog.loadTracks({ artist: artistId.value, page })
 })
+
+function changeAlbumPage(value: number) {
+  if (value === albumPage.value) return
+
+  albumPage.value = value
+  void nextTick(() => {
+    albumResultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
+  })
+}
+
+function changeTrackPage(value: number) {
+  if (value === trackPage.value) return
+
+  trackPage.value = value
+  void nextTick(() => {
+    trackResultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
+  })
+}
 
 function formatDate(value?: string | null) {
   if (!value) return t('artists.neverPlayed')
@@ -146,11 +167,22 @@ function toggleTrack(track: Track) {
       <v-window v-model="activeTab">
         <v-window-item value="albums">
           <v-card-text>
+            <div ref="albumResultsTop" class="catalog-results-anchor" />
+            <CatalogPagination
+              class="mb-4"
+              :model-value="albumPage"
+              :length="catalog.albums.lastPage"
+              @update:model-value="changeAlbumPage"
+            />
             <v-alert v-if="catalog.albumsError" type="error" variant="tonal">{{ catalog.albumsError }}</v-alert>
             <v-skeleton-loader v-else-if="catalog.albumsLoading" type="image@3" />
             <v-row v-else-if="catalog.albums.items.length" dense>
               <v-col v-for="album in catalog.albums.items" :key="album.id" cols="12" sm="6" lg="4">
-                <v-card :to="{ name: 'album-detail', params: { id: album.id } }" variant="tonal" height="100%">
+                <v-card
+                  :to="{ name: 'album-detail', params: { id: album.id }, query: { backArtist: artist.id } }"
+                  variant="tonal"
+                  height="100%"
+                >
                   <div class="d-flex align-center pa-3 ga-3">
                     <v-avatar rounded="lg" size="64" color="surface-bright">
                       <v-img v-if="album.artworkThumbnailUrl" :src="album.artworkThumbnailUrl" cover />
@@ -168,12 +200,24 @@ function toggleTrack(track: Track) {
               </v-col>
             </v-row>
             <EmptyCatalogState v-else :title="t('artists.noAlbums')" :description="t('catalog.scanPrompt')" icon="mdi-album" />
-            <v-pagination v-if="catalog.albums.lastPage > 1" v-model="albumPage" class="mt-4" :length="catalog.albums.lastPage" />
+            <CatalogPagination
+              class="mt-4"
+              :model-value="albumPage"
+              :length="catalog.albums.lastPage"
+              @update:model-value="changeAlbumPage"
+            />
           </v-card-text>
         </v-window-item>
 
         <v-window-item value="tracks">
           <v-card-text>
+            <div ref="trackResultsTop" class="catalog-results-anchor" />
+            <CatalogPagination
+              class="mb-4"
+              :model-value="trackPage"
+              :length="catalog.tracks.lastPage"
+              @update:model-value="changeTrackPage"
+            />
             <v-alert v-if="catalog.tracksError" type="error" variant="tonal">{{ catalog.tracksError }}</v-alert>
             <v-skeleton-loader v-else-if="catalog.tracksLoading" type="list-item-two-line@6" />
             <v-list v-else-if="catalog.tracks.items.length" lines="two">
@@ -184,7 +228,11 @@ function toggleTrack(track: Track) {
                   </RouterLink>
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <RouterLink v-if="track.album" class="catalog-link" :to="{ name: 'album-detail', params: { id: track.album.id } }">
+                  <RouterLink
+                    v-if="track.album"
+                    class="catalog-link"
+                    :to="{ name: 'album-detail', params: { id: track.album.id }, query: { backArtist: artist.id } }"
+                  >
                     {{ track.album.title }}
                   </RouterLink>
                   <span class="ml-2">{{ duration(track.durationMs) }}</span>
@@ -219,7 +267,12 @@ function toggleTrack(track: Track) {
               </v-list-item>
             </v-list>
             <EmptyCatalogState v-else :title="t('artists.noTracks')" :description="t('catalog.scanPrompt')" icon="mdi-music-note" />
-            <v-pagination v-if="catalog.tracks.lastPage > 1" v-model="trackPage" class="mt-4" :length="catalog.tracks.lastPage" />
+            <CatalogPagination
+              class="mt-4"
+              :model-value="trackPage"
+              :length="catalog.tracks.lastPage"
+              @update:model-value="changeTrackPage"
+            />
           </v-card-text>
         </v-window-item>
       </v-window>

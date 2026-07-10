@@ -70,6 +70,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.primaryArtist.name', 'Artist')
             ->assertJsonPath('items.0.trackCount', 1);
 
+        $this->getJson('/api/catalog/albums?search=Artist%20Album')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $album->id)
+            ->assertJsonPath('total', 2);
+
         $this->getJson('/api/catalog/albums?year=2001')
             ->assertOk()
             ->assertJsonPath('items.0.id', $album->id)
@@ -94,6 +99,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.playStatistics.playCount', 3);
 
         $this->getJson('/api/catalog/tracks?search=Artist')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('total', 1);
+
+        $this->getJson('/api/catalog/tracks?search=Artist%20Track')
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('total', 1);
@@ -333,6 +343,68 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('total', 2)
             ->assertJsonPath('items.0.id', $alphaFirstAlbum->id)
             ->assertJsonPath('items.1.id', $alphaSecondAlbum->id);
+    }
+
+    public function test_artist_filtered_albums_are_sorted_by_release_year(): void
+    {
+        $root = Library::create(['name' => 'Test'])->roots()->create([
+            'name' => 'Music',
+            'path' => 'D:/Music',
+            'path_hash' => hash('sha256', 'd:/music'),
+        ]);
+        $artist = Artist::create([
+            'name' => 'Discography Artist',
+            'sort_name' => 'Discography Artist',
+            'browse_initial' => 'D',
+        ]);
+        $newAlbum = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Newest',
+            'sort_title' => 'Newest',
+            'relative_path' => 'Discography Artist/Newest',
+            'relative_path_hash' => hash('sha256', 'discography artist/newest'),
+            'original_release_year' => 2005,
+        ]);
+        $unknownYearAlbum = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Unknown Year',
+            'sort_title' => 'Unknown Year',
+            'relative_path' => 'Discography Artist/Unknown Year',
+            'relative_path_hash' => hash('sha256', 'discography artist/unknown year'),
+        ]);
+        $oldAlbum = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Oldest',
+            'sort_title' => 'Oldest',
+            'relative_path' => 'Discography Artist/Oldest',
+            'relative_path_hash' => hash('sha256', 'discography artist/oldest'),
+            'original_release_year' => 1984,
+        ]);
+        $sameYearAlbum = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Another 2005 Album',
+            'sort_title' => 'Another 2005 Album',
+            'relative_path' => 'Discography Artist/Another 2005 Album',
+            'relative_path_hash' => hash('sha256', 'discography artist/another 2005 album'),
+            'original_release_year' => 2005,
+        ]);
+
+        $this->createTrackForAlbum($root, $newAlbum);
+        $this->createTrackForAlbum($root, $unknownYearAlbum);
+        $this->createTrackForAlbum($root, $oldAlbum);
+        $this->createTrackForAlbum($root, $sameYearAlbum);
+
+        $this->getJson("/api/catalog/albums?artist={$artist->id}")
+            ->assertOk()
+            ->assertJsonPath('total', 4)
+            ->assertJsonPath('items.0.id', $oldAlbum->id)
+            ->assertJsonPath('items.1.id', $sameYearAlbum->id)
+            ->assertJsonPath('items.2.id', $newAlbum->id)
+            ->assertJsonPath('items.3.id', $unknownYearAlbum->id);
     }
 
     public function test_playback_endpoints_return_random_and_sequential_targets(): void

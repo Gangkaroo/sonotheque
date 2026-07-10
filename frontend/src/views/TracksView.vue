@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 
 interface TrackFilters {
@@ -24,6 +26,7 @@ const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRootScope = useLibraryRootScopeStore()
 const player = usePlayerStore()
 const storageKey = 'music-library:track-filters'
 const restoredFilters = initialFilters()
@@ -32,6 +35,7 @@ const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
 const page = ref(1)
+const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -161,6 +165,15 @@ function clearGenreFilter() {
   page.value = 1
 }
 
+function changePage(value: number) {
+  if (value === page.value) return
+
+  page.value = value
+  void nextTick(() => {
+    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
+  })
+}
+
 function duration(milliseconds?: number) {
   if (!milliseconds) return '—'
   const seconds = Math.round(milliseconds / 1000)
@@ -235,7 +248,7 @@ watch([genre, genreName, playStatus], () => {
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, genre, playStatus], load, { immediate: true })
+watch([page, genre, playStatus, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -290,6 +303,8 @@ onUnmounted(() => {
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
     </v-chip>
   </div>
+  <div ref="resultsTop" class="catalog-results-anchor" />
+  <CatalogPagination class="mb-4" :model-value="page" :length="catalog.tracks.lastPage" @update:model-value="changePage" />
   <v-alert v-if="catalog.tracksError" type="error" variant="tonal">{{ catalog.tracksError }}</v-alert>
   <v-skeleton-loader v-else-if="catalog.tracksLoading" type="list-item-three-line@8" />
   <v-list v-else-if="catalog.tracks.items.length" border rounded="xl" lines="three">
@@ -379,7 +394,7 @@ onUnmounted(() => {
     </v-list-item>
   </v-list>
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
-  <v-pagination v-if="catalog.tracks.lastPage > 1" v-model="page" class="mt-6" :length="catalog.tracks.lastPage" />
+  <CatalogPagination class="mt-6" :model-value="page" :length="catalog.tracks.lastPage" @update:model-value="changePage" />
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 </template>
 

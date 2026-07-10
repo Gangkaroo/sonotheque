@@ -72,6 +72,8 @@ class CatalogBrowseController extends Controller
             'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
+        $artistFilter = $filters['artist'] ?? null;
+
         $albums = $this->libraryRootScope->albums(Album::query(), $libraryRootId, 'albums.library_root_id')
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
             ->select([
@@ -85,22 +87,33 @@ class CatalogBrowseController extends Controller
             ->with(['primaryArtist:id,name', 'artwork:id'])
             ->withCount('tracks')
             ->has('tracks')
-            ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->where('albums.primary_artist_id', $artist))
+            ->when($artistFilter, fn (Builder $query, int $artist) => $query->where('albums.primary_artist_id', $artist))
             ->when($filters['year'] ?? null, fn (Builder $query, int $year) => $query->where('albums.original_release_year', $year))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('tracks.genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
-                $pattern = '%'.$this->escapeLike($search).'%';
-                $query->where(function (Builder $query) use ($pattern): void {
-                    $query->where('albums.title', 'ilike', $pattern)
-                        ->orWhereHas('primaryArtist', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
-                });
+                foreach ($this->searchTerms($search) as $term) {
+                    $pattern = '%'.$this->escapeLike($term).'%';
+                    $query->where(function (Builder $query) use ($pattern): void {
+                        $query->where('albums.title', 'ilike', $pattern)
+                            ->orWhereHas('primaryArtist', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
+                    });
+                }
             })
             ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('primary_artists.browse_initial', $initial))
-            ->orderByRaw('primary_artists.name is null')
-            ->orderByRaw('coalesce(primary_artists.sort_name, primary_artists.name)')
-            ->orderBy('primary_artists.name')
-            ->orderByRaw('coalesce(albums.sort_title, albums.title)')
-            ->orderBy('albums.title')
+            ->when(
+                $artistFilter,
+                fn (Builder $query) => $query
+                    ->orderByRaw('albums.original_release_year is null')
+                    ->orderBy('albums.original_release_year')
+                    ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+                    ->orderBy('albums.title'),
+                fn (Builder $query) => $query
+                    ->orderByRaw('primary_artists.name is null')
+                    ->orderByRaw('coalesce(primary_artists.sort_name, primary_artists.name)')
+                    ->orderBy('primary_artists.name')
+                    ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+                    ->orderBy('albums.title'),
+            )
             ->paginate(24);
 
         return response()->json($this->payloads->paginated($albums, fn (Album $album) => $this->payloads->albumSummary($album)));
@@ -198,11 +211,13 @@ class CatalogBrowseController extends Controller
                 });
             })
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
-                $pattern = '%'.$this->escapeLike($search).'%';
-                $query->where(function (Builder $query) use ($pattern): void {
-                    $query->where('title', 'ilike', $pattern)
-                        ->orWhereHas('artists', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
-                });
+                foreach ($this->searchTerms($search) as $term) {
+                    $pattern = '%'.$this->escapeLike($term).'%';
+                    $query->where(function (Builder $query) use ($pattern): void {
+                        $query->where('title', 'ilike', $pattern)
+                            ->orWhereHas('artists', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
+                    });
+                }
             })
             ->orderBy('album_id')
             ->orderBy('disc_number')
@@ -340,5 +355,18 @@ class CatalogBrowseController extends Controller
     private function escapeLike(string $value): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($value));
+    }
+
+    /** @return list<string> */
+    private function searchTerms(string $search): array
+    {
+        return array_slice(
+            array_values(array_filter(
+                preg_split('/\s+/u', trim($search)) ?: [],
+                fn (string $term): bool => $term !== '',
+            )),
+            0,
+            12,
+        );
     }
 }
