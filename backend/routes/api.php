@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AdminAccessController;
 use App\Http\Controllers\AlbumMetadataController;
+use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioStreamController;
@@ -28,6 +29,7 @@ Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::cl
 Route::get('/catalog/playback/tracks/random', [CatalogBrowseController::class, 'randomTrack']);
 Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::class, 'nextTrack']);
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
+Route::patch('/albums/{album}/personal-metadata', [AlbumPersonalMetadataController::class, 'update']);
 Route::get('/albums/{album}/artwork/original', [ArtworkThumbnailController::class, 'albumOriginal']);
 Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);

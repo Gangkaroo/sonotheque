@@ -68,14 +68,34 @@ describe('catalog store', () => {
 
     const store = useCatalogStore()
     await Promise.all([
-      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7 }),
-      store.loadTracks({ page: 2, genre: 7, playStatus: 'never' }),
+      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7, physicalCopy: 'owned' }),
+      store.loadTracks({ page: 2, genre: 7, playStatus: 'never', physicalCopy: 'not_owned' }),
       store.loadGenres({ page: 2 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7', expect.any(Object))
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7&playStatus=never', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7&physicalCopy=owned', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7&playStatus=never&physicalCopy=not_owned', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/genres?page=2', expect.any(Object))
+  })
+
+  it('saves album personal metadata', async () => {
+    const personalMetadata = {
+      purchaseSource: 'Local store',
+      purchaseDate: '2024-05-17',
+      hasPhysicalCopy: true,
+      physicalFormat: 'vinyl',
+      notes: 'Gatefold',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(personalMetadata), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await expect(store.updateAlbumPersonalMetadata(5, personalMetadata)).resolves.toEqual(personalMetadata)
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/albums/5/personal-metadata', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify(personalMetadata),
+    }))
   })
 
   it('loads album details with playable tracks', async () => {

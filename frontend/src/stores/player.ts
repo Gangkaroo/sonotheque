@@ -18,6 +18,7 @@ interface PersistedPlayerState {
   volume?: number
   continuousPlay?: boolean
   randomPlay?: boolean
+  visualizerEnabled?: boolean
   playbackContext?: PlaybackContext
   playbackPosition?: number
   playbackSessionKey?: string | null
@@ -35,6 +36,7 @@ export const usePlayerStore = defineStore('player', () => {
   const volume = ref(clampVolume(persistedState.volume ?? 1))
   const continuousPlay = ref(persistedState.continuousPlay ?? false)
   const randomPlay = ref(persistedState.randomPlay ?? false)
+  const visualizerEnabled = ref(persistedState.visualizerEnabled ?? true)
   const playbackContext = ref<PlaybackContext>(persistedState.playbackContext ?? null)
   const playbackPosition = ref(normalizePlaybackPosition(persistedState.playbackPosition))
   const playbackSessionKey = ref(persistedState.playbackSessionKey ?? createPlaybackSessionKey())
@@ -269,6 +271,10 @@ export const usePlayerStore = defineStore('player', () => {
     randomPlay.value = value
   }
 
+  function setVisualizerEnabled(value: boolean) {
+    visualizerEnabled.value = value
+  }
+
   function setPlaybackPosition(value: number) {
     const nextPosition = normalizePlaybackPosition(value)
     if (Math.abs(nextPosition - playbackPosition.value) < 0.5) return
@@ -340,6 +346,7 @@ export const usePlayerStore = defineStore('player', () => {
       volume: volume.value,
       continuousPlay: continuousPlay.value,
       randomPlay: randomPlay.value,
+      visualizerEnabled: visualizerEnabled.value,
       playbackContext: playbackContext.value,
       playbackPosition: playbackPosition.value,
       playbackSessionKey: playbackSessionKey.value,
@@ -359,6 +366,7 @@ export const usePlayerStore = defineStore('player', () => {
     volume,
     continuousPlay,
     randomPlay,
+    visualizerEnabled,
     playbackContext,
     playbackPosition,
     playbackSessionKey,
@@ -387,6 +395,7 @@ export const usePlayerStore = defineStore('player', () => {
     setVolume,
     setContinuousPlay,
     setRandomPlay,
+    setVisualizerEnabled,
     setPlaybackPosition,
     setPlaybackState,
     markCurrentPlayCounted,
@@ -411,6 +420,7 @@ function readPersistedState(): PersistedPlayerState {
       volume: parsedState.volume,
       continuousPlay: parsedState.continuousPlay,
       randomPlay: parsedState.randomPlay,
+      visualizerEnabled: parsedState.visualizerEnabled,
       playbackContext: parsedState.playbackContext === 'album' || parsedState.playbackContext === 'track-list'
         ? parsedState.playbackContext
         : null,
@@ -432,6 +442,7 @@ function persistState(state: PersistedPlayerState) {
       volume: clampVolume(state.volume ?? 1),
       continuousPlay: state.continuousPlay ?? false,
       randomPlay: state.randomPlay ?? false,
+      visualizerEnabled: state.visualizerEnabled ?? true,
       playbackContext: state.playbackContext ?? null,
       playbackPosition: normalizePlaybackPosition(state.playbackPosition),
       playbackSessionKey: state.playbackSessionKey ?? null,

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import MusicVisualizer from '@/components/MusicVisualizer.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore, type TrackPlayStatistics } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -655,8 +656,16 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else class="player-content">
-      <div class="player-now-playing">
+    <div v-else class="player-expanded-content">
+      <MusicVisualizer
+        class="player-visualizer"
+        :active="player.playbackState === 'playing'"
+        :audio-element="audio"
+        :enabled="player.visualizerEnabled"
+      />
+
+      <div class="player-content">
+        <div class="player-now-playing">
         <RouterLink
           v-if="albumRoute && albumArtworkThumbnailUrl"
           class="player-artwork-link"
@@ -780,6 +789,12 @@ onMounted(() => {
               hide-details
               :label="t('player.randomPlay')"
             />
+            <v-switch
+              v-model="player.visualizerEnabled"
+              color="primary"
+              hide-details
+              :label="t('player.visualizer')"
+            />
             <v-divider class="my-3" />
             <div class="d-flex align-center ga-3">
               <v-icon icon="mdi-volume-high" />
@@ -840,6 +855,7 @@ onMounted(() => {
           />
         </template>
       </v-tooltip>
+      </div>
     </div>
   </v-footer>
 
@@ -1589,7 +1605,18 @@ onMounted(() => {
 
 <style scoped>
 .player-footer {
+  display: block;
   padding: 10px 18px;
+}
+
+.player-expanded-content {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.player-visualizer {
+  width: 100%;
 }
 
 .player-footer.is-collapsed {
@@ -1990,6 +2017,10 @@ onMounted(() => {
 }
 
 @media (max-width: 620px) {
+  .player-visualizer {
+    height: 38px;
+  }
+
   .player-content {
     grid-template-columns: minmax(0, 1fr) auto;
   }

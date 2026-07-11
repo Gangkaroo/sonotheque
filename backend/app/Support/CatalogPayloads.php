@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Album;
+use App\Models\AlbumPersonalMetadata;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\Track;
@@ -36,6 +37,7 @@ class CatalogPayloads
             ] : null,
             'trackCount' => $trackCount,
             'artworkThumbnailUrl' => $album->artwork_id ? "/api/artwork/{$album->artwork_id}/thumbnail" : null,
+            'personalMetadata' => $this->albumPersonalMetadata($album->relationLoaded('personalMetadata') ? $album->personalMetadata : null),
         ];
     }
 
@@ -45,9 +47,10 @@ class CatalogPayloads
         $album->load([
             'primaryArtist:id,name',
             'artwork:id,width,height',
+            'personalMetadata',
             'tracks' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
-                ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
                 ->orderBy('id'),
@@ -87,6 +90,7 @@ class CatalogPayloads
                 'title' => $track->album->title,
                 'originalReleaseYear' => $track->album->original_release_year,
                 'artworkThumbnailUrl' => $track->album->artwork_id ? "/api/artwork/{$track->album->artwork_id}/thumbnail" : null,
+                'personalMetadata' => $this->albumPersonalMetadata($track->album->relationLoaded('personalMetadata') ? $track->album->personalMetadata : null),
             ] : null,
             'artists' => $track->artists->map(fn (Artist $artist) => [
                 'id' => $artist->id,
@@ -101,6 +105,7 @@ class CatalogPayloads
     {
         $track->load([
             'album:id,title,original_release_year,artwork_id',
+            'album.personalMetadata',
             'artists:id,name',
             'genres:id,name',
             'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',
@@ -142,6 +147,18 @@ class CatalogPayloads
                 'scanError' => $mediaFile->scan_error,
             ] : null,
             'playStatistics' => $this->playStatisticsPayload($track),
+        ];
+    }
+
+    /** @return array{purchaseSource: ?string, purchaseDate: ?string, hasPhysicalCopy: bool, physicalFormat: ?string, notes: ?string} */
+    public function albumPersonalMetadata(?AlbumPersonalMetadata $metadata): array
+    {
+        return [
+            'purchaseSource' => $metadata?->purchase_source,
+            'purchaseDate' => $metadata?->purchase_date?->toDateString(),
+            'hasPhysicalCopy' => $metadata?->has_physical_copy ?? false,
+            'physicalFormat' => $metadata?->physical_format,
+            'notes' => $metadata?->notes,
         ];
     }
 

@@ -19,7 +19,10 @@ interface AlbumFilters {
   year: number | null
   genre: number | null
   genreName: string
+  physicalCopy: PhysicalCopyFilter
 }
+
+type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -35,6 +38,7 @@ const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const year = ref<number | null>(restoredFilters.year)
+const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const page = ref(1)
 const resultsTop = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -44,6 +48,11 @@ const releaseYears = computed(() => {
 
   return Array.from({ length: currentYear - 1950 + 1 }, (_, index) => currentYear - index)
 })
+const physicalCopyOptions = computed(() => [
+  { title: t('albums.physicalCopyAll'), value: 'all' },
+  { title: t('albums.physicalCopyOwned'), value: 'owned' },
+  { title: t('albums.physicalCopyMissing'), value: 'not_owned' },
+])
 
 function load() {
   void catalog.loadAlbums({
@@ -52,6 +61,7 @@ function load() {
     initial: initial.value,
     year: year.value,
     genre: genre.value,
+    physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
   })
 }
 
@@ -67,6 +77,7 @@ function currentFilters(): AlbumFilters {
     year: year.value,
     genre: genre.value,
     genreName: genreName.value,
+    physicalCopy: physicalCopy.value,
   }
 }
 
@@ -77,6 +88,7 @@ function defaultFilters(): AlbumFilters {
     year: null,
     genre: null,
     genreName: '',
+    physicalCopy: 'all',
   }
 }
 
@@ -97,11 +109,12 @@ function filtersFromQuery(): AlbumFilters | null {
     year: queryNumber(route.query.year),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'initial', 'year', 'genre', 'genreName'].some((key) => route.query[key] !== undefined)
+  return ['search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -117,6 +130,7 @@ function filtersFromStorage(): AlbumFilters | null {
       year: typeof parsed.year === 'number' ? parsed.year : null,
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
     }
   } catch {
     return null
@@ -144,6 +158,7 @@ function applyFilters(filters: AlbumFilters) {
   year.value = filters.year
   genre.value = filters.genre
   genreName.value = filters.genreName
+  physicalCopy.value = filters.physicalCopy
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -157,6 +172,7 @@ function filterQuery(filters: AlbumFilters) {
   if (filters.year) query.year = String(filters.year)
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
 
   return query
 }
@@ -168,6 +184,7 @@ function normalizedFilterQuery(query: typeof route.query) {
     year: queryNumber(query.year),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    physicalCopy: queryPhysicalCopy(query.physicalCopy),
   })
 }
 
@@ -188,6 +205,10 @@ function queryNumber(value: unknown) {
   const parsed = typeof value === 'string' ? Number(value) : NaN
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function queryPhysicalCopy(value: unknown): PhysicalCopyFilter {
+  return value === 'owned' || value === 'not_owned' ? value : 'all'
 }
 
 function clearGenreFilter() {
@@ -226,14 +247,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([initial, year, genre, genreName], () => {
+watch([initial, year, genre, genreName, physicalCopy], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, initial, year, genre, physicalCopy, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -289,6 +310,15 @@ onUnmounted(() => {
       prepend-inner-icon="mdi-calendar"
       :label="t('albums.releaseYear')"
     />
+    <v-select
+      v-model="physicalCopy"
+      class="album-physical-copy-filter"
+      density="compact"
+      hide-details
+      :items="physicalCopyOptions"
+      prepend-inner-icon="mdi-disc"
+      :label="t('albums.physicalCopyFilter')"
+    />
   </div>
   <div class="d-flex flex-wrap ga-1 mb-6">
     <v-btn size="small" :variant="initial === null ? 'flat' : 'tonal'" @click="selectInitial(null)">{{ t('albums.all') }}</v-btn>
@@ -334,7 +364,19 @@ onUnmounted(() => {
           <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
         </v-card-item>
         <v-card-text class="album-card-details pt-0 text-medium-emphasis">
-          <span>{{ albumDetails(album) }}</span>
+          <span class="album-card-detail-text">
+            {{ albumDetails(album) }}
+            <v-chip
+              v-if="album.personalMetadata.hasPhysicalCopy"
+              class="ms-2"
+              color="primary"
+              prepend-icon="mdi-disc"
+              size="x-small"
+              variant="tonal"
+            >
+              {{ t('albums.physicalCopy') }}
+            </v-chip>
+          </span>
           <TooltipIconButton
             :text="t('albums.playAlbum')"
             :aria-label="t('albums.playAlbum')"
@@ -357,12 +399,21 @@ onUnmounted(() => {
   flex: 0 0 12rem;
 }
 
+.album-physical-copy-filter {
+  flex: 0 0 13rem;
+}
+
 @media (max-width: 599px) {
   .album-filter-row {
     gap: 8px !important;
   }
 
   .album-year-filter {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .album-physical-copy-filter {
     flex-basis: auto;
     width: 100%;
   }
@@ -383,5 +434,9 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   justify-content: space-between;
+}
+
+.album-card-detail-text {
+  min-width: 0;
 }
 </style>

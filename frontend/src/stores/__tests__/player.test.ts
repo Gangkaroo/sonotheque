@@ -54,6 +54,7 @@ describe('player store', () => {
       title: 'Album',
       primaryArtist: { id: 100, name: 'Artist' },
       trackCount: tracks.length,
+      personalMetadata: { hasPhysicalCopy: false },
       genres: [],
       tracks,
     }
@@ -213,6 +214,7 @@ describe('player store', () => {
     player.setVolume(0.42)
     player.setContinuousPlay(true)
     player.setRandomPlay(true)
+    player.setVisualizerEnabled(false)
     player.playTrack(tracks[1], tracks, 'album')
     player.setPlaybackPosition(73)
 
@@ -222,6 +224,7 @@ describe('player store', () => {
     expect(restoredPlayer.volume).toBe(0.42)
     expect(restoredPlayer.continuousPlay).toBe(true)
     expect(restoredPlayer.randomPlay).toBe(true)
+    expect(restoredPlayer.visualizerEnabled).toBe(false)
     expect(restoredPlayer.currentTrack?.title).toBe('Second')
     expect(restoredPlayer.queue).toHaveLength(2)
     expect(restoredPlayer.playbackContext).toBe('album')

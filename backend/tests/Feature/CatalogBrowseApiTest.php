@@ -160,6 +160,71 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('tracks.0.playStatistics.playCount', 0);
     }
 
+    public function test_album_personal_metadata_can_be_saved_and_filtered(): void
+    {
+        [, $album] = $this->createCatalog();
+        $otherAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $album->primary_artist_id,
+            'title' => 'Digital Only',
+            'sort_title' => 'Digital Only',
+            'relative_path' => 'Artist/Digital Only',
+            'relative_path_hash' => hash('sha256', 'artist/digital only'),
+        ]);
+        $otherTrack = $this->createTrackForAlbum($album->libraryRoot, $otherAlbum);
+
+        $this->patchJson("/api/albums/{$album->id}/personal-metadata", [
+            'purchaseSource' => 'Local store',
+            'purchaseDate' => '2024-05-17',
+            'hasPhysicalCopy' => true,
+            'physicalFormat' => 'vinyl',
+            'notes' => 'Gatefold edition',
+        ])
+            ->assertOk()
+            ->assertJsonPath('purchaseSource', 'Local store')
+            ->assertJsonPath('purchaseDate', '2024-05-17')
+            ->assertJsonPath('hasPhysicalCopy', true)
+            ->assertJsonPath('physicalFormat', 'vinyl')
+            ->assertJsonPath('notes', 'Gatefold edition');
+
+        $this->assertDatabaseHas('album_personal_metadata', [
+            'album_id' => $album->id,
+            'purchase_source' => 'Local store',
+            'purchase_date' => '2024-05-17',
+            'has_physical_copy' => true,
+            'physical_format' => 'vinyl',
+            'notes' => 'Gatefold edition',
+        ]);
+
+        $this->getJson("/api/catalog/albums/{$album->id}")
+            ->assertOk()
+            ->assertJsonPath('personalMetadata.purchaseSource', 'Local store')
+            ->assertJsonPath('personalMetadata.purchaseDate', '2024-05-17')
+            ->assertJsonPath('personalMetadata.hasPhysicalCopy', true)
+            ->assertJsonPath('personalMetadata.physicalFormat', 'vinyl')
+            ->assertJsonPath('tracks.0.album.personalMetadata.physicalFormat', 'vinyl');
+
+        $this->getJson('/api/catalog/albums?physicalCopy=owned')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $album->id);
+
+        $this->getJson('/api/catalog/albums?physicalCopy=not_owned')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $otherAlbum->id);
+
+        $this->getJson('/api/catalog/tracks?physicalCopy=owned')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.album.id', $album->id);
+
+        $this->getJson('/api/catalog/tracks?physicalCopy=not_owned')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $otherTrack->id);
+    }
+
     public function test_album_and_track_browse_support_exact_artist_filters(): void
     {
         [$artist, $album, $track] = $this->createCatalog();

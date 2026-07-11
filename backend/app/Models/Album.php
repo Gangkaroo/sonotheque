@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'library_root_id',
@@ -133,6 +134,12 @@ class Album extends Model
     public function tracks(): HasMany
     {
         return $this->hasMany(Track::class);
+    }
+
+    /** @return HasOne<AlbumPersonalMetadata, $this> */
+    public function personalMetadata(): HasOne
+    {
+        return $this->hasOne(AlbumPersonalMetadata::class);
     }
 
     protected function casts(): array

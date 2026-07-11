@@ -33,7 +33,7 @@ class PlaybackStatisticsController extends Controller
             ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
             ->with(['track' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
-                ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
+                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
             ->orderByDesc('played_at')
             ->orderByDesc('id')
             ->paginate(50);
@@ -62,7 +62,7 @@ class PlaybackStatisticsController extends Controller
             ->where('counted', true)
             ->with(['track' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
-                ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
+                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
             ->orderByDesc('played_at')
             ->orderByDesc('id')
             ->paginate(10);
@@ -84,7 +84,7 @@ class PlaybackStatisticsController extends Controller
         $tracks = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->join('track_play_statistics', 'track_play_statistics.track_id', '=', 'tracks.id')
             ->select(['tracks.id', 'tracks.title', 'tracks.sort_title', 'tracks.duration_ms', 'tracks.track_number', 'tracks.disc_number', 'tracks.album_id'])
-            ->with(['album:id,title,original_release_year,artwork_id', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+            ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->where('track_play_statistics.play_count', '>', 0)
             ->orderByDesc('track_play_statistics.play_count')
             ->orderByDesc('track_play_statistics.last_played_at')
@@ -114,7 +114,7 @@ class PlaybackStatisticsController extends Controller
             ])
             ->selectRaw('sum(track_play_statistics.play_count) as play_count')
             ->selectRaw('max(track_play_statistics.last_played_at) as last_played_at')
-            ->with(['primaryArtist:id,name', 'artwork:id'])
+            ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata'])
             ->withCount('tracks')
             ->where('track_play_statistics.play_count', '>', 0)
             ->groupBy([

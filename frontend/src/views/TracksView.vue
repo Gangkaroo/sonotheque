@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -19,7 +19,10 @@ interface TrackFilters {
   genre: number | null
   genreName: string
   playStatus: 'all' | 'never'
+  physicalCopy: PhysicalCopyFilter
 }
+
+type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
 
 const { locale, t } = useI18n()
 const route = useRoute()
@@ -34,12 +37,18 @@ const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
+const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const page = ref(1)
 const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
+const physicalCopyOptions = computed(() => [
+  { title: t('albums.physicalCopyAll'), value: 'all' },
+  { title: t('albums.physicalCopyOwned'), value: 'owned' },
+  { title: t('albums.physicalCopyMissing'), value: 'not_owned' },
+])
 
 function currentFilters(): TrackFilters {
   return {
@@ -47,6 +56,7 @@ function currentFilters(): TrackFilters {
     genre: genre.value,
     genreName: genreName.value,
     playStatus: playStatus.value,
+    physicalCopy: physicalCopy.value,
   }
 }
 
@@ -56,6 +66,7 @@ function defaultFilters(): TrackFilters {
     genre: null,
     genreName: '',
     playStatus: 'all',
+    physicalCopy: 'all',
   }
 }
 
@@ -75,11 +86,12 @@ function filtersFromQuery(): TrackFilters | null {
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
     playStatus: queryPlayStatus(route.query.playStatus),
+    physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'genre', 'genreName', 'playStatus'].some((key) => route.query[key] !== undefined)
+  return ['search', 'genre', 'genreName', 'playStatus', 'physicalCopy'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): TrackFilters | null {
@@ -94,6 +106,7 @@ function filtersFromStorage(): TrackFilters | null {
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
       playStatus: queryPlayStatus(parsed.playStatus),
+      physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
     }
   } catch {
     return null
@@ -120,6 +133,7 @@ function applyFilters(filters: TrackFilters) {
   genre.value = filters.genre
   genreName.value = filters.genreName
   playStatus.value = filters.playStatus
+  physicalCopy.value = filters.physicalCopy
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -132,6 +146,7 @@ function filterQuery(filters: TrackFilters) {
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
   if (filters.playStatus === 'never') query.playStatus = filters.playStatus
+  if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
 
   return query
 }
@@ -142,6 +157,7 @@ function normalizedFilterQuery(query: typeof route.query) {
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
     playStatus: queryPlayStatus(query.playStatus),
+    physicalCopy: queryPhysicalCopy(query.physicalCopy),
   })
 }
 
@@ -157,6 +173,10 @@ function queryNumber(value: unknown) {
 
 function queryPlayStatus(value: unknown): 'all' | 'never' {
   return value === 'never' ? 'never' : 'all'
+}
+
+function queryPhysicalCopy(value: unknown): PhysicalCopyFilter {
+  return value === 'owned' || value === 'not_owned' ? value : 'all'
 }
 
 function clearGenreFilter() {
@@ -203,6 +223,7 @@ function load() {
     search: querySearch(search.value),
     genre: genre.value,
     playStatus: playStatus.value === 'never' ? playStatus.value : null,
+    physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
   })
 }
 
@@ -241,14 +262,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([genre, genreName, playStatus], () => {
+watch([genre, genreName, playStatus, physicalCopy], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, genre, playStatus, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, genre, playStatus, physicalCopy, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -297,6 +318,15 @@ onUnmounted(() => {
       :label="t('tracks.neverPlayed')"
       true-value="never"
     />
+    <v-select
+      v-model="physicalCopy"
+      class="physical-copy-filter"
+      density="compact"
+      hide-details
+      :items="physicalCopyOptions"
+      prepend-inner-icon="mdi-disc"
+      :label="t('albums.physicalCopyFilter')"
+    />
   </div>
   <div v-if="genre" class="d-flex flex-wrap ga-2 mb-6">
     <v-chip v-if="genre" closable color="primary" variant="tonal" @click:close="clearGenreFilter">
@@ -340,6 +370,16 @@ onUnmounted(() => {
           {{ track.album.title }}
         </RouterLink>
         <span v-else>{{ t('catalog.unknownAlbum') }}</span>
+        <v-chip
+          v-if="track.album?.personalMetadata?.hasPhysicalCopy"
+          class="ms-2"
+          color="primary"
+          prepend-icon="mdi-disc"
+          size="x-small"
+          variant="tonal"
+        >
+          {{ t('albums.physicalCopy') }}
+        </v-chip>
       </v-list-item-subtitle>
       <template #append>
         <div class="track-actions">
@@ -402,6 +442,10 @@ onUnmounted(() => {
 .never-played-filter {
   flex: 0 0 auto;
   min-width: 11rem;
+}
+
+.physical-copy-filter {
+  flex: 0 0 13rem;
 }
 
 .track-meta-link {

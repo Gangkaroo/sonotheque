@@ -64,17 +64,19 @@ The first usable release will provide:
 - Album detail pages with full-size artwork, track listing, album genres, and artwork overlay
 - Browser playback for supported audio formats
 - Persistent playback controls, seeking, volume, current-page queue navigation, and random playback actions
+- Lightweight Web Audio API music visualization in the expanded player
 - Continuous album and track playback with optional random next-item selection
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
 - Custom playlists, playlist folders, ordered playlist items, and queue-to-playlist actions
+- Personal album information, including purchase source, purchase date,
+  physical-copy state, physical format, and notes
 - English and German translations
 - Localhost access by default and optional LAN access
 
 The following features are deferred until after the first stable local release:
 
 - User accounts and permissions
-- Personal album information, including purchase source and physical-copy state
 - Audio transcoding
 - Playlist import/export
 - Last.fm history import and now-playing updates
@@ -206,7 +208,8 @@ installation, like favorites and playlists. A future user-account migration can
 add an owner without changing the scanned catalog.
 
 - `album_personal_metadata`: one optional row per album with purchase source,
-  physical-copy state, optional personal notes, and timestamps.
+  purchase date, physical-copy state, physical format, optional personal notes,
+  and timestamps.
 - Keep purchase source as free text initially; do not create duplicate scanned
   album or artist values for personal information.
 - Preserve personal information when a scan updates an album. Apply the same
@@ -387,6 +390,8 @@ Completed:
   and compact playlist-folder grouping
 - Playback robustness for fast playlist switching, seeking, stale media events,
   and page refresh restoration
+- Web Audio API frequency visualization in the expanded player with a persisted
+  on/off player setting
 - Artist detail pages with cached artist context, album and track tabs, artist
   images where available, contextual back navigation, and albums sorted by
   release year
@@ -457,6 +462,10 @@ The implementation order changed from the original phase list. The scanner and a
 - Create the application shell and navigation.
 - Build dashboard, artist, album, genre, and track views.
 - Add global search, filters, sorting, and pagination.
+- Add explicit user-selectable sorting controls to album and track lists. Keep
+  sensible defaults, but allow sorting by common criteria such as artist,
+  title, release year, play count, last played, and date added where data is
+  available.
 - Add responsive artwork grids and tabular track views.
 - Display the generated cover thumbnail for every album in album lists and grids.
 - Display the larger cached cover on album detail pages.
@@ -487,12 +496,13 @@ The implementation order changed from the original phase list. The scanner and a
   endpoints accept the same nullable library-root filter. `null` means all
   enabled roots. (Complete; playlist reordering intentionally remains available
   only in the all-roots view)
-- Add album-detail editing for purchase source, physical-copy state, and
-  optional personal notes without writing these values to audio tags.
+- Add album-detail editing for purchase source, purchase date,
+  physical-copy state, physical format, and optional personal notes without
+  writing these values to audio tags. (Complete)
 - Add physical-copy filters to album and track lists. Track filtering is based
-  on the personal information of its album.
-- Show a compact physical-copy indicator on album details and useful album-list
-  contexts without crowding narrow layouts.
+  on the personal information of its album. (Complete)
+- Show compact personal-information and physical-copy indicators on album
+  details and useful list contexts without crowding narrow layouts. (Complete)
 - Test cross-root entities, scoped counts, root switching, session restoration,
   personal-data preservation across scans, and scoped favorite/playlist views.
 
@@ -503,6 +513,8 @@ The implementation order changed from the original phase list. The scanner and a
 - Add persistent player controls. (Complete)
 - Add playback queue management using Pinia. (Complete)
 - Show and manage the visible current queue. (Complete)
+- Add an optional local music visualizer driven by the browser Web Audio API,
+  without adding a Processing/p5-style dependency. (Complete)
 - Add "queue album" and "queue track" actions beside "play now" actions. (Complete)
 - Add random album and random track actions. (Complete)
 - Add continuous play and random continuation settings. (Complete)
@@ -526,6 +538,11 @@ This phase was pulled forward after the queue model became stable. It builds on 
 - Add ordered playlist item API for adding, removing, and reordering tracks. (Complete)
 - Add "add to playlist" actions from tracks, albums, queue entries, and the player. (Complete)
 - Allow creating a playlist from the current queue. (Complete)
+- Add explicit sorting controls to the playlists overview, at minimum by
+  folder/name, recently updated, and track count.
+- Show playlist membership for tracks that already belong to one or more
+  playlists, and provide an action from track contexts to navigate directly to
+  one of those playlists.
 - Consider importing/exporting playlists only after the core local workflow is stable.
 
 ### 5b. Metadata Editing
@@ -722,13 +739,21 @@ downloaded from Wikimedia Commons through a host-restricted Laravel proxy,
 attributed, validated, cached privately, and shown with a local fallback.
 Additional provider fallback remains a later refinement.
 
+The player now includes an optional Web Audio API visualizer in the expanded
+footer. It is local-only, dependency-free, persisted in player preferences, and
+uses logarithmic frequency bands so musical activity is distributed more
+naturally across the bars. Further visual styles can be added later, but the
+foundation is complete.
+
 The session-wide library-root scope is complete. The app keeps the selection in
 session storage, applies it consistently to catalog data, metrics, generated
 playback choices, favorites, history, and playlist contents, and preserves the
-existing player queue when the selection changes. The next catalog refinement
-is personal album information: purchase source, physical-copy state, and notes
-stored independently of scanned metadata, followed by physical-copy filters in
-album and track lists.
+existing player queue when the selection changes. Personal album information is
+now stored independently from scanned metadata and supports purchase source,
+purchase date, physical-copy state, physical format, and notes, plus
+physical-copy filters in album and track lists. The next catalog refinements are
+explicit sorting controls for albums/tracks/playlists and track-to-playlist
+membership navigation.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, and

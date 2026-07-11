@@ -26,6 +26,14 @@ interface NamedCatalogItem {
   name: string
 }
 
+export interface AlbumPersonalMetadata {
+  purchaseSource?: string | null
+  purchaseDate?: string | null
+  hasPhysicalCopy: boolean
+  physicalFormat?: string | null
+  notes?: string | null
+}
+
 export interface Album {
   id: number
   title: string
@@ -37,6 +45,7 @@ export interface Album {
   artworkUrl?: string | null
   artworkWidth?: number | null
   artworkHeight?: number | null
+  personalMetadata: AlbumPersonalMetadata
 }
 
 export interface AlbumDetail extends Album {
@@ -57,6 +66,7 @@ export interface Track {
     title: string
     originalReleaseYear?: number | null
     artworkThumbnailUrl?: string | null
+    personalMetadata?: AlbumPersonalMetadata
   } | null
   artists: NamedCatalogItem[]
   playStatistics: TrackPlayStatistics
@@ -122,6 +132,7 @@ interface CatalogQuery {
   genre?: number | string | null
   artist?: number | string | null
   playStatus?: string | null
+  physicalCopy?: string | null
 }
 
 function emptyPage<T>(): CatalogPage<T> {
@@ -142,6 +153,7 @@ function queryPath(path: string, query: CatalogQuery): string {
     parameters.set('artist', String(query.artist).trim())
   }
   if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
+  if (query.physicalCopy?.trim()) parameters.set('physicalCopy', query.physicalCopy.trim())
   return withLibraryRootScope(`${path}?${parameters}`)
 }
 
@@ -312,6 +324,41 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  async function updateAlbumPersonalMetadata(albumId: number, values: AlbumPersonalMetadata) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(`/albums/${albumId}/personal-metadata`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        purchaseSource: values.purchaseSource ?? null,
+        purchaseDate: values.purchaseDate ?? null,
+        hasPhysicalCopy: values.hasPhysicalCopy,
+        physicalFormat: values.physicalFormat ?? null,
+        notes: values.notes ?? null,
+      }),
+    })
+
+    albums.value = {
+      ...albums.value,
+      items: albums.value.items.map((album) => album.id === albumId ? { ...album, personalMetadata } : album),
+    }
+    tracks.value = {
+      ...tracks.value,
+      items: tracks.value.items.map((track) => track.album?.id === albumId
+        ? { ...track, album: { ...track.album, personalMetadata } }
+        : track),
+    }
+    if (albumDetail.value?.id === albumId) {
+      albumDetail.value = { ...albumDetail.value, personalMetadata }
+    }
+    if (trackDetail.value?.album?.id === albumId) {
+      trackDetail.value = {
+        ...trackDetail.value,
+        album: { ...trackDetail.value.album, personalMetadata },
+      }
+    }
+
+    return personalMetadata
+  }
+
   async function loadGenres(query: CatalogQuery = {}) {
     const request = ++genresRequest
     genresLoading.value = true
@@ -383,6 +430,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadAlbum,
     loadTracks,
     loadTrack,
+    updateAlbumPersonalMetadata,
     loadGenres,
     updateTrackPlayStatistics,
   }
