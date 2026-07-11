@@ -5,6 +5,9 @@ Windows. The app is designed to run locally first: PostgreSQL runs in Docker,
 while PHP/Laravel runs natively so the scanner can access folders on local and
 external drives.
 
+For the planned non-developer setup flow, packaged Docker runtime, first-run
+setup, and backup story, see `docs/setup-and-distribution.md`.
+
 ## Services
 
 The development stack has four moving parts:
@@ -24,6 +27,8 @@ background.
 
 - Docker Desktop.
 - PHP 8.5 with the PostgreSQL and GD extensions.
+- FFmpeg/FFprobe for recovering metadata and stream details when getID3 cannot
+  parse an otherwise playable file.
 - Composer.
 - Node.js 22.12 or newer.
 - npm 10 or newer.
@@ -35,6 +40,17 @@ binary explicitly when needed:
 $php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
 & $php85 --version
 ```
+
+Confirm that the metadata fallback is available in development mode:
+
+```powershell
+ffprobe -version
+```
+
+The packaged image installs FFmpeg automatically. `FFPROBE_BINARY` and
+`FFPROBE_TIMEOUT_SECONDS` can override the local executable and its per-file
+timeout when necessary. FFprobe only runs after getID3 reports an error, so
+normal scans retain their existing fast path.
 
 ## First-Time Setup
 
@@ -459,13 +475,6 @@ Folder cover originals are served from their source location and are no longer
 copied into application storage. Embedded originals are extracted from their
 audio files only when requested. Thumbnails remain cached for responsive list
 views.
-
-After applying the artwork-source migration, remove the obsolete full-size
-artwork cache:
-
-```powershell
-php artisan music:artwork:remove-original-cache
-```
 
 ## LAN Access
 

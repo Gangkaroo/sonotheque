@@ -2,7 +2,9 @@
 
 namespace Tests\Unit;
 
+use App\Music\Scanning\AudioMetadataProbe;
 use App\Music\Scanning\GetId3MetadataReader;
+use App\Music\Scanning\ProbedAudioMetadata;
 use App\Music\Scanning\RawMetadataSanitizer;
 use PHPUnit\Framework\TestCase;
 
@@ -73,6 +75,88 @@ class GetId3MetadataReaderTest extends TestCase
         $metadata = $this->reader()->read($path);
 
         $this->assertSame(['Singer/Songwriter'], $metadata->genres);
+    }
+
+    public function test_it_ignores_an_oversized_disc_total_without_rejecting_the_track(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'malformed-disc-total.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('TRCK', "\0".'01/18')
+            .$this->frame('TPOS', "\0".'1/517082');
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame(1, $metadata->trackNumber);
+        $this->assertSame(1, $metadata->discNumber);
+        $this->assertNull($metadata->discTotal);
+        $this->assertContains(
+            'The total discs tag value [517082] is outside the supported range and was ignored.',
+            $metadata->warnings,
+        );
+    }
+
+    public function test_it_uses_a_probe_after_get_id3_errors_without_discarding_valid_tags(): void
+    {
+        $probe = new class () implements AudioMetadataProbe {
+            public int $calls = 0;
+
+            public function probe(string $absolutePath): ProbedAudioMetadata
+            {
+                $this->calls++;
+
+                return new ProbedAudioMetadata(
+                    tags: [
+                        'album' => 'Fallback album',
+                        'artist' => 'Fallback artist',
+                        'track' => '03',
+                        'date' => '2007',
+                    ],
+                    durationMs: 123456,
+                    container: 'mp3',
+                    codec: 'mp3',
+                    bitrate: 320000,
+                    sampleRate: 44100,
+                    channels: 2,
+                    rawMetadata: ['format' => ['format_name' => 'mp3']],
+                );
+            }
+        };
+        $reader = new class (new RawMetadataSanitizer(), $probe) extends GetId3MetadataReader {
+            protected function analyze(string $absolutePath): array
+            {
+                return [
+                    'error' => ['Malformed optional tag.'],
+                    'warning' => array_map(
+                        static fn (int $number): string => "Parser warning {$number}.",
+                        range(1, 12),
+                    ),
+                    'comments' => ['title' => ['Primary title']],
+                ];
+            }
+        };
+
+        $metadata = $reader->read('fallback.mp3');
+
+        $this->assertSame(1, $probe->calls);
+        $this->assertSame('Primary title', $metadata->title);
+        $this->assertSame('Fallback album', $metadata->album);
+        $this->assertSame(['Fallback artist'], $metadata->artists);
+        $this->assertSame(3, $metadata->trackNumber);
+        $this->assertSame(2007, $metadata->year);
+        $this->assertSame(123456, $metadata->durationMs);
+        $this->assertSame('audio/mpeg', $metadata->mimeType);
+        $this->assertSame('mp3', $metadata->codec);
+        $this->assertCount(4, $metadata->warnings);
+        $this->assertSame(
+            '10 additional getID3 warnings were omitted after FFprobe validated the audio stream.',
+            $metadata->warnings[3],
+        );
+        $this->assertSame('mp3', $metadata->rawMetadata['ffprobe_fallback']['format']['format_name']);
     }
 
     private function reader(): GetId3MetadataReader

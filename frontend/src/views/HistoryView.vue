@@ -9,6 +9,7 @@ import type { Track } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
 import { useStatisticsStore } from '@/stores/statistics'
+import { formatDateTime, formatDuration as duration } from '@/utils/formatters'
 
 const { locale, t } = useI18n()
 const favorites = useFavoritesStore()
@@ -19,19 +20,8 @@ const recentPage = ref(1)
 const mostPlayedTrackPage = ref(1)
 const mostPlayedAlbumPage = ref(1)
 
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
 function formatDate(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(value, locale.value)
 }
 
 function toggleTrack(track: Track, tracks: Track[]) {

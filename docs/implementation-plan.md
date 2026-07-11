@@ -86,7 +86,12 @@ The following features are deferred until after the first stable local release:
 
 The Vue single-page application communicates with the Laravel application through an API Platform API. Laravel owns library configuration, scanning, metadata normalization, search, artwork delivery, and audio streaming.
 
-Scanning is performed asynchronously using Laravel queue jobs. Each discovered file is inspected with getID3 and normalized into relational library records. Original tag data is retained in JSONB for diagnostics and future metadata fields.
+Scanning is performed asynchronously using Laravel queue jobs. Each discovered
+file is inspected with getID3 and normalized into relational library records.
+When getID3 reports an error, FFprobe validates the audio stream and supplies
+missing technical data and tags; successfully recovered files remain available
+with bounded parser warnings. Original parser data is retained in JSONB for
+diagnostics and future metadata fields.
 
 For the initial library layout, each configured library root is expected to contain artist folders, with album folders beneath them:
 
@@ -368,6 +373,8 @@ Completed:
 - Read-only Explorer-style server folder browser for selecting library roots
 - Batched scan progress, cancellation checks, incremental fingerprints, and repeated metadata lookup caches
 - Raw tag metadata sanitation for binary ID3 payloads that PostgreSQL JSONB cannot represent
+- FFprobe fallback for playable files with malformed optional ID3/APE data,
+  including bounded diagnostics and numeric tag range validation
 - Dashboard metrics with lightweight aggregate queries
 - Paginated artist, album, track, and genre browsing with server-side search and artist A-Z/# filtering
 - Album grids with cached thumbnail delivery and missing-artwork placeholders
@@ -405,6 +412,18 @@ Completed:
 - Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
   Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup
+- Setup and distribution plan for a future non-developer packaged runtime with
+  one app URL, Docker-mounted music folders, first-run setup, health checks,
+  and backup/restore workflow
+- Initial packaged Docker Compose skeleton with built Vue assets behind nginx,
+  Laravel API, queue worker, scheduler, PostgreSQL, persistent storage volumes,
+  and one configurable music-folder mount
+- Initial packaged Windows startup, shutdown, and status scripts with generated
+  local secrets, migration execution, localhost binding by default, explicit
+  LAN mode, and printed access URLs
+- Guarded development-to-packaged database migration helper that copies the
+  Laravel APP_KEY, restores a PostgreSQL dump, and remaps library-root paths to
+  mounted container paths
 - Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
 - Exact trusted-host validation, deny-by-default CORS configuration, and a frontend Security tab for verified session or device admin tokens
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
@@ -417,6 +436,8 @@ Completed:
 In progress or still required for the first milestone:
 
 - Broader end-to-end and packaging coverage
+- Packaged local runtime that hides Laravel, Vite, PostgreSQL, and queue-worker
+  details behind a straightforward startup flow
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation and LAN startup are now repeatable; current feature work focuses on reliable online enrichment and conservative external identity matching without coupling playback to provider availability.
 
@@ -697,7 +718,25 @@ Last.fm integration.
 - Use small MP3, FLAC, Ogg, and malformed-file fixtures. (Partially complete)
 - Add frontend store and component tests. (Store tests complete for catalog, roots, scans, preferences, player, favorites, and playlists)
 - Add end-to-end coverage for configuration, scanning, browsing, and playback.
-- Document installation, startup, backup, and recovery procedures.
+- Keep the current developer runtime documented separately from the planned
+  packaged runtime. (Development runtime complete; packaged runtime plan
+  documented in `docs/setup-and-distribution.md`)
+- Add a production Compose architecture with one user-facing HTTP port, built
+  frontend assets, backend API, queue worker, scheduler, PostgreSQL, persistent
+  storage, and configurable music-folder mounts. (Initial skeleton complete)
+- Add packaged Windows startup, shutdown, and status scripts that check Docker,
+  generate missing secrets once, run migrations, print the app URL, and keep LAN
+  mode explicit. (Initial complete)
+- Add a guarded migration helper for moving the current development database to
+  packaged mode, including APP_KEY preservation and library-root path remapping.
+  (Initial complete)
+- Add a first-run setup UI for runtime checks, mounted library folders, cover
+  paths, scan exclusions, metadata-writing settings, optional connections, and
+  the first scan.
+- Add Settings > System health checks for database, queue worker, scheduler,
+  storage, mounted roots, stale scans, and failed queue jobs.
+- Add manual backup and restore commands for PostgreSQL data and application
+  storage.
 
 ## Recommended Next Step
 
@@ -757,9 +796,12 @@ membership navigation.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, and
-Windows Firewall guidance are complete. The next infrastructure step is broader
-end-to-end coverage and repeatable packaging; LAN behavior should also be
-verified from a second physical device on the local network.
+Windows Firewall guidance are complete. The next infrastructure step is the
+packaged local runtime described in `docs/setup-and-distribution.md`: keep the
+developer scripts intact, add a production Compose path with one user-facing
+URL, make music-folder mounts explicit, then add packaged startup/status
+scripts, first-run setup, health checks, and manual backup/restore. LAN behavior
+should still be verified from a second physical device on the local network.
 
 ## First Milestone Definition
 

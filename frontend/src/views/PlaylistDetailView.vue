@@ -10,6 +10,7 @@ import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
+import { formatDuration as duration } from '@/utils/formatters'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -31,12 +32,6 @@ const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
 const canReorder = computed(() => libraryRootScope.selectedRootId === null)
-
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
 
 function playPlaylist() {
   const [firstTrack] = tracks.value

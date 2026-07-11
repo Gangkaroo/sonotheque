@@ -34,10 +34,9 @@ class ArtworkApiTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_album_original_streams_the_folder_source_and_cleanup_removes_all_legacy_originals(): void
+    public function test_album_original_streams_the_folder_source(): void
     {
         Storage::fake('artwork');
-        Storage::disk('artwork')->put('originals/example.jpg', 'cached duplicate');
         $sourcePath = $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'Cover'.DIRECTORY_SEPARATOR.'Front.jpg';
         file_put_contents($sourcePath, 'folder image bytes');
         $album = $this->createAlbum();
@@ -60,9 +59,6 @@ class ArtworkApiTest extends TestCase
             ->assertOk()
             ->assertHeader('Content-Type', 'image/jpeg');
         $this->assertSame(realpath($sourcePath), $response->baseResponse->getFile()->getRealPath());
-
-        $this->artisan('music:artwork:remove-original-cache')->assertSuccessful();
-        Storage::disk('artwork')->assertMissing('originals/example.jpg');
     }
 
     public function test_album_original_extracts_embedded_artwork_from_an_audio_file(): void

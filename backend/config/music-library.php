@@ -14,6 +14,11 @@ return [
     'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
     'audio_stream_open_ended_range_bytes' => (int) env('AUDIO_STREAM_OPEN_ENDED_RANGE_BYTES', 2 * 1024 * 1024),
 
+    'metadata_probe' => [
+        'ffprobe_binary' => env('FFPROBE_BINARY', 'ffprobe'),
+        'timeout_seconds' => (int) env('FFPROBE_TIMEOUT_SECONDS', 15),
+    ],
+
     'lastfm' => [
         'api_url' => env('LASTFM_API_URL', 'https://ws.audioscrobbler.com/2.0/'),
         'auth_url' => env('LASTFM_AUTH_URL', 'https://www.last.fm/api/auth/'),
@@ -89,6 +94,7 @@ return [
 
     'lan' => [
         'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),
+        'local_proxy_enabled' => (bool) env('MUSIC_LIBRARY_LOCAL_PROXY_ENABLED', false),
         'admin_token' => env('MUSIC_LIBRARY_ADMIN_TOKEN'),
         'trusted_hosts' => array_map(
             static fn (string $host): string => '^'.preg_quote($host, '/').'$',

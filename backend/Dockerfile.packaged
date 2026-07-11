@@ -1,0 +1,54 @@
+FROM composer:2 AS composer
+
+FROM php:8.5-cli-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+        freetype \
+        ffmpeg \
+        icu-libs \
+        libjpeg-turbo \
+        libpng \
+        libzip \
+        oniguruma \
+        postgresql-libs \
+    && apk add --no-cache --virtual .build-deps \
+        freetype-dev \
+        icu-dev \
+        libjpeg-turbo-dev \
+        libpng-dev \
+        libzip-dev \
+        oniguruma-dev \
+        postgresql-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j"$(nproc)" \
+        bcmath \
+        gd \
+        intl \
+        mbstring \
+        pcntl \
+        pdo_pgsql \
+        zip \
+    && apk del .build-deps
+
+COPY --from=composer /usr/bin/composer /usr/bin/composer
+
+COPY backend/composer.json backend/composer.lock ./
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --no-scripts \
+    --no-autoloader \
+    --prefer-dist
+
+COPY backend/ ./
+COPY backend/docker/packaged-entrypoint.sh /usr/local/bin/music-library-entrypoint
+
+RUN composer dump-autoload --optimize --no-dev --no-scripts \
+    && chmod +x /usr/local/bin/music-library-entrypoint
+
+EXPOSE 8000
+
+ENTRYPOINT ["music-library-entrypoint"]
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

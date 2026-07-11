@@ -10,10 +10,12 @@ import LastFmSettings from '@/components/LastFmSettings.vue'
 import MetadataSettings from '@/components/MetadataSettings.vue'
 import OnlineEnrichmentSettings from '@/components/OnlineEnrichmentSettings.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import SystemHealthSettings from '@/components/SystemHealthSettings.vue'
 import { useAdminAccessStore } from '@/stores/adminAccess'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { useScanRunsStore } from '@/stores/scanRuns'
+import { formatDateTime } from '@/utils/formatters'
 
 /** @typedef {import('@/stores/libraryRoots').LibraryRoot} LibraryRoot */
 /** @typedef {import('@/stores/scanRuns').ScanRun} ScanRun */
@@ -144,9 +146,7 @@ function statusColor(status) {
 
 /** @param {string | null} value */
 function formatDate(value) {
-  return value
-    ? new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-    : '—'
+  return formatDateTime(value, locale.value, '—')
 }
 
 /** @param {number} rootId */
@@ -295,6 +295,9 @@ async function removeRoot() {
     <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-connection" value="connections">
       {{ t('settings.connectionsTab') }}
     </v-tab>
+    <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-heart-pulse" value="system">
+      {{ t('settings.systemTab') }}
+    </v-tab>
     <v-tab prepend-icon="mdi-shield-lock-outline" value="security">
       {{ t('settings.securityTab') }}
     </v-tab>
@@ -424,6 +427,11 @@ async function removeRoot() {
     <OnlineEnrichmentSettings :key="`enrichment-${adminAccess.revision}`" />
     <LastFmSettings :key="`lastfm-${adminAccess.revision}`" />
   </template>
+
+  <SystemHealthSettings
+    v-if="activeSettingsTab === 'system' && canAccessProtectedSettings"
+    :key="adminAccess.revision"
+  />
 
   <v-card v-show="activeSettingsTab === 'media-library'" border rounded="xl" class="mt-6">
     <v-card-item class="pa-6 pb-2">

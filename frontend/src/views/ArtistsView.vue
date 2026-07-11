@@ -8,6 +8,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
+import { formatDateTime } from '@/utils/formatters'
 
 interface ArtistFilters {
   search: string
@@ -150,12 +151,7 @@ function queryInitial(value: unknown) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(value, locale.value)
 }
 
 function playCountTooltip(artist: typeof catalog.artists.items[number]) {

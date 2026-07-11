@@ -13,6 +13,11 @@ import type { AlbumPersonalMetadata, Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import {
+  formatDateOnly as formatLocalizedDate,
+  formatDateTime,
+  formatDuration as duration,
+} from '@/utils/formatters'
 
 const { locale, t } = useI18n()
 const route = useRoute()
@@ -223,19 +228,8 @@ const personalInfoRows = computed(() => [
 ].filter((row) => row.value))
 const hasPersonalInformation = computed(() => personalInfoRows.value.length > 0 || Boolean(albumPersonalMetadata.value.notes))
 
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
 function formatDate(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatDateTime(value, locale.value)
 }
 
 function playCountTooltip(track: Track) {
@@ -279,12 +273,7 @@ function addTrackToPlaylist(track: Track) {
 }
 
 function formatDateOnly(value?: string | null) {
-  if (!value) return null
-  const date = new Date(`${value}T00:00:00`)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(date)
+  return formatLocalizedDate(value, locale.value, null)
 }
 
 function enterSelectionMode() {

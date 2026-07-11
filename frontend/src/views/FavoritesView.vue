@@ -8,6 +8,7 @@ import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Album, Track } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import { formatDuration as duration } from '@/utils/formatters'
 
 const { t } = useI18n()
 const favorites = useFavoritesStore()
@@ -15,12 +16,6 @@ const player = usePlayerStore()
 const activeTab = ref<'albums' | 'tracks'>('albums')
 const albumPage = ref(1)
 const trackPage = ref(1)
-
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
 
 function albumDetails(album: Album) {
   if (album.originalReleaseYear === undefined || album.originalReleaseYear === null) {

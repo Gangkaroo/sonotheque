@@ -11,6 +11,7 @@ import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import { formatDateTime, formatDuration as duration } from '@/utils/formatters'
 
 const { locale, t } = useI18n()
 const route = useRoute()
@@ -63,19 +64,7 @@ function changeTrackPage(value: number) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return t('artists.neverPlayed')
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
-
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  return formatDateTime(value, locale.value, t('artists.neverPlayed'))
 }
 
 function toggleTrack(track: Track) {

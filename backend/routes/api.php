@@ -17,6 +17,7 @@ use App\Http\Controllers\OnlineEnrichmentController;
 use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistsController;
+use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\TrackMetadataController;
 use App\Http\Controllers\TrackPlayStatisticsController;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +63,7 @@ Route::get('/settings/online-enrichment', [OnlineEnrichmentSettingsController::c
 Route::patch('/settings/online-enrichment', [OnlineEnrichmentSettingsController::class, 'update']);
 Route::delete('/settings/online-enrichment/cache', [OnlineEnrichmentSettingsController::class, 'clearCache']);
 Route::post('/settings/online-enrichment/providers/{provider}/test', [OnlineEnrichmentSettingsController::class, 'testProvider']);
+Route::get('/settings/system-health', SystemHealthController::class);
 Route::get('/enrichment/tracks/{track}/information', [OnlineEnrichmentController::class, 'information']);
 Route::get('/enrichment/tracks/{track}/identity', [OnlineEnrichmentController::class, 'identity']);
 Route::get('/enrichment/tracks/{track}/artist-image', [OnlineEnrichmentController::class, 'artistImage']);

@@ -13,6 +13,7 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
+import { formatDateTime, formatDuration } from '@/utils/formatters'
 
 interface TrackFilters {
   search: string
@@ -194,19 +195,12 @@ function changePage(value: number) {
   })
 }
 
-function duration(milliseconds?: number) {
-  if (!milliseconds) return '—'
-  const seconds = Math.round(milliseconds / 1000)
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+function formatDate(value?: string | null) {
+  return formatDateTime(value, locale.value)
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-'
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+function duration(milliseconds?: number) {
+  return formatDuration(milliseconds, '—')
 }
 
 function playCountTooltip(track: Track) {

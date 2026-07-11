@@ -17,6 +17,7 @@ import {
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { openExternalUrl } from '@/utils/externalLinks'
+import { formatDuration as queueDuration } from '@/utils/formatters'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
 const { locale, t } = useI18n()
@@ -402,12 +403,6 @@ function persistCurrentPlaybackPosition() {
 
 function formatTime(value: number) {
   const seconds = Math.max(0, Math.floor(value))
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
-function queueDuration(milliseconds?: number) {
-  if (!milliseconds) return '-'
-  const seconds = Math.round(milliseconds / 1000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 

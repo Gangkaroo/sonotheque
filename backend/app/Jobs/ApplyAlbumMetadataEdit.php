@@ -8,6 +8,7 @@ use App\Models\MetadataEditItem;
 use App\Models\MetadataEditJob;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\MetadataBackupManager;
+use App\Music\Metadata\MetadataEditProgress;
 use App\Music\Metadata\TrackMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
 use App\Music\Scanning\ArtistName;
@@ -37,6 +38,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         LibraryPathGuard $pathGuard,
         ArtistName $artistName,
         MetadataBackupManager $backups,
+        MetadataEditProgress $progress,
     ): void {
         $edit = MetadataEditJob::with(['album.tracks', 'items.track.mediaFile.libraryRoot'])
             ->findOrFail($this->metadataEditJobId);
@@ -58,7 +60,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         $edit->update(['status' => 'running', 'started_at' => $edit->started_at ?? now(), 'error' => null]);
         foreach ($edit->items->where('status', 'pending') as $item) {
             $this->processItem($edit, $item, $trackEditing, $writer, $pathGuard, $backups);
-            $this->refreshProgress($edit);
+            $progress->refresh($edit);
         }
 
         $edit->refresh();
@@ -125,20 +127,6 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 'finished_at' => now(),
             ]);
         }
-    }
-
-    private function refreshProgress(MetadataEditJob $edit): void
-    {
-        $counts = $edit->items()
-            ->selectRaw("count(*) filter (where status in ('completed', 'failed')) as processed")
-            ->selectRaw("count(*) filter (where status = 'completed') as succeeded")
-            ->selectRaw("count(*) filter (where status = 'failed') as failed")
-            ->first();
-        $edit->update([
-            'processed_items' => (int) $counts->processed,
-            'succeeded_items' => (int) $counts->succeeded,
-            'failed_items' => (int) $counts->failed,
-        ]);
     }
 
     private function applyCatalogChanges(MetadataEditJob $edit, ArtistName $artistName): void

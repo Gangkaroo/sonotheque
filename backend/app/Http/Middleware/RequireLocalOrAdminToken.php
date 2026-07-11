@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 class RequireLocalOrAdminToken
@@ -37,11 +38,45 @@ class RequireLocalOrAdminToken
 
     private function isLocalRequest(Request $request): bool
     {
-        return in_array($request->ip(), [
+        if (in_array($request->ip(), [
             '127.0.0.1',
             '::1',
             '::ffff:127.0.0.1',
-        ], true);
+        ], true)) {
+            return true;
+        }
+
+        if (! config('music-library.lan.local_proxy_enabled') || config('music-library.lan.enabled')) {
+            return false;
+        }
+
+        return $this->isPrivateProxyAddress((string) $request->server('REMOTE_ADDR', ''));
+    }
+
+    private function isPrivateProxyAddress(string $address): bool
+    {
+        if ($address === '') {
+            return false;
+        }
+
+        if (in_array($address, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true)) {
+            return true;
+        }
+
+        if (Str::startsWith($address, '::ffff:')) {
+            $address = substr($address, 7);
+        }
+
+        $packedAddress = inet_pton($address);
+        if ($packedAddress === false || strlen($packedAddress) !== 4) {
+            return false;
+        }
+
+        $octets = array_values(unpack('C4', $packedAddress));
+
+        return $octets[0] === 10
+            || ($octets[0] === 172 && $octets[1] >= 16 && $octets[1] <= 31)
+            || ($octets[0] === 192 && $octets[1] === 168);
     }
 
     private function hasValidAdminToken(Request $request): bool
