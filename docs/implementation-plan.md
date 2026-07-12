@@ -1,4 +1,4 @@
-# Local Music Library - Implementation Plan
+# Sonotheque - Implementation Plan
 
 ## Goal
 
@@ -801,10 +801,12 @@ The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows
 Firewall guidance, packaged Compose runtime, startup scripts, resumable
 first-run setup, health checks, and checksummed manual backup and guarded
-restore for PostgreSQL and application storage are complete. The next
-distribution step is a versioned portable bundle;
-LAN behavior should still be verified from a second physical device on the
-local network.
+restore for PostgreSQL and application storage are complete. The initial
+versioned Windows portable bundle, double-click launcher, host-folder picker,
+installation guide, and release checksum are also complete. Remaining release
+work is publishing the archive through GitHub Releases, automating repeatable
+release builds, refining multiple host-root mount management, and verifying LAN
+behavior from a second physical device on the local network.
 
 ## First Milestone Definition
 

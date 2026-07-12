@@ -474,7 +474,7 @@ Restore a development bundle only after checking its path:
 
 ```powershell
 .\scripts\restore.ps1 `
-  -BackupPath ".\backups\music-library-development-20260712-120000" `
+  -BackupPath ".\backups\sonotheque-development-20260712-120000" `
   -Mode Development `
   -Force
 ```
@@ -563,7 +563,7 @@ an elevated PowerShell window, replacing the address with the one printed by
 the startup script:
 
 ```powershell
-New-NetFirewallRule -DisplayName 'Music Library LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress 192.168.1.10 -RemoteAddress LocalSubnet -Profile Private
+New-NetFirewallRule -DisplayName 'Sonotheque LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress 192.168.1.10 -RemoteAddress LocalSubnet -Profile Private
 ```
 
 The rule deliberately permits only the Vite port, only on Private networks,

@@ -2,6 +2,7 @@
 /.codex/
 /runtime-logs/
 /backups/
+/dist/
 /.env.packaged
 /packaged/
 backend/storage/PsySH/

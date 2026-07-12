@@ -56,7 +56,7 @@ try {
     Write-Host ''
     Invoke-PackagedCompose -Arguments @('ps')
     Write-Host ''
-    Write-Host "Music Library packaged mode is available at http://${address}:$port/"
+    Write-Host "Sonotheque is available at http://${address}:$port/"
 
     if ($Lan) {
         Write-Host ''
@@ -64,7 +64,7 @@ try {
         Write-Host (Get-PackagedEnvValue -Name 'MUSIC_LIBRARY_ADMIN_TOKEN')
         Write-Host ''
         Write-Host 'If another device cannot connect, allow only the selected port for Private networks and LocalSubnet:'
-        Write-Host "New-NetFirewallRule -DisplayName 'Music Library Packaged LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -LocalAddress $address -RemoteAddress LocalSubnet -Profile Private"
+        Write-Host "New-NetFirewallRule -DisplayName 'Sonotheque Packaged LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -LocalAddress $address -RemoteAddress LocalSubnet -Profile Private"
     }
 }
 catch {

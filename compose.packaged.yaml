@@ -1,7 +1,7 @@
 name: music-library-packaged
 
 x-backend-environment: &backend-environment
-  APP_NAME: Music Library
+  APP_NAME: Sonotheque
   APP_ENV: production
   APP_DEBUG: "false"
   APP_KEY: ${APP_KEY:-}

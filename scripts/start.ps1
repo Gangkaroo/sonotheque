@@ -171,12 +171,12 @@ try {
 
     Write-Host ''
     Get-RuntimeStatus | Format-Table -AutoSize
-    Write-Host "Music Library is available at $frontendUri"
+    Write-Host "Sonotheque is available at $frontendUri"
 
     if ($Lan) {
         Write-Host ''
         Write-Host 'If another device cannot connect, allow only TCP 5173 for Private networks and LocalSubnet:'
-        Write-Host "New-NetFirewallRule -DisplayName 'Music Library LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress $frontendHost -RemoteAddress LocalSubnet -Profile Private"
+        Write-Host "New-NetFirewallRule -DisplayName 'Sonotheque LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -LocalAddress $frontendHost -RemoteAddress LocalSubnet -Profile Private"
         Write-Host 'Run that command once from an elevated PowerShell window.'
     }
 }

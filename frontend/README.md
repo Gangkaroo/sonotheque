@@ -1,4 +1,4 @@
-# Music Library Frontend
+# Sonotheque Frontend
 
 Vue and Vuetify interface for browsing, scanning, playing, favoriting, and
 organizing the local music library.

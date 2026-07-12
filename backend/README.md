@@ -1,4 +1,4 @@
-# Music Library Backend
+# Sonotheque Backend
 
 Laravel and API Platform backend for scanning local music folders, exposing the
 catalog API, serving artwork, and streaming audio.

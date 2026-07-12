@@ -1,6 +1,6 @@
 export default {
   app: {
-    name: 'Musikbibliothek',
+    name: 'Sonotheque',
     subtitle: 'Lokale Sammlung',
   },
   actions: {
@@ -24,7 +24,7 @@ export default {
     settings: 'Einstellungen',
   },
   setup: {
-    title: 'Musikbibliothek einrichten',
+    title: 'Sonotheque einrichten',
     description: 'Wenige geführte Schritte bereiten die App vor und beginnen mit dem Aufbau des lokalen Katalogs.',
     runtime: 'Laufzeit',
     library: 'Bibliothek',

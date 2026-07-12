@@ -27,7 +27,7 @@ try {
     $destinationRoot = (Resolve-Path -LiteralPath $destinationRoot).Path
 
     $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
-    $bundleName = "music-library-$($Mode.ToLowerInvariant())-$timestamp"
+    $bundleName = "sonotheque-$($Mode.ToLowerInvariant())-$timestamp"
     $bundlePath = Join-Path $destinationRoot $bundleName
     New-Item -ItemType Directory -Path $bundlePath | Out-Null
 

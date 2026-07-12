@@ -1,7 +1,7 @@
 # Setup And Distribution Plan
 
 This document describes the target setup experience for people who want to use
-the music library app without working directly with Laravel, Vite, Composer, or
+Sonotheque without working directly with Laravel, Vite, Composer, or
 the queue worker.
 
 The current `docs/runtime.md` remains the developer runtime guide. The plan
@@ -12,8 +12,8 @@ below defines the more user-friendly packaging path that should sit beside it.
 The preferred setup should feel like a small local appliance:
 
 1. Install Docker Desktop.
-2. Download or clone the app.
-3. Run one startup command.
+2. Download and extract the portable release archive.
+3. Double-click `Start Sonotheque.cmd` and select the music folder.
 4. Open one URL.
 5. Complete a first-run setup screen.
 6. Start the first scan.
@@ -124,9 +124,10 @@ Open:
 http://127.0.0.1:8080/
 ```
 
-This is not yet the final user-facing startup flow. The planned
-`start-packaged.ps1` script should generate missing secrets once, run the same
-Compose command, and print the app URL.
+The portable release wraps this flow in `Start Sonotheque.cmd`. On first
+start it opens a native folder picker, generates missing secrets, starts the
+Compose stack, and opens the setup wizard. Later starts reuse `.env.packaged`
+and the existing Docker volumes.
 
 The first packaged scripts are now available:
 
@@ -250,7 +251,7 @@ and restore commands are available for both runtime modes:
 
 ```powershell
 .\scripts\backup.ps1 -Mode Packaged
-.\scripts\restore.ps1 -BackupPath ".\backups\music-library-packaged-..." -Mode Packaged -Force
+.\scripts\restore.ps1 -BackupPath ".\backups\sonotheque-packaged-..." -Mode Packaged -Force
 ```
 
 Each bundle contains a PostgreSQL custom-format dump, an uncompressed storage
@@ -325,7 +326,10 @@ remain the explicit default.
 ### Phase 7: Installer Or Portable Bundle
 
 - Package the repository, scripts, default env files, and docs as a versioned
-  archive.
+  archive. (Initial portable bundle complete)
+- Add double-click Windows launch, stop, and status wrappers. (Complete)
+- Add a first-launch host music-folder picker. (Complete for the initial root)
+- Generate a SHA-256 checksum beside each release archive. (Complete)
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
 

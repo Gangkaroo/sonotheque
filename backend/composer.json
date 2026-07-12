@@ -1,8 +1,8 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "music-library/backend",
+    "name": "sonotheque/backend",
     "type": "project",
-    "description": "Local music library scanner and catalog API.",
+    "description": "Sonotheque local music library scanner and catalog API.",
     "keywords": ["music", "laravel", "api-platform"],
     "license": "MIT",
     "require": {

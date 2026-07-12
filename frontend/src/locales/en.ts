@@ -1,6 +1,6 @@
 export default {
   app: {
-    name: 'Music Library',
+    name: 'Sonotheque',
     subtitle: 'Local collection',
   },
   actions: {
@@ -24,7 +24,7 @@ export default {
     settings: 'Settings',
   },
   setup: {
-    title: 'Set up your music library',
+    title: 'Set up Sonotheque',
     description: 'A few guided steps will prepare the app and start building your local catalog.',
     runtime: 'Runtime',
     library: 'Library',

@@ -2,6 +2,8 @@
 .idea
 .codex
 runtime-logs
+backups
+dist
 
 backend/.env
 backend/.env.testing
