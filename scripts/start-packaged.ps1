@@ -15,7 +15,15 @@ try {
     }
 
     Assert-PackagedDockerAvailable
-    Initialize-PackagedEnvironment -MusicRoot $MusicRoot
+    if (-not [string]::IsNullOrWhiteSpace($MusicRoot)) {
+        if (Test-Path -LiteralPath $script:PackagedRootsPath) {
+            throw '-MusicRoot cannot replace an existing generated root configuration. Run Configure Sonotheque Folders.cmd instead.'
+        }
+        Set-PackagedMusicRoots -MusicRoots @($MusicRoot) | Out-Null
+    }
+    else {
+        Initialize-PackagedEnvironment
+    }
 
     $port = Get-PackagedAppPort
     if ($Lan) {

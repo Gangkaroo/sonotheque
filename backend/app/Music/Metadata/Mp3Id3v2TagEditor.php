@@ -111,7 +111,10 @@ class Mp3Id3v2TagEditor
             throw new RuntimeException("Audio file [{$path}] is not a writable regular file.");
         }
 
-        $inPlaceReplacement = $this->inPlaceReplacement($path, $textFrames, $userTextFrames, $commentFrames);
+        $updatesId3v1Comment = array_key_exists('COMM', $commentFrames) && $this->hasId3v1Tag($path);
+        $inPlaceReplacement = $updatesId3v1Comment
+            ? null
+            : $this->inPlaceReplacement($path, $textFrames, $userTextFrames, $commentFrames);
         if ($inPlaceReplacement !== null) {
             $this->writeTagInPlace(
                 $path,
@@ -360,7 +363,20 @@ class Mp3Id3v2TagEditor
             $header = 'ID3'.chr($majorVersion).chr($revision).chr($flags).$this->encodeSynchsafe($payloadSize);
             $this->writeAll($target, $header.$payload);
 
-            if (stream_copy_to_stream($source, $target) === false) {
+            $id3v1Tag = array_key_exists('COMM', $commentFrames)
+                ? $this->readId3v1Tag($source)
+                : null;
+            if ($id3v1Tag !== null) {
+                $sourceSize = fstat($source)['size'] ?? null;
+                $sourcePosition = ftell($source);
+                if (! is_int($sourceSize) || ! is_int($sourcePosition) || $sourceSize - $sourcePosition < 128) {
+                    throw new RuntimeException('Could not locate the existing ID3v1 tag safely.');
+                }
+                if (stream_copy_to_stream($source, $target, $sourceSize - $sourcePosition - 128) === false) {
+                    throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
+                }
+                $this->writeAll($target, $this->withId3v1Comment($id3v1Tag, $commentFrames['COMM']));
+            } elseif (stream_copy_to_stream($source, $target) === false) {
                 throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
             }
 
@@ -382,6 +398,50 @@ class Mp3Id3v2TagEditor
         if ($permissions !== false) {
             @chmod($temporaryPath, $permissions & 0777);
         }
+    }
+
+    private function hasId3v1Tag(string $path): bool
+    {
+        $stream = fopen($path, 'rb');
+        if ($stream === false) {
+            return false;
+        }
+
+        try {
+            return $this->readId3v1Tag($stream) !== null;
+        } finally {
+            fclose($stream);
+        }
+    }
+
+    /** @param resource $stream */
+    private function readId3v1Tag($stream): ?string
+    {
+        $position = ftell($stream);
+        if (! is_int($position) || fseek($stream, -128, SEEK_END) !== 0) {
+            return null;
+        }
+
+        try {
+            $tag = fread($stream, 128);
+
+            return is_string($tag) && strlen($tag) === 128 && str_starts_with($tag, 'TAG')
+                ? $tag
+                : null;
+        } finally {
+            fseek($stream, $position, SEEK_SET);
+        }
+    }
+
+    private function withId3v1Comment(string $tag, ?string $comment): string
+    {
+        $usesTrackNumber = $tag[125] === "\0" && $tag[126] !== "\0";
+        $length = $usesTrackNumber ? 28 : 30;
+        $encoded = $comment === null ? '' : mb_convert_encoding($comment, 'ISO-8859-1', 'UTF-8');
+        $encoded = str_pad(substr($encoded, 0, $length), $length, "\0");
+        $trackNumber = $usesTrackNumber ? substr($tag, 125, 2) : '';
+
+        return substr($tag, 0, 97).$encoded.$trackNumber.$tag[127];
     }
 
     /**

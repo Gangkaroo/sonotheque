@@ -4,5 +4,7 @@
 /backups/
 /dist/
 /.env.packaged
+/compose.packaged.override.yaml
+/packaged-roots.json
 /packaged/
 backend/storage/PsySH/

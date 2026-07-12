@@ -39,12 +39,14 @@ $excludedFiles = @(
 )
 $releaseSupportFiles = @(
     'CHANGELOG.md',
+    'Configure Sonotheque Folders.cmd',
     'INSTALL.md',
     'Sonotheque Status.cmd',
     'Start Sonotheque.cmd',
     'Stop Sonotheque.cmd',
     'VERSION',
     'scripts/build-release.ps1',
+    'scripts/configure-packaged-roots.ps1',
     'scripts/launch-packaged.ps1'
 )
 

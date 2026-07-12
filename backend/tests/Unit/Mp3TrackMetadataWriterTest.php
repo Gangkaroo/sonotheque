@@ -301,6 +301,39 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertStringContainsString($technicalComment, (string) file_get_contents($path));
     }
 
+    public function test_it_clears_the_id3v1_comment_without_losing_the_legacy_track_number(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-comment.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('COMM', "\0eng\0User comment");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        $id3v1 = 'TAG'
+            .str_pad('Legacy title', 30, "\0")
+            .str_pad('Legacy artist', 30, "\0")
+            .str_pad('Legacy album', 30, "\0")
+            .'2002'
+            .str_pad('www.NewAlbumReleases.net', 28, "\0")
+            ."\0".chr(7).chr(13);
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64)
+                .$id3v1,
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['comment' => null]);
+
+        $writtenTag = substr((string) file_get_contents($path), -128);
+        $this->assertNull($metadata->comment);
+        $this->assertSame(substr($id3v1, 0, 97), substr($writtenTag, 0, 97));
+        $this->assertSame(str_repeat("\0", 28), substr($writtenTag, 97, 28));
+        $this->assertSame("\0".chr(7), substr($writtenTag, 125, 2));
+        $this->assertSame(chr(13), $writtenTag[127]);
+    }
+
     public function test_it_rejects_an_unknown_id3v22_frame_without_changing_the_file(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-unknown.mp3';

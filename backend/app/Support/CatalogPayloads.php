@@ -49,7 +49,7 @@ class CatalogPayloads
             'artwork:id,width,height',
             'personalMetadata',
             'tracks' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'comment', 'album_id'])
                 ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
@@ -71,7 +71,10 @@ class CatalogPayloads
                 'id' => $genre->id,
                 'name' => $genre->name,
             ])->values(),
-            'tracks' => $album->tracks->map(fn (Track $track) => $this->trackSummary($track))->values(),
+            'tracks' => $album->tracks->map(fn (Track $track) => [
+                ...$this->trackSummary($track),
+                'comment' => $track->comment,
+            ])->values(),
         ];
     }
 

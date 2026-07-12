@@ -109,11 +109,15 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 throw new RuntimeException('The updated audio-file fingerprint could not be read.');
             }
 
-            $track->update([
+            $trackAttributes = [
                 'year' => $metadata->year,
                 'disc_number' => $metadata->discNumber,
                 'metadata' => $metadata->rawMetadata,
-            ]);
+            ];
+            if (array_key_exists('comment', $item->requested_changes)) {
+                $trackAttributes['comment'] = $metadata->comment;
+            }
+            $track->update($trackAttributes);
             $mediaFile->update([
                 'file_size' => $fileSize,
                 'modified_at' => CarbonImmutable::createFromTimestampUTC($modifiedAt),

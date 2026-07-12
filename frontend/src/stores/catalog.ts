@@ -61,6 +61,7 @@ export interface Track {
   trackNumber?: number
   discNumber?: number
   year?: number | null
+  comment?: string | null
   album: {
     id: number
     title: string
@@ -73,7 +74,6 @@ export interface Track {
 }
 
 export interface TrackDetail extends Track {
-  comment?: string | null
   composers: string[]
   performers: string[]
   genres: NamedCatalogItem[]

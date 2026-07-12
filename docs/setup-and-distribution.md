@@ -105,7 +105,7 @@ first library root can be selected:
 For safety, user-provided mount targets should be confined to a known container
 prefix such as `/music`.
 
-The packaged Compose skeleton currently mounts one host folder into:
+The base packaged Compose file provides a first host-folder mount at:
 
 ```text
 /music/root-1
@@ -129,13 +129,26 @@ start it opens a native folder picker, generates missing secrets, starts the
 Compose stack, and opens the setup wizard. Later starts reuse `.env.packaged`
 and the existing Docker volumes.
 
-The first packaged scripts are now available:
+The packaged scripts are now available:
 
 ```powershell
 .\scripts\start-packaged.ps1 -MusicRoot "G:\Music"
 .\scripts\status-packaged.ps1
 .\scripts\stop-packaged.ps1
 ```
+
+The portable launcher opens a native folder picker repeatedly on first start.
+It records the host folders and stable container mappings in the ignored
+`packaged-roots.json` file and generates an ignored
+`compose.packaged.override.yaml` file. The override mounts every configured
+root into the backend, queue, scheduler, and migration services. Users can run
+`Configure Sonotheque Folders.cmd` later to append folders or replace the full
+list without editing Compose YAML.
+
+Mount order is significant. Existing host folders should retain their current
+position because `/music/root-N` paths are stored by the catalog. New folders
+should normally be appended. Removing or reordering a mount requires reviewing
+the corresponding library roots in Settings and rescanning affected roots.
 
 The start script creates `.env.packaged` when missing, generates stable local
 secrets once, runs migrations, starts the Compose services, and prints the app
@@ -288,8 +301,8 @@ remain the explicit default.
 - Serve the app through one HTTP port. (Complete)
 - Add separate backend, queue worker, scheduler, PostgreSQL, and web services.
   (Complete)
-- Keep music folders configurable as Compose volumes. (Initial one-root
-  skeleton complete)
+- Keep music folders configurable as Compose volumes. (Complete with generated
+  multi-root override configuration)
 - Add `.env.packaged.example` with commented defaults. (Complete)
 
 ### Phase 3: Packaged Startup Scripts
@@ -328,7 +341,9 @@ remain the explicit default.
 - Package the repository, scripts, default env files, and docs as a versioned
   archive. (Initial portable bundle complete)
 - Add double-click Windows launch, stop, and status wrappers. (Complete)
-- Add a first-launch host music-folder picker. (Complete for the initial root)
+- Add a first-launch host music-folder picker. (Complete for multiple roots)
+- Add stable multi-root host-folder configuration without manual YAML editing.
+  (Complete)
 - Generate a SHA-256 checksum beside each release archive. (Complete)
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
@@ -337,8 +352,8 @@ remain the explicit default.
 
 - Whether packaged mode should write metadata tags by default as read/write
   mounts, or mount music folders read-only until metadata writing is enabled.
-- Whether Docker mount configuration should be edited through a generated
-  Compose override file or through environment variables.
+- Whether a future installer should provide a richer mount editor with direct
+  removal and reordering safeguards beyond the generated Compose override.
 - Whether the frontend should be served by Laravel directly or by a dedicated
   web server service.
 - Whether the first packaged release should support LAN mode immediately or

@@ -16,7 +16,7 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>}  $values
+     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
      * @return array<string, mixed>
      */
     public function preview(Album $album, array $values): array
@@ -28,18 +28,26 @@ class AlbumMetadataEditing
             ->sort()
             ->values()
             ->all();
+        $currentComments = $album->tracks
+            ->pluck('comment')
+            ->uniqueStrict()
+            ->values()
+            ->all();
         $current = [
             'albumTitle' => $album->title,
             'albumArtist' => $album->primaryArtist?->name ?? '',
             'releaseYear' => $album->original_release_year,
             'totalDiscs' => $album->disc_total,
             'genres' => $currentGenres,
+            'comment' => count($currentComments) === 1 ? $currentComments[0] : $currentComments,
         ];
         $changes = [];
         foreach ($values as $field => $proposed) {
-            $unchanged = $field === 'genres'
-                ? $this->sameNames($current[$field], $proposed)
-                : $current[$field] === $proposed;
+            $unchanged = match ($field) {
+                'genres' => $this->sameNames($current[$field], $proposed),
+                'comment' => count($currentComments) === 1 && $currentComments[0] === $proposed,
+                default => $current[$field] === $proposed,
+            };
             if (! $unchanged) {
                 $changes[] = ['field' => $field, 'current' => $current[$field], 'proposed' => $proposed];
             }
@@ -75,7 +83,7 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>}  $values
+     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
      */
     public function queue(Album $album, array $values, string $fingerprint): MetadataEditJob
     {

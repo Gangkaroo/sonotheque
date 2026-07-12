@@ -109,6 +109,38 @@ class AlbumMetadataApiTest extends TestCase
         $this->assertSame(['albumTitle' => 'Changed album'], MetadataEditItem::firstOrFail()->requested_changes);
     }
 
+    public function test_it_can_clear_the_comment_on_every_album_track(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $album->tracks()->update(['comment' => 'Remove me']);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+            'comment' => null,
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonCount(1, 'changes')
+            ->assertJsonPath('changes.0.field', 'comment')
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertSame(['comment' => null], MetadataEditItem::firstOrFail()->requested_changes);
+        $this->assertSame(
+            [['comment' => null], ['comment' => null]],
+            MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->all(),
+        );
+    }
+
     /** @return array{albumTitle: string, albumArtist: string, releaseYear: int, totalDiscs: int, genres: list<string>} */
     private function values(): array
     {

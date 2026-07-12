@@ -124,6 +124,7 @@ class CatalogBrowseApiTest extends TestCase
     public function test_album_detail_returns_album_metadata_and_tracks(): void
     {
         [$artist, $album, $track] = $this->createCatalog();
+        $track->update(['comment' => 'Album comment']);
         $artwork = Artwork::create([
             'source_type' => ArtworkSource::Folder,
             'source_relative_path' => 'Cover/Front.jpg',
@@ -153,6 +154,7 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('genres.0.id', Genre::where('name', 'Rock')->value('id'))
             ->assertJsonPath('genres.0.name', 'Rock')
             ->assertJsonPath('tracks.0.id', $track->id)
+            ->assertJsonPath('tracks.0.comment', 'Album comment')
             ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$track->id}/stream")
             ->assertJsonPath('tracks.0.album.title', 'Album')
             ->assertJsonPath('tracks.0.album.artworkThumbnailUrl', "/api/artwork/{$artwork->id}/thumbnail")

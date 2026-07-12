@@ -16,15 +16,28 @@ Windows. They are included in the Docker package.
 2. Extract the release ZIP into a permanent folder, for example
    `C:\MusicLibrary`. Do not run it directly from the ZIP or a temporary folder.
 3. Double-click `Start Sonotheque.cmd`.
-4. Select the host folder containing your music when prompted.
+4. Select the host folders containing your music when prompted. After each
+   selection, Sonotheque asks whether another folder should be added.
 5. Wait for the first Docker build to finish. This takes longer than later
    starts because the application images must be downloaded and built.
 6. The browser opens `http://127.0.0.1:8080/setup` automatically.
 7. Complete the setup wizard, review metadata-writing options, and start the
    first library scan.
 
-The selected host folder is mounted into the application as `/music/root-1`.
-Music remains in its original location and is not copied into the package.
+The selected host folders are mounted into the application as `/music/root-1`,
+`/music/root-2`, and so on. Music remains in its original location and is not
+copied into the package.
+
+## Adding Or Changing Music Folders
+
+Double-click `Configure Sonotheque Folders.cmd` to add folders or replace the
+complete mount list. Existing mappings are shown before changes are made.
+
+Keep existing folders in the same order when replacing the list. The order
+determines the stable container paths used by the catalog. After changing the
+mounts, stop and start Sonotheque, then add new `/music/root-N` paths from the
+in-app folder browser. Removing a mount does not immediately delete its catalog
+entry; remove or rescan the corresponding library root from Settings.
 
 ## Later Starts And Stops
 
@@ -33,6 +46,7 @@ Music remains in its original location and is not copied into the package.
 - Double-click `Stop Sonotheque.cmd` to stop the app without deleting data.
 - Double-click `Sonotheque Status.cmd` to inspect the running services and
   show the current URL.
+- Double-click `Configure Sonotheque Folders.cmd` to manage host-folder mounts.
 
 The installation configuration is stored in `.env.packaged`. Application data
 is stored in named Docker volumes. Do not delete either when updating.

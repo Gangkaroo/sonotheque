@@ -35,7 +35,16 @@ const metadataError = ref<string | null>(null)
 const metadataSuccess = ref(false)
 const metadataPreview = ref<AlbumMetadataPreview | null>(null)
 const metadataJob = ref<AlbumMetadataJob | null>(null)
-const metadataForm = reactive({ albumTitle: '', albumArtist: '', releaseYear: '', totalDiscs: '', genres: [] as string[] })
+const metadataForm = reactive({
+  albumTitle: '',
+  albumArtist: '',
+  releaseYear: '',
+  totalDiscs: '',
+  genres: [] as string[],
+  comment: '',
+})
+const metadataCommentEnabled = ref(false)
+const metadataCommentsMixed = ref(false)
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectionMode = ref(false)
 const selectedTrackIds = ref<number[]>([])
@@ -61,10 +70,11 @@ interface AlbumMetadataValues {
   releaseYear: number | null
   totalDiscs: number | null
   genres: string[]
+  comment?: string | null
 }
 
 interface AlbumMetadataChange {
-  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres'
+  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'comment'
   current: string | number | string[] | null
   proposed: string | number | string[] | null
 }
@@ -379,13 +389,17 @@ async function batchMetadataCompleted(count: number) {
 function openMetadataEditor() {
   if (!album.value) return
 
+  const comments = [...new Set(tracks.value.map((track) => track.comment ?? null))]
   Object.assign(metadataForm, {
     albumTitle: album.value.title,
     albumArtist: album.value.primaryArtist?.name ?? '',
     releaseYear: album.value.originalReleaseYear?.toString() ?? '',
     totalDiscs: album.value.discTotal?.toString() ?? '',
     genres: albumGenres.value.map((genre) => genre.name),
+    comment: comments.length === 1 ? comments[0] ?? '' : '',
   })
+  metadataCommentEnabled.value = false
+  metadataCommentsMixed.value = comments.length > 1
   metadataStep.value = 'form'
   metadataPreview.value = null
   metadataJob.value = null
@@ -397,13 +411,16 @@ function metadataValues(): AlbumMetadataValues {
   const year = metadataForm.releaseYear.trim()
   const totalDiscs = metadataForm.totalDiscs.trim()
 
-  return {
+  const values: AlbumMetadataValues = {
     albumTitle: metadataForm.albumTitle.trim(),
     albumArtist: metadataForm.albumArtist.trim(),
     releaseYear: year === '' ? null : Number(year),
     totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
     genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
   }
+  if (metadataCommentEnabled.value) values.comment = metadataForm.comment.trim() || null
+
+  return values
 }
 
 async function previewMetadataEdit() {
@@ -477,6 +494,7 @@ function metadataFieldLabel(field: AlbumMetadataChange['field']) {
     releaseYear: t('albums.releaseYear'),
     totalDiscs: t('albums.totalDiscs'),
     genres: t('tracks.genres'),
+    comment: t('tracks.comment'),
   }[field]
 }
 
@@ -939,6 +957,22 @@ onUnmounted(() => {
             :label="t('tracks.genres')"
             multiple
             persistent-hint
+          />
+          <v-checkbox
+            v-model="metadataCommentEnabled"
+            density="compact"
+            hide-details
+            :label="t('albums.metadataChangeComment')"
+          />
+          <v-textarea
+            v-model="metadataForm.comment"
+            clearable
+            :disabled="!metadataCommentEnabled"
+            :hint="metadataCommentsMixed ? t('albums.metadataCommentMixedHint') : t('albums.metadataCommentHint')"
+            :label="t('tracks.comment')"
+            maxlength="10000"
+            persistent-hint
+            rows="3"
           />
           <div class="text-caption text-medium-emphasis">{{ t('albums.metadataPreviewHint') }}</div>
         </template>

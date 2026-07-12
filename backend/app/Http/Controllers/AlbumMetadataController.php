@@ -27,7 +27,7 @@ class AlbumMetadataController extends Controller
         return response()->json($this->payloads->job($job), 202);
     }
 
-    /** @return array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>} */
+    /** @return array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string} */
     private function values(Request $request): array
     {
         $validated = $request->validate([
@@ -37,6 +37,7 @@ class AlbumMetadataController extends Controller
             'totalDiscs' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
             'genres' => ['present', 'array', 'max:50'],
             'genres.*' => ['string', 'max:255', 'not_regex:/^\s*$/'],
+            'comment' => ['sometimes', 'nullable', 'string', 'max:10000'],
         ]);
         $genres = collect($validated['genres'])
             ->map(fn (string $genre) => trim($genre))
@@ -44,12 +45,17 @@ class AlbumMetadataController extends Controller
             ->values()
             ->all();
 
-        return [
+        $values = [
             'albumTitle' => trim($validated['albumTitle']),
             'albumArtist' => trim($validated['albumArtist']),
             'releaseYear' => $validated['releaseYear'],
             'totalDiscs' => $validated['totalDiscs'],
             'genres' => $genres,
         ];
+        if (array_key_exists('comment', $validated)) {
+            $values['comment'] = filled($validated['comment']) ? trim($validated['comment']) : null;
+        }
+
+        return $values;
     }
 }

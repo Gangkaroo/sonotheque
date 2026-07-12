@@ -66,6 +66,7 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
             'releaseYear' => 2025,
             'totalDiscs' => 2,
             'genres' => ['Doom', 'Metal'],
+            'comment' => null,
         ];
         $preview = $editing->preview($album, $values);
         $edit = $editing->queue($album, $values, $preview['fingerprint']);
@@ -84,6 +85,7 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertSame(2025, $album->original_release_year);
         $this->assertSame(2, $album->disc_total);
         $this->assertEqualsCanonicalizing(['Doom', 'Metal'], $album->tracks->first()->genres()->pluck('name')->all());
+        $this->assertSame([null, null], $album->tracks()->orderBy('track_number')->pluck('comment')->all());
         $this->assertDatabaseMissing(Genre::class, ['name' => 'Old genre']);
         $this->assertSame(['Track 1', 'Track 2'], $album->tracks()->orderBy('track_number')->pluck('title')->all());
         $this->assertSame([1, 2], $album->tracks()->orderBy('track_number')->pluck('track_number')->all());
@@ -167,6 +169,7 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
                 'sort_title' => "Track {$position}",
                 'disc_number' => 1,
                 'track_number' => $position,
+                'comment' => 'Remove me',
             ]);
             $track->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
             $track->genres()->attach($oldGenre);

@@ -10,4 +10,5 @@ Initial portable release candidate with:
 - playback statistics and optional metadata synchronization;
 - Last.fm, MusicBrainz, and lyrics enrichment;
 - Docker-based local and LAN runtime modes;
+- guided multi-folder host mounts with stable container paths;
 - guided first-run setup, health diagnostics, backup, and restore tooling.

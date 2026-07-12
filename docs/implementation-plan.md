@@ -805,8 +805,10 @@ restore for PostgreSQL and application storage are complete. The initial
 versioned Windows portable bundle, double-click launcher, host-folder picker,
 installation guide, and release checksum are also complete. Remaining release
 work is publishing the archive through GitHub Releases, automating repeatable
-release builds, refining multiple host-root mount management, and verifying LAN
-behavior from a second physical device on the local network.
+release builds, and verifying LAN behavior from a second physical device on
+the local network. Packaged multi-root mount management now uses a generated
+Compose override with stable `/music/root-N` mappings and a native Windows
+folder-selection flow.
 
 ## First Milestone Definition
 

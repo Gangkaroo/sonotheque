@@ -4,6 +4,8 @@
 runtime-logs
 backups
 dist
+compose.packaged.override.yaml
+packaged-roots.json
 
 backend/.env
 backend/.env.testing

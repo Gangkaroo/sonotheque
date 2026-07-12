@@ -23,6 +23,7 @@ class FakeAlbumTrackMetadataWriter implements TrackMetadataWriter
             year: $values['releaseYear'],
             originalReleaseYear: $values['releaseYear'],
             discTotal: $values['totalDiscs'],
+            comment: $values['comment'] ?? null,
             rawMetadata: ['verified' => true],
         );
     }
