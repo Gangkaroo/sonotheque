@@ -804,11 +804,13 @@ first-run setup, health checks, and checksummed manual backup and guarded
 restore for PostgreSQL and application storage are complete. The initial
 versioned Windows portable bundle, double-click launcher, host-folder picker,
 installation guide, and release checksum are also complete. Remaining release
-work is publishing the archive through GitHub Releases, automating repeatable
-release builds, and verifying LAN behavior from a second physical device on
-the local network. Packaged multi-root mount management now uses a generated
-Compose override with stable `/music/root-N` mappings and a native Windows
-folder-selection flow.
+work is performing the first live tagged GitHub Release and verifying LAN
+behavior from a second physical device on the local network. Repeatable release
+builds and GitHub publication are now automated by a tag-driven workflow that
+runs backend and frontend validation before building and auditing the Windows
+portable archive. Packaged multi-root mount management uses a generated Compose
+override with stable `/music/root-N` mappings and a native Windows folder-selection
+flow.
 
 ## First Milestone Definition
 

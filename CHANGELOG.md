@@ -11,4 +11,5 @@ Initial portable release candidate with:
 - Last.fm, MusicBrainz, and lyrics enrichment;
 - Docker-based local and LAN runtime modes;
 - guided multi-folder host mounts with stable container paths;
-- guided first-run setup, health diagnostics, backup, and restore tooling.
+- guided first-run setup, health diagnostics, backup, and restore tooling;
+- reproducible tag-driven GitHub Release builds with tests and checksum audits.

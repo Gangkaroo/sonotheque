@@ -1,0 +1,142 @@
+name: Publish Sonotheque Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify application
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: music_library_test
+          POSTGRES_USER: music_library
+          POSTGRES_PASSWORD: music_library
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U music_library -d music_library_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.5"
+          extensions: bcmath, gd, intl, mbstring, pcntl, pdo_pgsql, zip
+          coverage: none
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Check PHP style and autoloading
+        working-directory: backend
+        run: |
+          vendor/bin/pint --test
+          composer check:autoload
+
+      - name: Run backend tests
+        working-directory: backend
+        run: php artisan test
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+  publish:
+    name: Build and publish portable package
+    needs: verify
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: .\scripts\assert-release-version.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Build portable archive
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: .\scripts\build-release.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Verify portable archive
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: .\scripts\verify-release.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Extract release notes
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: .\scripts\get-release-notes.ps1 -Version $env:RELEASE_VERSION -OutputPath dist\release-notes.md
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonotheque-${{ steps.version.outputs.version }}-windows-portable
+          path: |
+            dist/releases/sonotheque-${{ steps.version.outputs.version }}-windows-portable.zip
+            dist/releases/sonotheque-${{ steps.version.outputs.version }}-windows-portable.zip.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $archive = "dist/releases/sonotheque-$env:RELEASE_VERSION-windows-portable.zip"
+          $checksum = "$archive.sha256"
+          $arguments = @(
+            'release', 'create', $env:RELEASE_TAG,
+            $archive, $checksum,
+            '--title', "Sonotheque $env:RELEASE_VERSION",
+            '--notes-file', 'dist/release-notes.md',
+            '--verify-tag'
+          )
+          if ($env:RELEASE_VERSION.Contains('-')) {
+            $arguments += '--prerelease'
+          }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh release create exited with code $LASTEXITCODE."
+          }

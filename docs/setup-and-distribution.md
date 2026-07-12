@@ -345,8 +345,40 @@ remain the explicit default.
 - Add stable multi-root host-folder configuration without manual YAML editing.
   (Complete)
 - Generate a SHA-256 checksum beside each release archive. (Complete)
+- Publish tagged portable archives through a verified GitHub Actions workflow.
+  (Workflow complete; first live tagged release pending)
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
+
+## Publishing A Release
+
+Release publication is intentionally tag-driven. Ordinary branch pushes never
+create downloadable releases.
+
+1. Update `VERSION`, `frontend/package.json`, and both version entries in
+   `frontend/package-lock.json` to the same semantic version.
+2. Add a matching `## X.Y.Z` section to `CHANGELOG.md` and replace
+   `Unreleased` with the release date when the contents are final.
+3. Merge the intended release commit into the release branch.
+4. Create and push an annotated tag:
+
+```powershell
+git tag -a v0.1.0 -m "Sonotheque 0.1.0"
+git push origin v0.1.0
+```
+
+The `Publish Sonotheque Release` workflow then runs the PostgreSQL-backed PHP
+suite, PSR-12 and PSR-4 checks, frontend lint/tests/build, and the Windows
+portable package build. It verifies the archive contents and SHA-256 checksum
+before creating the GitHub Release from the matching changelog section.
+
+Maintainers can reproduce the package checks locally without publishing:
+
+```powershell
+.\scripts\assert-release-version.ps1 -Tag v0.1.0
+.\scripts\build-release.ps1 -Version 0.1.0
+.\scripts\verify-release.ps1 -Version 0.1.0
+```
 
 ## Open Decisions
 
