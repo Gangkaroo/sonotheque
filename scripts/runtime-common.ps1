@@ -492,6 +492,12 @@ function Find-ExternalQueueWorker {
         Select-Object -First 1
 }
 
+function Find-ExternalScheduler {
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'artisan\s+schedule:work' } |
+        Select-Object -First 1
+}
+
 function Get-RuntimeStatus {
     $runtimeMode = Get-RuntimeModeState
     $frontendHost = if ($null -ne $runtimeMode -and $runtimeMode.mode -eq 'lan') {
@@ -507,6 +513,8 @@ function Get-RuntimeStatus {
     $apiHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/up'
     $queueProcess = Get-ManagedProcess -Name 'queue-worker'
     $externalQueue = if ($null -eq $queueProcess) { Find-ExternalQueueWorker } else { $null }
+    $schedulerProcess = Get-ManagedProcess -Name 'scheduler'
+    $externalScheduler = if ($null -eq $schedulerProcess) { Find-ExternalScheduler } else { $null }
     $frontendProcess = Get-ManagedProcess -Name 'frontend'
     $frontendOwner = Get-PortOwner -Port 5173
     $frontendHealthy = Test-HttpEndpoint -Uri $frontendUri
@@ -526,6 +534,11 @@ function Get-RuntimeStatus {
             Service = 'Queue worker'
             Status = if ($null -ne $queueProcess -or $null -ne $externalQueue) { 'Running' } else { 'Stopped' }
             Details = if ($null -ne $queueProcess) { "managed PID $($queueProcess.Id)" } elseif ($null -ne $externalQueue) { "external PID $($externalQueue.ProcessId)" } else { '-' }
+        },
+        [pscustomobject]@{
+            Service = 'Scheduler'
+            Status = if ($null -ne $schedulerProcess -or $null -ne $externalScheduler) { 'Running' } else { 'Stopped' }
+            Details = if ($null -ne $schedulerProcess) { "managed PID $($schedulerProcess.Id)" } elseif ($null -ne $externalScheduler) { "external PID $($externalScheduler.ProcessId)" } else { '-' }
         },
         [pscustomobject]@{
             Service = 'Vue frontend'

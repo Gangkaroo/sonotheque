@@ -732,11 +732,14 @@ Last.fm integration.
   (Initial complete)
 - Add a first-run setup UI for runtime checks, mounted library folders, cover
   paths, scan exclusions, metadata-writing settings, optional connections, and
-  the first scan.
+  the first scan. (Complete, with persisted resumable progress)
 - Add Settings > System health checks for database, queue worker, scheduler,
-  storage, mounted roots, stale scans, and failed queue jobs.
+  storage, mounted roots, stale scans, and failed queue jobs. (Complete for
+  database and queue state, scheduler heartbeat, storage, mounted roots, active
+  and failed scans, and failed queue jobs)
 - Add manual backup and restore commands for PostgreSQL data and application
-  storage.
+  storage. (Complete with checksummed development and packaged bundles,
+  APP_KEY preservation, safety backups, and Settings status)
 
 ## Recommended Next Step
 
@@ -795,13 +798,13 @@ explicit sorting controls for albums/tracks/playlists and track-to-playlist
 membership navigation.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
-CORS allowlist, explicit startup mode, proxy-aware client IP handling, and
-Windows Firewall guidance are complete. The next infrastructure step is the
-packaged local runtime described in `docs/setup-and-distribution.md`: keep the
-developer scripts intact, add a production Compose path with one user-facing
-URL, make music-folder mounts explicit, then add packaged startup/status
-scripts, first-run setup, health checks, and manual backup/restore. LAN behavior
-should still be verified from a second physical device on the local network.
+CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows
+Firewall guidance, packaged Compose runtime, startup scripts, resumable
+first-run setup, health checks, and checksummed manual backup and guarded
+restore for PostgreSQL and application storage are complete. The next
+distribution step is a versioned portable bundle;
+LAN behavior should still be verified from a second physical device on the
+local network.
 
 ## First Milestone Definition
 

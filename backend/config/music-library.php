@@ -19,6 +19,12 @@ return [
         'timeout_seconds' => (int) env('FFPROBE_TIMEOUT_SECONDS', 15),
     ],
 
+    'system_health' => [
+        'backup_status_path' => storage_path('app/system-backups/latest.json'),
+        'scheduler_heartbeat_key' => 'music-library:system-health:scheduler-heartbeat',
+        'scheduler_stale_seconds' => (int) env('SYSTEM_HEALTH_SCHEDULER_STALE_SECONDS', 180),
+    ],
+
     'lastfm' => [
         'api_url' => env('LASTFM_API_URL', 'https://ws.audioscrobbler.com/2.0/'),
         'auth_url' => env('LASTFM_AUTH_URL', 'https://www.last.fm/api/auth/'),

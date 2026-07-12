@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    { path: '/setup', name: 'setup', component: () => import('@/views/SetupView.vue') },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
     { path: '/artists', name: 'artists', component: () => import('@/views/ArtistsView.vue') },
     { path: '/artists/:id', name: 'artist-detail', component: () => import('@/views/ArtistDetailView.vue') },

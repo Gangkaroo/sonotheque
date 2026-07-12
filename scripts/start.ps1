@@ -113,6 +113,22 @@ try {
         Write-Host 'Queue worker is already running.'
     }
 
+    if ($null -eq (Get-ManagedProcess -Name 'scheduler') -and $null -eq (Find-ExternalScheduler)) {
+        Write-Host 'Starting scheduler...'
+        Start-ManagedProcess `
+            -Name 'scheduler' `
+            -FilePath $php `
+            -ArgumentList @('artisan', 'schedule:work') `
+            -WorkingDirectory $script:BackendDirectory `
+            -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'scheduler.out.log') `
+            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'scheduler.err.log') `
+            -EnvironmentVariables $backendEnvironment | Out-Null
+        $startedServices.Add('scheduler')
+    }
+    else {
+        Write-Host 'Scheduler is already running.'
+    }
+
     if ($null -eq $frontendOwner) {
         Write-Host "Starting Vue frontend on $frontendHost..."
         $viteScript = Join-Path $script:FrontendDirectory 'node_modules\vite\bin\vite.js'
@@ -166,7 +182,7 @@ try {
 }
 catch {
     if ($Lan) {
-        foreach ($service in @('frontend', 'queue-worker', 'api')) {
+        foreach ($service in @('frontend', 'scheduler', 'queue-worker', 'api')) {
             if ($startedServices.Contains($service)) {
                 Stop-ManagedProcess -Name $service | Out-Null
             }

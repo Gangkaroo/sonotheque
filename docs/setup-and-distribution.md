@@ -245,18 +245,28 @@ The stop script should stop only the Compose services owned by this project.
 
 ## Backups
 
-The app already avoids moving or deleting music files. The packaged workflow
-should make application-data backups straightforward:
+The app avoids moving or deleting music files. Manual application-data backup
+and restore commands are available for both runtime modes:
 
-- Database dump for catalog, playlists, favorites, personal album data,
-  listening history, settings, and scan history.
-- Application storage backup for thumbnails, embedded artwork cache, and
-  metadata-edit backups if enabled.
-- Restore command that validates the target database and warns before replacing
-  existing app data.
+```powershell
+.\scripts\backup.ps1 -Mode Packaged
+.\scripts\restore.ps1 -BackupPath ".\backups\music-library-packaged-..." -Mode Packaged -Force
+```
+
+Each bundle contains a PostgreSQL custom-format dump, an uncompressed storage
+archive for fast handling of already-compressed artwork, the Laravel `APP_KEY`,
+and a manifest with SHA-256 hashes. Restore validates the
+bundle and runtime mode before changing data, creates a safety backup by
+default, stops application writers, restores database and storage, runs
+migrations, and returns previously running services to service.
+
+Music files and source cover images are not included. Metadata-edit backups
+stored in an explicitly configured external directory require a separate
+filesystem backup. Settings > System shows the latest completed system backup
+or restore recorded for the installation.
 
 Automated backup scheduling can wait; manual backup and restore commands should
-arrive first.
+remain the explicit default.
 
 ## Implementation Phases
 
@@ -294,23 +304,23 @@ arrive first.
 
 ### Phase 4: First-Run Setup UI
 
-- Detect incomplete setup.
+- Detect incomplete setup. (Complete)
 - Add a guided setup page for library roots, cover paths, scan exclusions,
-  metadata settings, and optional connections.
-- Add explanatory scan progress for the counting phase.
+  metadata settings, and optional connections. (Complete)
+- Add explanatory scan progress for the counting phase. (Complete)
 
 ### Phase 5: Health Page
 
-- Add backend health endpoints for database, queue, storage, roots, and failed
-  jobs.
-- Add a Settings > System tab that shows these checks.
-- Provide direct recovery hints for common issues.
+- Add backend health endpoints for database, queue, scheduler, storage, roots,
+  and failed jobs. (Complete)
+- Add a Settings > System tab that shows these checks. (Complete)
+- Provide direct recovery hints for common issues. (Complete)
 
 ### Phase 6: Backup And Restore
 
-- Add database backup and restore scripts.
-- Add storage backup guidance.
-- Surface backup status and restore guidance in Settings.
+- Add database backup and restore scripts. (Complete)
+- Add storage backup guidance. (Complete)
+- Surface backup status and restore guidance in Settings. (Complete)
 
 ### Phase 7: Installer Or Portable Bundle
 

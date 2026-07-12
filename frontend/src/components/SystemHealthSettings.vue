@@ -36,9 +36,20 @@ interface HealthStatus {
   scheduler: {
     status: SystemHealthStatus
     observable: boolean
-    message: string
+    lastHeartbeatAt: string | null
+    ageSeconds: number | null
+    message: string | null
   }
   storage: StorageCheck[]
+  backup: {
+    available: boolean
+    operation: 'backup' | 'restore' | null
+    status: string | null
+    mode: string | null
+    completedAt: string | null
+    bundleName: string | null
+    bytes: number | null
+  }
   libraryRoots: LibraryRootCheck[]
   scans: {
     active: number
@@ -92,6 +103,22 @@ const error = ref<string | null>(null)
 const rootNames = computed(() => new Map(
   health.value?.libraryRoots.map((root) => [root.id, root.name]) ?? [],
 ))
+const recoveryHints = computed(() => {
+  if (!health.value) return []
+
+  const hints: string[] = []
+  if (health.value.database.status === 'error') hints.push(t('settings.databaseRecoveryHint'))
+  if (health.value.queue.status === 'error' || (health.value.queue.failed ?? 0) > 0) {
+    hints.push(t('settings.queueRecoveryHint'))
+  }
+  if (health.value.scheduler.status !== 'ok') hints.push(t('settings.schedulerRecoveryHint'))
+  if (health.value.storage.some((entry) => entry.status === 'error')) hints.push(t('settings.storageRecoveryHint'))
+  if (health.value.libraryRoots.some((root) => root.enabled && root.status === 'error')) {
+    hints.push(t('settings.rootRecoveryHint'))
+  }
+
+  return hints
+})
 
 onMounted(loadHealth)
 
@@ -126,6 +153,32 @@ function formatDate(value: string | null | undefined) {
 
 function rootName(id: number) {
   return rootNames.value.get(id) ?? t('settings.unknownRoot')
+}
+
+function schedulerMessage() {
+  if (!health.value) return ''
+
+  if (health.value.scheduler.status === 'ok') {
+    return t('settings.schedulerHealthy', { date: formatDate(health.value.scheduler.lastHeartbeatAt) })
+  }
+  if (health.value.scheduler.status === 'warning') {
+    return t('settings.schedulerStale', { date: formatDate(health.value.scheduler.lastHeartbeatAt) })
+  }
+
+  return health.value.scheduler.message ?? t('settings.schedulerMissing')
+}
+
+function schedulerAlertType() {
+  return {
+    ok: 'success',
+    warning: 'warning',
+    error: 'error',
+    unknown: 'warning',
+  }[health.value?.scheduler.status ?? 'unknown'] as 'success' | 'warning' | 'error'
+}
+
+function backupMode() {
+  return health.value?.app.environment === 'production' ? 'Packaged' : 'Development'
 }
 </script>
 
@@ -219,9 +272,23 @@ function rootName(id: number) {
           </v-col>
         </v-row>
 
-        <v-alert class="mt-5" type="info" variant="tonal">
-          {{ health.scheduler.message }}
+        <v-alert class="mt-5" :type="schedulerAlertType()" variant="tonal" :title="t('settings.scheduler')">
+          {{ schedulerMessage() }}
         </v-alert>
+
+        <v-card v-if="recoveryHints.length" class="mt-5" border rounded="lg">
+          <v-card-item prepend-icon="mdi-lifebuoy">
+            <v-card-title class="text-subtitle-1">{{ t('settings.recoveryGuidance') }}</v-card-title>
+          </v-card-item>
+          <v-list density="compact" class="pt-0">
+            <v-list-item
+              v-for="hint in recoveryHints"
+              :key="hint"
+              prepend-icon="mdi-chevron-right"
+              :title="hint"
+            />
+          </v-list>
+        </v-card>
 
         <v-row class="mt-2">
           <v-col cols="12" lg="6">
@@ -316,6 +383,29 @@ function rootName(id: number) {
             </v-card>
           </v-col>
         </v-row>
+
+        <v-card class="mt-5" border rounded="lg">
+          <v-card-item prepend-icon="mdi-backup-restore">
+            <v-card-title class="text-subtitle-1">{{ t('settings.systemBackup') }}</v-card-title>
+            <v-card-subtitle>{{ t('settings.systemBackupDescription') }}</v-card-subtitle>
+          </v-card-item>
+          <v-card-text>
+            <v-alert v-if="health.backup.available" type="success" variant="tonal" class="mb-4">
+              {{ t('settings.latestSystemBackup', {
+                operation: t(`settings.backupOperations.${health.backup.operation}`),
+                date: formatDate(health.backup.completedAt),
+                name: health.backup.bundleName,
+                mode: health.backup.mode,
+              }) }}
+            </v-alert>
+            <v-alert v-else type="info" variant="tonal" class="mb-4">
+              {{ t('settings.noSystemBackup') }}
+            </v-alert>
+            <p class="text-body-2 mb-3">{{ t('settings.systemBackupGuidance') }}</p>
+            <code class="system-command d-block pa-3">.\scripts\backup.ps1 -Mode {{ backupMode() }}</code>
+            <code class="system-command d-block pa-3 mt-2">.\scripts\restore.ps1 -BackupPath &quot;...&quot; -Mode {{ backupMode() }} -Force</code>
+          </v-card-text>
+        </v-card>
       </template>
     </v-card-text>
   </v-card>
@@ -324,5 +414,11 @@ function rootName(id: number) {
 <style scoped>
 .system-path-cell {
   max-width: 20rem;
+}
+
+.system-command {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  border-radius: 8px;
+  overflow-x: auto;
 }
 </style>

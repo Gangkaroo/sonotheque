@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable([
+    'setup_step',
+    'setup_completed',
     'import_play_statistics_from_tags',
     'export_play_statistics_to_tags',
     'metadata_backups_enabled',
@@ -26,6 +28,8 @@ class ApplicationSetting extends Model
     public static function current(): self
     {
         return self::query()->first() ?? self::query()->create([
+            'setup_step' => 1,
+            'setup_completed' => false,
             'import_play_statistics_from_tags' => false,
             'export_play_statistics_to_tags' => false,
             'metadata_backups_enabled' => false,
@@ -60,6 +64,8 @@ class ApplicationSetting extends Model
     protected function casts(): array
     {
         return [
+            'setup_step' => 'integer',
+            'setup_completed' => 'boolean',
             'import_play_statistics_from_tags' => 'boolean',
             'export_play_statistics_to_tags' => 'boolean',
             'metadata_backups_enabled' => 'boolean',

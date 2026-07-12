@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Enums\ScanStatus;
 use App\Models\LibraryRoot;
 use App\Models\ScanRun;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -15,12 +17,13 @@ class SystemHealthController extends Controller
     {
         $database = $this->database();
         $queue = $this->queue();
+        $scheduler = $this->scheduler();
         $storage = $this->storage();
         $roots = $database['status'] === 'ok' ? $this->roots() : [];
         $scans = $database['status'] === 'ok' ? $this->scans() : $this->emptyScans();
 
         return response()->json([
-            'status' => $this->overallStatus($database, $queue, $storage, $roots),
+            'status' => $this->overallStatus($database, $queue, $scheduler, $storage, $roots),
             'checkedAt' => now()->toJSON(),
             'app' => [
                 'environment' => app()->environment(),
@@ -32,15 +35,50 @@ class SystemHealthController extends Controller
             ],
             'database' => $database,
             'queue' => $queue,
-            'scheduler' => [
-                'status' => 'unknown',
-                'observable' => false,
-                'message' => 'No scheduler heartbeat has been recorded yet.',
-            ],
+            'scheduler' => $scheduler,
             'storage' => $storage,
+            'backup' => $this->backup(),
             'libraryRoots' => $roots,
             'scans' => $scans,
         ]);
+    }
+
+    /** @return array{status: string, observable: bool, lastHeartbeatAt: string|null, ageSeconds: int|null, message: string|null} */
+    private function scheduler(): array
+    {
+        try {
+            $value = Cache::get((string) config('music-library.system_health.scheduler_heartbeat_key'));
+            if (! is_string($value) || $value === '') {
+                return [
+                    'status' => 'unknown',
+                    'observable' => true,
+                    'lastHeartbeatAt' => null,
+                    'ageSeconds' => null,
+                    'message' => 'No scheduler heartbeat has been recorded yet.',
+                ];
+            }
+
+            $heartbeat = CarbonImmutable::parse($value);
+            $ageSeconds = (int) max(0, $heartbeat->diffInSeconds(now()));
+            $staleAfter = max(60, (int) config('music-library.system_health.scheduler_stale_seconds', 180));
+            $stale = $ageSeconds > $staleAfter;
+
+            return [
+                'status' => $stale ? 'warning' : 'ok',
+                'observable' => true,
+                'lastHeartbeatAt' => $heartbeat->toJSON(),
+                'ageSeconds' => $ageSeconds,
+                'message' => $stale ? 'The scheduler heartbeat is stale.' : null,
+            ];
+        } catch (Throwable $exception) {
+            return [
+                'status' => 'error',
+                'observable' => false,
+                'lastHeartbeatAt' => null,
+                'ageSeconds' => null,
+                'message' => $exception->getMessage(),
+            ];
+        }
     }
 
     /** @return array{status: string, connection: string, message: string|null} */
@@ -143,6 +181,47 @@ class SystemHealthController extends Controller
         ])->values()->all();
     }
 
+    /** @return array<string, mixed> */
+    private function backup(): array
+    {
+        $path = (string) config('music-library.system_health.backup_status_path');
+        if (! is_file($path)) {
+            return [
+                'available' => false,
+                'operation' => null,
+                'status' => null,
+                'mode' => null,
+                'completedAt' => null,
+                'bundleName' => null,
+                'bytes' => null,
+            ];
+        }
+
+        try {
+            $payload = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+
+            return [
+                'available' => true,
+                'operation' => $payload['operation'] ?? null,
+                'status' => $payload['status'] ?? null,
+                'mode' => $payload['mode'] ?? null,
+                'completedAt' => $payload['completedAt'] ?? null,
+                'bundleName' => $payload['bundleName'] ?? null,
+                'bytes' => isset($payload['bytes']) ? (int) $payload['bytes'] : null,
+            ];
+        } catch (Throwable) {
+            return [
+                'available' => false,
+                'operation' => null,
+                'status' => 'invalid',
+                'mode' => null,
+                'completedAt' => null,
+                'bundleName' => null,
+                'bytes' => null,
+            ];
+        }
+    }
+
     /** @return list<array<string, mixed>> */
     private function roots(): array
     {
@@ -208,16 +287,22 @@ class SystemHealthController extends Controller
     }
 
     /** @param list<array<string, mixed>> $storage */
-    private function overallStatus(array $database, array $queue, array $storage, array $roots): string
-    {
+    private function overallStatus(
+        array $database,
+        array $queue,
+        array $scheduler,
+        array $storage,
+        array $roots,
+    ): string {
         if ($database['status'] === 'error'
             || $queue['status'] === 'error'
+            || $scheduler['status'] === 'error'
             || collect($storage)->contains(fn (array $entry): bool => $entry['status'] === 'error')
             || collect($roots)->contains(fn (array $root): bool => $root['status'] === 'error')) {
             return 'error';
         }
 
-        if ($queue['status'] === 'warning') {
+        if ($queue['status'] === 'warning' || in_array($scheduler['status'], ['warning', 'unknown'], true)) {
             return 'warning';
         }
 

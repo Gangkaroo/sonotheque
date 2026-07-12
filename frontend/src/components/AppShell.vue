@@ -1,13 +1,14 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from 'vuetify'
 
 import AppPlayer from '@/components/AppPlayer.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useFirstRunSetupStore } from '@/stores/firstRunSetup'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { useNowPlayingPanelStore } from '@/stores/nowPlayingPanel'
@@ -17,12 +18,15 @@ import { usePlayerStore } from '@/stores/player'
 const drawer = ref(/** @type {boolean | null} */ (null))
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const firstRunSetup = useFirstRunSetupStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
 const preferences = usePreferencesStore()
 const player = usePlayerStore()
 const route = useRoute()
+const router = useRouter()
+const isSetup = computed(() => route.name === 'setup')
 const { locale, t } = useI18n()
 const theme = useTheme()
 const filterableListRoutes = new Set(['artists', 'albums', 'tracks', 'genres'])
@@ -60,9 +64,18 @@ watch(
 )
 
 onMounted(async () => {
-  await Promise.all([libraryRoots.load(), favorites.loadIds()])
+  await Promise.all([libraryRoots.load(), favorites.loadIds(), firstRunSetup.load()])
   libraryRootScope.ensureValid(libraryRoots.roots)
+  enforceFirstRunSetup()
 })
+
+watch(() => route.name, enforceFirstRunSetup)
+
+function enforceFirstRunSetup() {
+  if (firstRunSetup.status && !firstRunSetup.status.completed && route.name !== 'setup') {
+    void router.replace({ name: 'setup' })
+  }
+}
 
 watch(
   () => libraryRootScope.selectedRootId,
@@ -85,7 +98,7 @@ watch(
 
 <template>
   <v-app>
-    <v-navigation-drawer v-model="drawer" width="272">
+    <v-navigation-drawer v-if="!isSetup" v-model="drawer" width="272">
       <div class="brand pa-5">
         <v-icon color="primary" icon="mdi-waveform" size="34" />
         <div>
@@ -134,7 +147,7 @@ watch(
       </template>
     </v-navigation-drawer>
 
-    <v-app-bar flat border="b">
+    <v-app-bar v-if="!isSetup" flat border="b">
       <v-tooltip :text="t('actions.toggleNavigation')" location="bottom">
         <template #activator="{ props }">
           <v-app-bar-nav-icon v-bind="props" :aria-label="t('actions.toggleNavigation')" @click="drawer = !drawer" />
@@ -175,7 +188,7 @@ watch(
       </v-container>
     </v-main>
 
-    <AppPlayer />
+    <AppPlayer v-if="!isSetup" />
   </v-app>
 </template>
 

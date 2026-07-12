@@ -9,6 +9,7 @@ use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
 use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\FavoritesController;
+use App\Http\Controllers\FirstRunSetupController;
 use App\Http\Controllers\FolderBrowserController;
 use App\Http\Controllers\LastFmSettingsController;
 use App\Http\Controllers\MetadataBackupSettingsController;
@@ -50,6 +51,8 @@ Route::get('/statistics/most-played-tracks', [PlaybackStatisticsController::clas
 Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::class, 'mostPlayedAlbums']);
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
+Route::get('/settings/first-run', [FirstRunSetupController::class, 'show']);
+Route::patch('/settings/first-run', [FirstRunSetupController::class, 'update']);
 Route::get('/settings/access', AdminAccessController::class);
 Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
 Route::get('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'show']);

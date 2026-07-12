@@ -10,11 +10,12 @@ setup, and backup story, see `docs/setup-and-distribution.md`.
 
 ## Services
 
-The development stack has four moving parts:
+The development stack has five moving parts:
 
 - PostgreSQL 18 in Docker, exposed on `127.0.0.1:5433`.
 - Laravel API on `http://127.0.0.1:8000`.
 - Laravel database queue worker for scans.
+- Laravel scheduler for maintenance tasks and health heartbeats.
 - Vue/Vite frontend on `http://127.0.0.1:5173`.
 
 The frontend proxies `/api` requests to `http://127.0.0.1:8000`.
@@ -203,6 +204,7 @@ docker compose up -d postgres
 cd backend
 & $php85 artisan serve --host=127.0.0.1 --port=8000
 & $php85 artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan schedule:work
 cd ..\frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
@@ -443,33 +445,48 @@ backend/storage/app/artwork
 
 ## Backup And Recovery
 
-This project is still early, but two things are worth preserving:
-
-- PostgreSQL data: catalog metadata, library roots, favorites, playlists, scan
-  history, and queue jobs.
-- Artwork cache: generated and copied cover images under
-  `backend/storage/app/artwork`.
-
-Create a database dump:
+Create a complete development-mode backup from the repository folder:
 
 ```powershell
-docker exec music-library-postgres pg_dump -U music_library music_library > music_library.sql
+.\scripts\backup.ps1 -Mode Development
 ```
 
-Restore a database dump into an empty database:
+For packaged mode, use:
 
 ```powershell
-Get-Content .\music_library.sql | docker exec -i music-library-postgres psql -U music_library music_library
+.\scripts\backup.ps1 -Mode Packaged
 ```
 
-Back up generated artwork thumbnails:
+Bundles are written below `backups/` by default. Each checksummed bundle contains:
+
+- `database.dump`: catalog, settings, favorites, playlists, listening history,
+  personal album data, and scan history.
+- `storage.tar`: application storage, including artwork thumbnails and
+  cached online content stored as files.
+- `app-key.txt`: the Laravel key required to decrypt protected settings.
+- `manifest.json`: runtime mode, creation time, file sizes, and SHA-256 hashes.
+
+The bundle contains a secret key and must be stored securely. Music files and
+folder cover originals are not included. A metadata-edit backup directory
+configured outside `backend/storage/app` must be backed up separately.
+
+Restore a development bundle only after checking its path:
 
 ```powershell
-Compress-Archive -Path backend\storage\app\artwork -DestinationPath artwork-backup.zip
+.\scripts\restore.ps1 `
+  -BackupPath ".\backups\music-library-development-20260712-120000" `
+  -Mode Development `
+  -Force
 ```
 
-The music files themselves are not copied, moved, deleted, or backed up by this
-application. They remain on the configured library drives.
+Use `-Mode Packaged` for a packaged bundle. Restore rejects altered files and
+bundles created for the other runtime mode. It creates a safety backup under
+`backups/pre-restore/`, stops application writers, restores PostgreSQL and
+storage, runs migrations, and restarts the previous runtime by default.
+
+If the bundle comes from another installation with a different `APP_KEY`, add
+`-UseBackupAppKey`. Use `-SkipSafetyBackup` only when a separate current backup
+has already been verified. `-NoRestart` leaves application services stopped.
 
 Folder cover originals are served from their source location and are no longer
 copied into application storage. Embedded originals are extracted from their

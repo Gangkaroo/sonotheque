@@ -1,6 +1,7 @@
 /.idea/
 /.codex/
 /runtime-logs/
+/backups/
 /.env.packaged
 /packaged/
 backend/storage/PsySH/
