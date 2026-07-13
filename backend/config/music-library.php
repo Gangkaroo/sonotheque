@@ -72,7 +72,7 @@ return [
             'web_url' => env('MUSICBRAINZ_WEB_URL', 'https://musicbrainz.org'),
             'user_agent' => env(
                 'MUSICBRAINZ_USER_AGENT',
-                'Sonotheque/0.1 (https://github.com/Gangkaroo/music-library)',
+                'Sonotheque/0.1 (https://github.com/Gangkaroo/sonotheque)',
             ),
             'timeout_seconds' => (int) env('MUSICBRAINZ_TIMEOUT_SECONDS', 20),
             'proxy' => env('MUSICBRAINZ_PROXY', ''),
@@ -85,7 +85,7 @@ return [
             'commons_api_url' => env('WIKIMEDIA_COMMONS_API_URL', 'https://commons.wikimedia.org/w/api.php'),
             'user_agent' => env(
                 'WIKIMEDIA_USER_AGENT',
-                env('MUSICBRAINZ_USER_AGENT', 'Sonotheque/0.1 (https://github.com/Gangkaroo/music-library)'),
+                env('MUSICBRAINZ_USER_AGENT', 'Sonotheque/0.1 (https://github.com/Gangkaroo/sonotheque)'),
             ),
             'timeout_seconds' => (int) env('WIKIMEDIA_TIMEOUT_SECONDS', 20),
             'proxy' => env('WIKIMEDIA_PROXY', ''),
