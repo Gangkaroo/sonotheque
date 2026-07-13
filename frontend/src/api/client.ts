@@ -1,7 +1,11 @@
 import { adminToken } from '@/stores/adminAccess'
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly violations: Record<string, string[]> = {}) {
+  constructor(
+    message: string,
+    public readonly violations: Record<string, string[]> = {},
+    public readonly status = 0,
+  ) {
     super(message)
   }
 }
@@ -26,7 +30,11 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
         [violation.message],
       ]),
     )
-    throw new ApiError(payload.detail ?? payload.message ?? 'The request could not be completed.', violations)
+    throw new ApiError(
+      payload.detail ?? payload.message ?? 'The request could not be completed.',
+      violations,
+      response.status,
+    )
   }
 
   return payload as T

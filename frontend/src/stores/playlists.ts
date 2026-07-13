@@ -37,6 +37,14 @@ export interface PlaylistDetail extends PlaylistSummary {
   items: PlaylistItem[]
 }
 
+export interface TrackPlaylistMembership {
+  id: number
+  name: string
+  folder?: Pick<PlaylistFolder, 'id' | 'name'> | null
+  firstItemId: number
+  occurrenceCount: number
+}
+
 interface FolderResponse {
   items: PlaylistFolder[]
 }
@@ -45,13 +53,24 @@ interface PlaylistResponse {
   items: PlaylistSummary[]
 }
 
+interface MembershipResponse {
+  items: Array<{
+    trackId: number
+    playlists: TrackPlaylistMembership[]
+  }>
+}
+
 export const usePlaylistsStore = defineStore('playlists', () => {
   const folders = ref<PlaylistFolder[]>([])
   const playlists = ref<PlaylistSummary[]>([])
   const current = ref<PlaylistDetail | null>(null)
+  const trackMemberships = ref<Record<number, TrackPlaylistMembership[]>>({})
   const loading = ref(false)
+  const membershipsLoading = ref(false)
   const saving = ref(false)
   const error = ref<string | null>(null)
+  const membershipsError = ref<string | null>(null)
+  let membershipRequestId = 0
 
   async function loadAll() {
     loading.value = true
@@ -80,6 +99,42 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  async function loadMemberships(trackIds: number[]) {
+    const requestedTrackIds = [...new Set(trackIds)]
+      .filter((trackId) => Number.isInteger(trackId) && trackId > 0)
+    if (!requestedTrackIds.length) return
+
+    const requestId = ++membershipRequestId
+    membershipsLoading.value = true
+    membershipsError.value = null
+    const parameters = new URLSearchParams()
+    requestedTrackIds.forEach((trackId) => parameters.append('trackIds[]', String(trackId)))
+
+    try {
+      const result = await apiRequest<MembershipResponse>(
+        withLibraryRootScope(`/playlists/memberships?${parameters.toString()}`),
+      )
+      if (requestId !== membershipRequestId) return
+
+      const nextMemberships = { ...trackMemberships.value }
+      requestedTrackIds.forEach((trackId) => {
+        nextMemberships[trackId] = []
+      })
+      result.items.forEach((item) => {
+        nextMemberships[item.trackId] = item.playlists
+      })
+      trackMemberships.value = nextMemberships
+    } catch (cause) {
+      if (requestId === membershipRequestId) membershipsError.value = errorMessage(cause)
+    } finally {
+      if (requestId === membershipRequestId) membershipsLoading.value = false
+    }
+  }
+
+  function membershipsForTrack(trackId: number) {
+    return trackMemberships.value[trackId] ?? []
   }
 
   async function createFolder(name: string) {
@@ -145,6 +200,8 @@ export const usePlaylistsStore = defineStore('playlists', () => {
           ? { ...folder, playlistCount: folder.playlistCount + 1 }
           : folder)
       }
+      const loadedTrackIds = (payload.trackIds ?? []).filter((trackId) => trackId in trackMemberships.value)
+      if (loadedTrackIds.length) await loadMemberships(loadedTrackIds)
       return playlist
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -210,6 +267,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       const playlist = playlists.value.find((item) => item.id === id)
       await apiRequest<void>(`/playlists/${id}`, { method: 'DELETE' })
       playlists.value = playlists.value.filter((item) => item.id !== id)
+      trackMemberships.value = Object.fromEntries(
+        Object.entries(trackMemberships.value).map(([trackId, memberships]) => [
+          trackId,
+          memberships.filter((membership) => membership.id !== id),
+        ]),
+      )
       if (playlist?.folder) {
         folders.value = folders.value.map((folder) => folder.id === playlist.folder?.id
           ? { ...folder, playlistCount: Math.max(0, folder.playlistCount - 1) }
@@ -231,6 +294,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     if (current.value?.id === playlistId) {
       current.value = { ...current.value, items: [...current.value.items, item], trackCount: current.value.trackCount + 1 }
     }
+    addMembership(item, playlistId)
 
     return item
   }
@@ -250,6 +314,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
         trackCount: current.value.trackCount + items.length,
       }
     }
+    items.forEach((item) => addMembership(item, playlistId))
 
     return items
   }
@@ -257,6 +322,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   async function removeItem(playlistId: number, itemId: number) {
     saving.value = true
     error.value = null
+    const removedTrackId = current.value?.id === playlistId
+      ? current.value.items.find((item) => item.id === itemId)?.track.id
+      : undefined
     try {
       await apiRequest<void>(`/playlists/${playlistId}/items/${itemId}`, { method: 'DELETE' })
       incrementPlaylistCount(playlistId, -1)
@@ -266,6 +334,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
           items: current.value.items.filter((item) => item.id !== itemId),
           trackCount: Math.max(0, current.value.trackCount - 1),
         }
+      }
+      if (removedTrackId !== undefined && removedTrackId in trackMemberships.value) {
+        await loadMemberships([removedTrackId])
       }
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -280,6 +351,11 @@ export const usePlaylistsStore = defineStore('playlists', () => {
 
     saving.value = true
     error.value = null
+    const removedTrackIds = current.value?.id === playlistId
+      ? [...new Set(current.value.items
+          .filter((item) => itemIds.includes(item.id))
+          .map((item) => item.track.id))]
+      : []
     try {
       const playlist = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${playlistId}/items`), {
         method: 'DELETE',
@@ -288,6 +364,8 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       const removedCount = itemIds.length
       incrementPlaylistCount(playlistId, -removedCount)
       if (current.value?.id === playlistId) current.value = playlist
+      const loadedTrackIds = removedTrackIds.filter((trackId) => trackId in trackMemberships.value)
+      if (loadedTrackIds.length) await loadMemberships(loadedTrackIds)
       return playlist
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -321,6 +399,37 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       : playlist)
   }
 
+  function addMembership(item: PlaylistItem, playlistId: number) {
+    const trackId = item.track.id
+    if (! (trackId in trackMemberships.value)) return
+
+    const playlist = playlists.value.find((candidate) => candidate.id === playlistId)
+    if (!playlist) return
+
+    const memberships = trackMemberships.value[trackId] ?? []
+    const existing = memberships.find((membership) => membership.id === playlistId)
+    const updatedMemberships = existing
+      ? memberships.map((membership) => membership.id === playlistId
+          ? {
+              ...membership,
+              firstItemId: Math.min(membership.firstItemId, item.id),
+              occurrenceCount: membership.occurrenceCount + 1,
+            }
+          : membership)
+      : [...memberships, {
+          id: playlist.id,
+          name: playlist.name,
+          folder: playlist.folder,
+          firstItemId: item.id,
+          occurrenceCount: 1,
+        }]
+
+    trackMemberships.value = {
+      ...trackMemberships.value,
+      [trackId]: sortMemberships(updatedMemberships),
+    }
+  }
+
   function updateFolderCounts(previousFolderId: number | null, nextFolderId: number | null) {
     if (previousFolderId === nextFolderId) return
 
@@ -336,11 +445,16 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     folders,
     playlists,
     current,
+    trackMemberships,
     loading,
+    membershipsLoading,
     saving,
     error,
+    membershipsError,
     loadAll,
     loadPlaylist,
+    loadMemberships,
+    membershipsForTrack,
     createFolder,
     updateFolder,
     createPlaylist,
@@ -360,6 +474,19 @@ function errorMessage(cause: unknown): string {
 }
 
 function sortPlaylists(items: PlaylistSummary[]) {
+  return [...items].sort((left, right) => {
+    const leftFolder = left.folder?.name ?? null
+    const rightFolder = right.folder?.name ?? null
+    if (leftFolder === null && rightFolder !== null) return 1
+    if (leftFolder !== null && rightFolder === null) return -1
+
+    const folderComparison = (leftFolder ?? '').localeCompare(rightFolder ?? '', undefined, { sensitivity: 'base' })
+
+    return folderComparison || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  })
+}
+
+function sortMemberships(items: TrackPlaylistMembership[]) {
   return [...items].sort((left, right) => {
     const leftFolder = left.folder?.name ?? null
     const rightFolder = right.folder?.name ?? null

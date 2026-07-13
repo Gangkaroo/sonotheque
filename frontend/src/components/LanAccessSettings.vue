@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { apiRequest } from '@/api/client'
+import { ApiError, apiRequest } from '@/api/client'
 import { useAdminAccessStore } from '@/stores/adminAccess'
 
 const emit = defineEmits<{ changed: [] }>()
@@ -14,6 +14,7 @@ const visible = ref(false)
 const saving = ref(false)
 const saved = ref(false)
 const error = ref<string | null>(null)
+const showRecoveryHint = ref(false)
 
 async function save() {
   const candidate = token.value.trim()
@@ -22,6 +23,7 @@ async function save() {
   saving.value = true
   saved.value = false
   error.value = null
+  showRecoveryHint.value = false
   try {
     await apiRequest<{ authorized: boolean }>('/settings/access', {
       headers: { 'X-Sonotheque-Admin-Token': candidate },
@@ -30,7 +32,12 @@ async function save() {
     saved.value = true
     emit('changed')
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('settings.adminTokenInvalid')
+    if (cause instanceof ApiError && cause.status === 403) {
+      error.value = t('settings.adminTokenRejected')
+      showRecoveryHint.value = true
+    } else {
+      error.value = cause instanceof Error ? cause.message : t('settings.adminTokenInvalid')
+    }
   } finally {
     saving.value = false
   }
@@ -42,6 +49,7 @@ function clear() {
   remember.value = false
   saved.value = false
   error.value = null
+  showRecoveryHint.value = false
   emit('changed')
 }
 </script>
@@ -56,7 +64,12 @@ function clear() {
       <v-alert class="mb-4" type="info" variant="tonal">
         {{ t('settings.adminTokenHint') }}
       </v-alert>
-      <v-alert v-if="error" class="mb-4" type="error" variant="tonal">{{ error }}</v-alert>
+      <v-alert v-if="error" class="mb-4" type="error" variant="tonal">
+        <div>{{ error }}</div>
+        <div v-if="showRecoveryHint" class="mt-2 text-body-2">
+          {{ t('settings.adminTokenRecoveryHint') }}
+        </div>
+      </v-alert>
       <v-alert v-if="saved" class="mb-4" type="success" variant="tonal">
         {{ t('settings.adminTokenSaved') }}
       </v-alert>

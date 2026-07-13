@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -19,6 +19,11 @@ const player = usePlayerStore()
 const libraryRootScope = useLibraryRootScopeStore()
 
 const playlistId = computed(() => Number(route.params.id))
+const targetPlaylistItemId = computed(() => {
+  const value = typeof route.query.playlistItem === 'string' ? Number(route.query.playlistItem) : NaN
+
+  return Number.isInteger(value) && value > 0 ? value : null
+})
 const playlist = computed(() => playlists.current)
 const tracks = computed(() => playlist.value?.items.map((item) => item.track) ?? [])
 const selectionMode = ref(false)
@@ -202,6 +207,16 @@ watch(() => playlist.value?.id, () => {
 watch(itemIds, (ids) => {
   selectedItemIds.value = selectedItemIds.value.filter((id) => ids.includes(id))
 })
+
+watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
+  if (itemId === null) return
+
+  await nextTick()
+  document.getElementById(`playlist-item-${itemId}`)?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'center',
+  })
+}, { immediate: true })
 </script>
 
 <template>
@@ -301,9 +316,11 @@ watch(itemIds, (ids) => {
         <v-list-item
           v-for="(item, index) in playlist.items"
           :key="item.id"
+          :id="`playlist-item-${item.id}`"
           class="playlist-item"
           :class="{
             'current-track': player.currentTrack?.id === item.track.id,
+            'membership-target': targetPlaylistItemId === item.id,
             'is-dragging': draggedItemId === item.id,
             'selection-active': selectionMode,
             ...itemDropClass(index),
@@ -499,6 +516,11 @@ watch(itemIds, (ids) => {
 
 .playlist-item.selection-active {
   cursor: pointer;
+}
+
+.playlist-item.membership-target {
+  box-shadow: inset 3px 0 rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
 }
 
 .playlist-item.has-drop-before::before,

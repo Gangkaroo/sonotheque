@@ -29,6 +29,8 @@ Build a local-first web application that scans configurable music folders, store
 - Monorepo containing backend, frontend, infrastructure, and documentation
 - PostgreSQL in Docker for local development
 - PHP running natively on Windows initially, so the scanner can access dynamically configured local folders
+- Versioned portable Windows releases using Docker Compose, nginx, Laravel,
+  queue and scheduler workers, PostgreSQL, and explicit host-folder mounts
 
 ## Repository Structure
 
@@ -40,9 +42,9 @@ sonotheque/
 `-- compose.yaml
 ```
 
-## MVP Scope
+## Product Scope
 
-The first usable release will provide:
+The implemented release baseline and active roadmap include:
 
 - Configuration of one or more local music folders
 - Manual and incremental library scans
@@ -71,10 +73,12 @@ The first usable release will provide:
 - Custom playlists, playlist folders, ordered playlist items, and queue-to-playlist actions
 - Personal album information, including purchase source, purchase date,
   physical-copy state, physical format, and notes
+- Root-scoped folder browsing with file and folder playback, queue, playlist,
+  and subtree-rescan actions
 - English and German translations
 - Localhost access by default and optional LAN access
 
-The following features are deferred until after the first stable local release:
+The following longer-term features remain deferred:
 
 - User accounts and permissions
 - Audio transcoding
@@ -115,6 +119,40 @@ root and pruned before scan counting and metadata parsing.
 
 Audio is delivered through a dedicated streaming endpoint supporting HTTP range requests. The server must verify that every requested file belongs to an enabled library root before reading it.
 
+### Folder Browsing And Subtree Scans
+
+The catalog will gain a root-scoped folder view without creating a second,
+duplicated folder hierarchy in PostgreSQL. Navigation should lazily list only
+the immediate children of the current directory from the filesystem, then join
+supported files to `media_files` and `tracks` for playable metadata and actions.
+Empty or not-yet-indexed directories therefore remain visible, while playback
+continues to use catalog track IDs and the existing guarded streaming endpoint.
+
+The browser sends a library-root ID and normalized relative directory path,
+never an arbitrary absolute host path. Laravel resolves every directory within
+the enabled root, rejects traversal and symbolic-link escapes, and applies the
+root's configured exclusions. An "All roots" catalog scope must prompt for a
+specific root before folder navigation begins.
+
+Single-file actions operate on one indexed, playable track. Folder actions use
+all supported, indexed tracks in the selected directory and its descendants so
+multi-disc and nested layouts behave as one collection. Large folder actions
+should show the number of affected tracks and retain deterministic filesystem,
+disc, and track ordering. Existing player queue and add-to-playlist workflows
+must be reused rather than introducing another queue representation.
+
+Subtree scans extend a normal scan run with an optional relative directory
+scope. Discovery, progress, diagnostics, cancellation, incremental fingerprint
+checks, and stale-file cleanup must all remain inside that subtree. Records
+beneath unreadable paths are preserved as in full scans, and records elsewhere
+in the root must never be marked stale. A full-root and subtree scan may not
+overlap for the same root initially. Subtree rescans remain administrative
+operations protected by the existing localhost/LAN admin-token boundary.
+
+The first folder view is read-oriented. Rename, move, delete, folder creation,
+and other filesystem mutations are deferred until conflict handling,
+permissions, rollback, and catalog reconciliation have explicit designs.
+
 ## Data Model
 
 ### `libraries`
@@ -142,6 +180,7 @@ Scan execution history:
 - Status and progress counters
 - Start and completion times
 - Trigger type
+- Optional normalized relative subtree path; `null` means the complete root
 - Warning and error summaries
 
 ### `media_files`
@@ -172,13 +211,19 @@ Artists store a normalized sort name and an indexed browse initial. The browse i
 Cached artwork metadata:
 
 - Source type and original source path
-- Cache path
+- Cache path for generated or extracted assets when needed
 - Thumbnail cache path
 - MIME type
 - Width and height when available
 - Checksum for deduplication
 
-Artwork should be cached as files rather than stored as PostgreSQL binary data. The original-size cached image is used on album detail pages, while a generated thumbnail is used in album lists and grids. Thumbnail dimensions and image quality should be application-level configuration with sensible defaults.
+Artwork should be cached as files rather than stored as PostgreSQL binary data.
+Folder artwork remains in its guarded library location instead of being copied
+at full resolution into application storage. Album details serve that source
+image through a guarded endpoint, while embedded artwork may be extracted and
+cached when needed. Generated thumbnails are cached for album lists and grids.
+Thumbnail dimensions and image quality should be application-level
+configuration with sensible defaults.
 
 ### Playback queue
 
@@ -231,7 +276,7 @@ music files.
 The UI should distinguish album-level metadata from track-level metadata:
 
 - Album-level fields: album title, album artist, original release year/date,
-  total discs, album genres, and shared release metadata.
+  total discs, album genres, shared comments, and shared release metadata.
 - Track-level fields: track title, track number, disc number, track artist,
   composer, performer, comment, track genres, and other values that can differ
   per file.
@@ -279,6 +324,9 @@ The first import implementation recognizes foobar2000/foo_playcount fields
 such as `PLAY_COUNT`, `FIRST_PLAYED_TIMESTAMP`, and `LAST_PLAYED_TIMESTAMP`, as
 well as common legacy aliases and the ID3 play counter. Timestamps support both
 textual date values and the Windows FILETIME values written by foo_playcount.
+Non-standard little-endian ID3 play counters are normalized, while ambiguous
+global popularity fields are retained as source metadata but are not treated as
+per-track play counts.
 Imports use a
 non-decreasing merge: counts never decrease, the earliest first-played value is
 retained, and the latest last-played value is retained. The exact imported
@@ -390,6 +438,8 @@ Completed:
 - Playlist folder, playlist, and ordered playlist-item persistence APIs
 - Playlists navigation page with folder and playlist creation/deletion
 - Add-to-playlist actions from tracks, albums, queue entries, and the player
+- Batched playlist-membership actions in track details, track lists, and album
+  track lists, with direct navigation to the highlighted playlist item
 - Playlist detail pages with ordered track lists, play/queue actions, removal confirmations, and reorder controls
 - Creating a new playlist from the current playback queue
 - Playlist detail usability refinements: visible playlist positions,
@@ -415,7 +465,7 @@ Completed:
 - Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
   Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup
-- Setup and distribution plan for a future non-developer packaged runtime with
+- Setup and distribution documentation for the non-developer packaged runtime with
   one app URL, Docker-mounted music folders, first-run setup, health checks,
   and backup/restore workflow
 - Initial packaged Docker Compose skeleton with built Vue assets behind nginx,
@@ -428,19 +478,27 @@ Completed:
   Laravel APP_KEY, restores a PostgreSQL dump, and remaps library-root paths to
   mounted container paths
 - Laravel middleware that protects filesystem and scan-management APIs from LAN access unless an admin token is configured
-- Exact trusted-host validation, deny-by-default CORS configuration, and a frontend Security tab for verified session or device admin tokens
+- Exact trusted-host validation, deny-by-default CORS configuration, a frontend
+  Security tab for verified session or device admin tokens, and documented
+  server-token recovery
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
 - Optional MP3 statistics synchronization using foo_playcount-compatible tags, with queued coalesced write-back
+- Defensive play-count import that normalizes non-standard ID3 counters and
+  excludes ambiguous global popularity values from per-track totals
 - Previewed and queued MP3 track/album metadata editing with verification, conflict fingerprints, and optional durable backups
 - Last.fm authorization and asynchronous scrobbling with encrypted credentials, shared counted-play rules, retry handling, and delivery state
 - Opt-in current-track enrichment using attributed Last.fm artist/album context and LRCLIB lyrics
 - Provider-aware enrichment caching with atomic request deduplication, unique stale refresh jobs, configurable throttling, exponential backoff, diagnostics, and cache controls
 
-In progress or still required for the first milestone:
+Open roadmap work:
 
-- Broader end-to-end and packaging coverage
+- Root-scoped folder browsing, folder/file playback actions, and safe subtree
+  rescans
+- Broader end-to-end, upgrade, and packaging coverage
+- Browsable metadata-backup audit and clearer failed/ignored Last.fm delivery
+  visibility
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, and the first portable release are repeatable; current feature work focuses on catalog workflow refinements and broader end-to-end coverage.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, and the `v0.1.0` portable release are repeatable; current feature work focuses on folder-based catalog workflows and broader end-to-end coverage.
 
 ### 1. Project Foundation
 
@@ -528,6 +586,43 @@ The implementation order changed from the original phase list. The scanner and a
 - Test cross-root entities, scoped counts, root switching, session restoration,
   personal-data preservation across scans, and scoped favorite/playlist views.
 
+### 4b. Root-Scoped Folder Browser And Subtree Scans
+
+This phase adds filesystem-oriented navigation without turning the catalog UI
+into a general-purpose file manager.
+
+- Add a Folders navigation entry that uses the current session root when one is
+  selected and requests a specific root when the scope is "All roots".
+- Reuse or extract the existing guarded folder-listing service so the page loads
+  one directory level at a time instead of recursively walking a drive.
+- Accept only a root ID and normalized relative path in folder APIs. Resolve the
+  path within the enabled root and reject traversal, symbolic links, excluded
+  directories, unavailable roots, and paths outside configured mounts.
+- Return immediate child directories plus supported files enriched with indexed
+  track, artist, album, duration, availability, and artwork data where present.
+  Hide unrelated non-audio files in the first version.
+- Add breadcrumb and parent navigation, clear loading/error/empty states, and
+  responsive English and German layouts.
+- Add play-now, add-to-queue, and add-to-playlist actions for a single indexed
+  track.
+- Add the same actions for all indexed tracks in the selected folder subtree.
+  Show the affected track count, confirm unusually large actions, and use a
+  deterministic relative-path/disc/track order.
+- Reuse the Pinia player queue, playlist chooser, and existing playback payloads
+  instead of creating folder-specific playback state.
+- Add an optional normalized subtree path to scan runs and dispatch. Keep one
+  active scan per root so full and subtree scans cannot overlap initially.
+- Restrict discovery, progress, diagnostics, incremental updates, and stale-file
+  removal to the selected subtree. Preserve unseen records beneath unreadable
+  paths and leave every record outside the subtree untouched.
+- Expose subtree scan progress, cancellation, completion details, and scan
+  history consistently from both the folder view and Settings.
+- Protect subtree rescans with the existing scan-management admin-token rules.
+- Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
+  end-to-end nested-disc fixture before enabling the feature in packaged mode.
+- Defer rename, move, delete, folder creation, and other write operations to a
+  later filesystem-management phase with explicit conflict and rollback rules.
+
 ### 5. Audio Playback
 
 - Implement an audio streaming endpoint with HTTP range support. (Complete)
@@ -542,7 +637,9 @@ The implementation order changed from the original phase list. The scanner and a
 - Add continuous play and random continuation settings. (Complete)
 - Continue by album when album playback reaches the end, and switch visible album detail pages accordingly. (Complete)
 - Continue by track when track-list playback reaches the end. (Complete)
-- Make player metadata navigable: track title opens track detail, album opens album detail, artist opens filtered albums, and "Now playing" jumps to the current track. (Complete)
+- Make player metadata navigable: track title opens track detail, album opens
+  album detail, artist opens the dedicated artist page, and "Now playing" jumps
+  to the current track. (Complete)
 - Handle unavailable files and unsupported browser codecs clearly. (Basic error feedback complete; detailed codec guidance pending)
 - Decide and implement the track-title navigation model for track-centric playback. (Complete)
 - Consider FFmpeg-based transcoding only after the MVP.
@@ -564,7 +661,8 @@ This phase was pulled forward after the queue model became stable. It builds on 
   folder/name, recently updated, and track count. (Complete)
 - Show playlist membership for tracks that already belong to one or more
   playlists, and provide an action from track contexts to navigate directly to
-  one of those playlists.
+  one of those playlists. (Complete for track details, track lists, and album
+  track lists, including direct item focus)
 - Consider importing/exporting playlists only after the core local workflow is stable.
 
 ### 5b. Metadata Editing
@@ -582,8 +680,9 @@ File writes remain queued and require a preview and explicit confirmation.
   performer, comment, track number, disc number, year, and genres on track
   detail)
 - Add album edit forms for shared fields such as album title, album artist,
-  release year/date, and album genres. (Complete for MP3 album title, album
-  artist, release year, total discs, and shared genres)
+  release year/date, album genres, and comments. (Complete for MP3 album title,
+  album artist, release year, total discs, shared genres, and setting or
+  removing the comment on every track)
 - Add album-track selection with bulk playback, queue, playlist, favorite, and
   metadata actions. The metadata mask must show common or mixed current values
   and leave every field untouched unless it is explicitly enabled. (Complete)
@@ -794,9 +893,17 @@ playback choices, favorites, history, and playlist contents, and preserves the
 existing player queue when the selection changes. Personal album information is
 now stored independently from scanned metadata and supports purchase source,
 purchase date, physical-copy state, physical format, and notes, plus
-physical-copy filters in album and track lists. The next catalog refinements are
-track-to-playlist membership navigation; explicit sorting controls are now
-complete for albums, tracks, and grouped playlists.
+physical-copy filters in album and track lists. Track-to-playlist membership
+navigation and explicit sorting controls are now complete for albums, tracks,
+and grouped playlists.
+
+The next feature phase is the root-scoped folder browser. Start with the guarded
+backend contract and optional scan-run subtree scope, including tests that prove
+stale cleanup cannot escape the selected subtree. Then add lazy breadcrumb
+navigation and reuse the existing player, queue, and playlist actions for files
+and recursively collected folder tracks. Filesystem mutations remain outside
+this phase. Afterward, return to the browsable metadata-backup audit and
+operational visibility for failed or ignored Last.fm scrobbles.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows
@@ -813,7 +920,7 @@ frontend validation before building and auditing the Windows portable archive.
 Packaged multi-root mount management uses a generated Compose override with
 stable `/music/root-N` mappings and a native Windows folder-selection flow.
 
-## First Milestone Definition
+## First Milestone Definition (Complete)
 
 The first milestone is complete when:
 
@@ -842,3 +949,9 @@ The first milestone is complete when:
   as the default, rather than modifying or duplicating catalog records.
 - Keep personal album information separate from scanned metadata so filesystem
   scans and tag edits cannot overwrite it.
+- Derive folder navigation from guarded, lazy filesystem listings enriched by
+  catalog records rather than storing a duplicate folder tree.
+- Identify folders by library-root ID and normalized relative path; never accept
+  arbitrary absolute paths from the catalog browser.
+- Keep the first folder view read-oriented, with playback, playlist, and scoped
+  scan actions but no filesystem mutations.

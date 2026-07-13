@@ -30,6 +30,38 @@ describe('playlists store', () => {
     expect(store.loading).toBe(false)
   })
 
+  it('loads playlist memberships for several tracks in one request', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/playlists/memberships?trackIds%5B%5D=1&trackIds%5B%5D=2') {
+        return jsonResponse({
+          items: [
+            {
+              trackId: 1,
+              playlists: [{
+                id: 10,
+                name: 'Mix',
+                folder: null,
+                firstItemId: 100,
+                occurrenceCount: 1,
+              }],
+            },
+            { trackId: 2, playlists: [] },
+          ],
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = usePlaylistsStore()
+    await store.loadMemberships([1, 2, 1])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(store.membershipsForTrack(1)).toEqual([expect.objectContaining({ id: 10, firstItemId: 100 })])
+    expect(store.membershipsForTrack(2)).toEqual([])
+  })
+
   it('orders playlists by folder and then name with unfiled playlists last', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url === '/api/playlist-folders') return jsonResponse({ items: [] })

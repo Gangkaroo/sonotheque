@@ -5,10 +5,13 @@ import { useRoute } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import { apiRequest } from '@/api/client'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
+import { usePlaylistsStore } from '@/stores/playlists'
 import { useStatisticsStore } from '@/stores/statistics'
 import { formatDateTime, formatDuration as duration } from '@/utils/formatters'
 
@@ -16,7 +19,9 @@ const { locale, t } = useI18n()
 const route = useRoute()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRootScope = useLibraryRootScopeStore()
 const player = usePlayerStore()
+const playlists = usePlaylistsStore()
 const statistics = useStatisticsStore()
 const addToPlaylistDialog = ref(false)
 const recentPlaysPage = ref(1)
@@ -354,11 +359,12 @@ function loadRecentPlays(page = recentPlaysPage.value) {
   void statistics.loadTrackRecentPlays(trackId.value, page)
 }
 
-watch(trackId, (id) => {
+watch([trackId, () => libraryRootScope.selectedRootId], ([id]) => {
   if (!Number.isInteger(id) || id <= 0) return
 
   recentPlaysPage.value = 1
   void catalog.loadTrack(id)
+  void playlists.loadMemberships([id])
   loadRecentPlays(1)
 }, { immediate: true })
 
@@ -424,6 +430,7 @@ onUnmounted(() => {
         >
           {{ t('playlists.addTrackToPlaylist') }}
         </v-btn>
+        <TrackPlaylistMembershipMenu :track-id="track.id" />
         <v-btn
           color="primary"
           prepend-icon="mdi-tag-edit-outline"

@@ -99,6 +99,65 @@ class PlaylistsController extends Controller
         ]);
     }
 
+    public function memberships(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'trackIds' => ['required', 'array', 'min:1', 'max:500'],
+            'trackIds.*' => ['integer', 'distinct', 'exists:tracks,id'],
+        ]);
+        $trackIds = collect($validated['trackIds'])
+            ->map(fn (mixed $trackId): int => (int) $trackId)
+            ->values();
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $memberships = PlaylistItem::query()
+            ->select([
+                'playlist_items.track_id',
+                'playlists.id as playlist_id',
+                'playlists.name as playlist_name',
+                'playlist_folders.id as folder_id',
+                'playlist_folders.name as folder_name',
+            ])
+            ->selectRaw('MIN(playlist_items.id) AS first_item_id')
+            ->selectRaw('COUNT(*) AS occurrence_count')
+            ->join('playlists', 'playlists.id', '=', 'playlist_items.playlist_id')
+            ->leftJoin('playlist_folders', 'playlist_folders.id', '=', 'playlists.playlist_folder_id')
+            ->whereIn('playlist_items.track_id', $trackIds)
+            ->whereHas(
+                'track',
+                fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+            )
+            ->groupBy([
+                'playlist_items.track_id',
+                'playlists.id',
+                'playlists.name',
+                'playlist_folders.id',
+                'playlist_folders.name',
+            ])
+            ->orderByRaw('playlist_folders.id is null')
+            ->orderByRaw('lower(playlist_folders.name)')
+            ->orderByRaw('lower(playlists.name)')
+            ->get()
+            ->groupBy(fn (PlaylistItem $item): int => (int) $item->track_id);
+
+        return response()->json([
+            'items' => $trackIds->map(fn (int $trackId): array => [
+                'trackId' => $trackId,
+                'playlists' => $memberships->get($trackId, collect())
+                    ->map(fn (PlaylistItem $item): array => [
+                        'id' => (int) $item->playlist_id,
+                        'name' => $item->playlist_name,
+                        'folder' => $item->folder_id !== null ? [
+                            'id' => (int) $item->folder_id,
+                            'name' => $item->folder_name,
+                        ] : null,
+                        'firstItemId' => (int) $item->first_item_id,
+                        'occurrenceCount' => (int) $item->occurrence_count,
+                    ])
+                    ->values(),
+            ])->values(),
+        ]);
+    }
+
     public function playlist(Request $request, Playlist $playlist): JsonResponse
     {
         $libraryRootId = $this->libraryRootScope->id($request);

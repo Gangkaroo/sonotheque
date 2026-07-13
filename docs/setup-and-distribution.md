@@ -38,12 +38,12 @@ to local drives and while development changes should hot-reload quickly.
 
 ### Packaged Local Mode
 
-Packaged local mode should be the default for non-developer users:
+Packaged local mode is the default for non-developer users:
 
 - Docker Compose starts the database, backend, queue worker, scheduler, and a
   web server.
-- The frontend is built once and served as static files by the web container or
-  Laravel.
+- The frontend is built once and served as static files by nginx, which proxies
+  `/api` requests to Laravel.
 - The browser opens a single local URL, for example `http://127.0.0.1:8080`.
 - Laravel, the queue worker, and PostgreSQL are not exposed directly.
 - Music folders are mounted into the backend container as read/write or
@@ -52,7 +52,7 @@ Packaged local mode should be the default for non-developer users:
   local packaged mode. LAN mode disables that local-proxy shortcut and uses the
   admin-token boundary instead.
 
-The first skeleton for this mode is available in:
+The runtime for this mode is defined in:
 
 - `compose.packaged.yaml`
 - `.env.packaged.example`
@@ -64,7 +64,7 @@ It is intentionally separate from the current development `compose.yaml`.
 
 ### Packaged LAN Mode
 
-LAN mode should be an explicit manual choice:
+LAN mode is an explicit manual choice:
 
 - The app binds only to a selected private IPv4 address.
 - Settings, scans, folder browsing, metadata editing, and other administrative
@@ -77,6 +77,11 @@ LAN mode should be an explicit manual choice:
 
 Music folders do not need to live inside the Docker image. They should be
 mounted into the container.
+
+The catalog folder view can browse only within these configured mounts. It uses
+library-root IDs and relative paths, so host paths are not exposed to the
+browser and stable `/music/root-N` mappings continue to work after migration or
+host-folder changes.
 
 Example concept:
 
@@ -346,7 +351,7 @@ remain the explicit default.
   (Complete)
 - Generate a SHA-256 checksum beside each release archive. (Complete)
 - Publish tagged portable archives through a verified GitHub Actions workflow.
-  (Workflow complete; first live tagged release pending)
+  (Complete; version `v0.1.0` published)
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
 
@@ -386,7 +391,9 @@ Maintainers can reproduce the package checks locally without publishing:
   mounts, or mount music folders read-only until metadata writing is enabled.
 - Whether a future installer should provide a richer mount editor with direct
   removal and reordering safeguards beyond the generated Compose override.
-- Whether the frontend should be served by Laravel directly or by a dedicated
-  web server service.
-- Whether the first packaged release should support LAN mode immediately or
-  require a local-only release first.
+- Whether a future installer should replace the portable archive once upgrade,
+  shortcut, uninstallation, and migration requirements justify it.
+
+The initial deployment decisions are now settled: `v0.1.0` uses nginx for the
+built frontend and Laravel API proxy, defaults to localhost, and supports LAN
+mode only through an explicit token-protected startup option.

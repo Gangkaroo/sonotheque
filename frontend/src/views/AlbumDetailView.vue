@@ -7,12 +7,14 @@ import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
+import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { apiRequest } from '@/api/client'
 import type { AlbumPersonalMetadata, Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
+import { usePlaylistsStore } from '@/stores/playlists'
 import {
   formatDateOnly as formatLocalizedDate,
   formatDateTime,
@@ -25,6 +27,7 @@ const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const player = usePlayerStore()
+const playlists = usePlaylistsStore()
 const artworkDialog = ref(false)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
@@ -547,6 +550,10 @@ watch(albumId, (id) => {
   if (Number.isInteger(id) && id > 0) void catalog.loadAlbum(id)
 }, { immediate: true })
 
+watch(() => tracks.value.map((track) => track.id), (trackIds) => {
+  if (trackIds.length) void playlists.loadMemberships(trackIds)
+}, { immediate: true })
+
 watch(() => player.currentTrack?.album?.id, (id) => {
   if (!id || player.playbackContext !== 'album' || route.name !== 'album-detail' || id === albumId.value) return
 
@@ -848,6 +855,7 @@ onUnmounted(() => {
               variant="text"
               @click="addTrackToPlaylist(track)"
             />
+            <TrackPlaylistMembershipMenu icon-only :track-id="track.id" />
             <TooltipIconButton
               :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"

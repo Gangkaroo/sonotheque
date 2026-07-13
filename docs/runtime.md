@@ -542,6 +542,15 @@ is kept in `sessionStorage` until the tab or browser session ends. The optional
 to same-origin `/api` requests and is never returned by the backend. Clearing
 it also clears protected library-root and scan data from the current page.
 
+The Security tab does not set or rotate the server token. If browser storage is
+cleared, enter the existing `SONOTHEQUE_ADMIN_TOKEN` again. To replace that
+server token in development mode, stop Sonotheque, update `backend/.env`, and
+restart with `scripts/start.ps1 -Lan`. For the portable runtime, stop the app,
+update `SONOTHEQUE_ADMIN_TOKEN` in `.env.packaged`, and restart with
+`scripts/start-packaged.ps1 -Lan`. Laravel reads the value when the backend
+process starts, so editing either file while the app is running does not change
+the active token.
+
 `SONOTHEQUE_TRUSTED_HOSTS` is a comma-separated list of exact hostnames and
 IP addresses accepted in HTTP `Host` headers. LAN startup combines any entries
 already configured there with localhost, the selected address, and the computer

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show track playlist memberships and navigate directly to the matching playlist item.
+- Normalize non-standard little-endian ID3 play counters during statistics import.
+- Exclude global popularity fields that are ambiguously tagged as personal play counts.
+- Clarify LAN admin-token verification and the server-token recovery workflow.
 - Add persisted sorting controls for album, track, and grouped playlist views.
 - Rename internal runtime, database, and interface identifiers from the generic
   music-library name to Sonotheque.

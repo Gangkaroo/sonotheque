@@ -150,6 +150,42 @@ class PlaylistsApiTest extends TestCase
         );
     }
 
+    public function test_track_playlist_memberships_are_batched_grouped_and_ordered(): void
+    {
+        [, , $firstTrack, , $secondTrack] = $this->createCatalog();
+        $folder = PlaylistFolder::create(['name' => 'Archive']);
+        $folderPlaylist = Playlist::create([
+            'name' => 'First mix',
+            'playlist_folder_id' => $folder->id,
+        ]);
+        $loosePlaylist = Playlist::create(['name' => 'Loose mix']);
+        $firstItem = $folderPlaylist->items()->create([
+            'track_id' => $firstTrack->id,
+            'position' => 0,
+        ]);
+        $folderPlaylist->items()->create([
+            'track_id' => $firstTrack->id,
+            'position' => 1,
+        ]);
+        $loosePlaylist->items()->create([
+            'track_id' => $firstTrack->id,
+            'position' => 0,
+        ]);
+
+        $this->getJson(
+            "/api/playlists/memberships?trackIds[]={$firstTrack->id}&trackIds[]={$secondTrack->id}",
+        )
+            ->assertOk()
+            ->assertJsonPath('items.0.trackId', $firstTrack->id)
+            ->assertJsonPath('items.0.playlists.0.id', $folderPlaylist->id)
+            ->assertJsonPath('items.0.playlists.0.folder.name', 'Archive')
+            ->assertJsonPath('items.0.playlists.0.firstItemId', $firstItem->id)
+            ->assertJsonPath('items.0.playlists.0.occurrenceCount', 2)
+            ->assertJsonPath('items.0.playlists.1.id', $loosePlaylist->id)
+            ->assertJsonPath('items.1.trackId', $secondTrack->id)
+            ->assertJsonPath('items.1.playlists', []);
+    }
+
     public function test_a_playlist_can_be_created_with_tracks_in_one_request(): void
     {
         [, , $firstTrack, , $secondTrack] = $this->createCatalog();

@@ -104,6 +104,12 @@ class LibraryRootScopeApiTest extends TestCase
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('items.0.track.id', $firstTrack->id)
             ->assertJsonCount(1, 'items');
+        $this->getJson(
+            "/api/playlists/memberships{$query}&trackIds[]={$firstTrack->id}&trackIds[]={$secondTrack->id}",
+        )
+            ->assertOk()
+            ->assertJsonPath('items.0.playlists.0.id', $playlist->id)
+            ->assertJsonPath('items.1.playlists', []);
     }
 
     public function test_disabled_or_unknown_library_roots_are_rejected(): void

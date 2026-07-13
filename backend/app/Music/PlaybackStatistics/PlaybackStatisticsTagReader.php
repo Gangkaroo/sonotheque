@@ -11,6 +11,10 @@ class PlaybackStatisticsTagReader
 
     private const FILETIME_TICKS_PER_SECOND = 10_000_000;
 
+    private const MAX_PLAUSIBLE_PLAY_COUNT = 1_000_000;
+
+    private const MAX_UNSIGNED_INT32 = 4_294_967_295;
+
     private const COUNT_FIELDS = ['play_count', 'playcount', 'play_counter', 'pcnt'];
 
     private const FIRST_PLAYED_FIELDS = ['first_played_timestamp', 'first_played', 'firstplayed'];
@@ -20,8 +24,13 @@ class PlaybackStatisticsTagReader
     /** @param array<string, mixed> $metadata */
     public function read(array $metadata): ImportedPlayStatistics
     {
-        $fields = $this->fields($metadata);
+        $ignoredGlobalPlayCount = $this->globalPopularityPlayCount($metadata);
+        $fields = $this->fields($metadata, $ignoredGlobalPlayCount !== null);
         $sourceFields = [];
+        if ($ignoredGlobalPlayCount !== null) {
+            $sourceFields['ignored_global_play_count'] = $ignoredGlobalPlayCount;
+        }
+
         $warnings = [];
         $playCount = $this->playCount($fields, $sourceFields, $warnings);
         $firstPlayedAt = $this->date($fields, self::FIRST_PLAYED_FIELDS, 'first played', $sourceFields, $warnings);
@@ -41,8 +50,11 @@ class PlaybackStatisticsTagReader
      * @param  array<string, string>  $sourceFields
      * @param  list<string>  $warnings
      */
-    private function playCount(array $fields, array &$sourceFields, array &$warnings): ?int
-    {
+    private function playCount(
+        array $fields,
+        array &$sourceFields,
+        array &$warnings,
+    ): ?int {
         $field = $this->firstField($fields, self::COUNT_FIELDS);
         if ($field === null) {
             return null;
@@ -56,7 +68,82 @@ class PlaybackStatisticsTagReader
             return null;
         }
 
-        return min((int) $value, 2_147_483_647);
+        $playCount = (int) $value;
+        if ($name === 'pcnt') {
+            $playCount = $this->normalizePcntByteOrder($playCount);
+        }
+
+        return min($playCount, 2_147_483_647);
+    }
+
+    private function normalizePcntByteOrder(int $playCount): int
+    {
+        if ($playCount <= self::MAX_PLAUSIBLE_PLAY_COUNT || $playCount > self::MAX_UNSIGNED_INT32) {
+            return $playCount;
+        }
+
+        $littleEndianValue = (($playCount & 0x000000FF) << 24)
+            | (($playCount & 0x0000FF00) << 8)
+            | (($playCount & 0x00FF0000) >> 8)
+            | (($playCount & 0xFF000000) >> 24);
+
+        return $littleEndianValue <= self::MAX_PLAUSIBLE_PLAY_COUNT
+            && $littleEndianValue < $playCount
+                ? $littleEndianValue
+                : $playCount;
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function globalPopularityPlayCount(array $metadata): ?string
+    {
+        $frames = $metadata['id3v2']['TXXX'] ?? null;
+        if (! is_array($frames)) {
+            return null;
+        }
+
+        $hasAmbiguousPlayCount = false;
+        $hasGlobalPopularityField = false;
+        foreach ($frames as $frame) {
+            if (! is_array($frame) || ! is_string($frame['description'] ?? null)) {
+                continue;
+            }
+
+            $description = trim($frame['description']);
+            $hasAmbiguousPlayCount = $hasAmbiguousPlayCount || $description === 'PLAY COUNT';
+            $hasGlobalPopularityField = $hasGlobalPopularityField || in_array(
+                $this->normalizeKey($description),
+                ['listeners', 'lastfmplaycount', 'lastfm_playcount'],
+                true,
+            );
+        }
+
+        if (! $hasAmbiguousPlayCount || ! $hasGlobalPopularityField) {
+            return null;
+        }
+
+        return $this->exactFieldValue($metadata, 'PLAY COUNT');
+    }
+
+    /** @param array<string|int, mixed> $values */
+    private function exactFieldValue(array $values, string $field): ?string
+    {
+        foreach ($values as $key => $value) {
+            if (is_string($key) && $key === $field) {
+                $scalar = $this->scalarValue($value);
+                if ($scalar !== null && trim($scalar) !== '') {
+                    return trim($scalar);
+                }
+            }
+
+            if (is_array($value)) {
+                $nested = $this->exactFieldValue($value, $field);
+                if ($nested !== null) {
+                    return $nested;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -129,10 +216,10 @@ class PlaybackStatisticsTagReader
     /** @param array<string, mixed> $metadata
      * @return array<string, string>
      */
-    private function fields(array $metadata): array
+    private function fields(array $metadata, bool $ignoreGlobalPlayCount): array
     {
         $fields = [];
-        $this->collectFields($metadata, $fields);
+        $this->collectFields($metadata, $fields, $ignoreGlobalPlayCount);
 
         return $fields;
     }
@@ -141,11 +228,14 @@ class PlaybackStatisticsTagReader
      * @param  array<string|int, mixed>  $values
      * @param  array<string, string>  $fields
      */
-    private function collectFields(array $values, array &$fields): void
+    private function collectFields(array $values, array &$fields, bool $ignoreGlobalPlayCount): void
     {
         foreach ($values as $key => $value) {
             $normalizedKey = $this->normalizeKey((string) $key);
-            if ($this->isCandidate($normalizedKey) && ! isset($fields[$normalizedKey])) {
+            $isIgnoredGlobalPlayCount = $ignoreGlobalPlayCount && $key === 'PLAY COUNT';
+            if (! $isIgnoredGlobalPlayCount
+                && $this->isCandidate($normalizedKey)
+                && ! isset($fields[$normalizedKey])) {
                 $scalar = $this->scalarValue($value);
                 if ($scalar !== null && trim($scalar) !== '') {
                     $fields[$normalizedKey] = trim($scalar);
@@ -153,7 +243,7 @@ class PlaybackStatisticsTagReader
             }
 
             if (is_array($value)) {
-                $this->collectFields($value, $fields);
+                $this->collectFields($value, $fields, $ignoreGlobalPlayCount);
             }
         }
     }

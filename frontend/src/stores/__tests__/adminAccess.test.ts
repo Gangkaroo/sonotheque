@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { apiRequest } from '@/api/client'
+import { ApiError, apiRequest } from '@/api/client'
 import { useAdminAccessStore } from '@/stores/adminAccess'
 
 describe('admin access store', () => {
@@ -48,5 +48,16 @@ describe('admin access store', () => {
     const secondHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers)
     expect(firstHeaders.get('X-Sonotheque-Admin-Token')).toBe('stored-token')
     expect(secondHeaders.get('X-Sonotheque-Admin-Token')).toBe('candidate-token')
+  })
+
+  it('keeps the response status on API errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      message: 'Protected operation.',
+    }), { status: 403 })))
+
+    await expect(apiRequest('/settings/access')).rejects.toMatchObject<Partial<ApiError>>({
+      message: 'Protected operation.',
+      status: 403,
+    })
   })
 })

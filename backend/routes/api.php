@@ -87,6 +87,7 @@ Route::patch('/playlist-folders/{folder}', [PlaylistsController::class, 'updateF
 Route::delete('/playlist-folders/{folder}', [PlaylistsController::class, 'deleteFolder']);
 Route::get('/playlists', [PlaylistsController::class, 'playlists']);
 Route::post('/playlists', [PlaylistsController::class, 'createPlaylist']);
+Route::get('/playlists/memberships', [PlaylistsController::class, 'memberships']);
 Route::get('/playlists/{playlist}', [PlaylistsController::class, 'playlist']);
 Route::patch('/playlists/{playlist}', [PlaylistsController::class, 'updatePlaylist']);
 Route::delete('/playlists/{playlist}', [PlaylistsController::class, 'deletePlaylist']);

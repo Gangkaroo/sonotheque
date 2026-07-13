@@ -56,4 +56,74 @@ class PlaybackStatisticsTagReaderTest extends TestCase
         $this->assertSame('2019-11-05T19:10:50.637268Z', $statistics->lastPlayedAt?->toJSON());
         $this->assertSame([], $statistics->warnings);
     }
+
+    public function test_it_normalizes_non_standard_little_endian_id3_play_counters(): void
+    {
+        $statistics = (new PlaybackStatisticsTagReader())->read([
+            'id3v2' => [
+                'PCNT' => [
+                    ['data' => 83_886_080],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(5, $statistics->playCount);
+        $this->assertSame(['pcnt' => '83886080'], $statistics->sourceFields);
+        $this->assertSame([], $statistics->warnings);
+
+        $standardStatistics = (new PlaybackStatisticsTagReader())->read([
+            'id3v2' => [
+                'PCNT' => [
+                    ['data' => 42],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(42, $standardStatistics->playCount);
+    }
+
+    public function test_it_ignores_global_popularity_values_named_like_personal_play_counts(): void
+    {
+        $statistics = (new PlaybackStatisticsTagReader())->read([
+            'id3v2' => [
+                'TXXX' => [
+                    ['description' => 'PLAY COUNT', 'data' => '143335'],
+                    ['description' => 'LISTENERS', 'data' => '38000'],
+                ],
+                'comments' => [
+                    'text' => [
+                        'PLAY COUNT' => '143335',
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertNull($statistics->playCount);
+        $this->assertSame(
+            ['ignored_global_play_count' => '143335'],
+            $statistics->sourceFields,
+        );
+
+        $personalStatistics = (new PlaybackStatisticsTagReader())->read([
+            'id3v2' => [
+                'TXXX' => [
+                    ['description' => 'PLAY COUNT', 'data' => '143335'],
+                    ['description' => 'play_count', 'data' => '42'],
+                    ['description' => 'LISTENERS', 'data' => '38000'],
+                ],
+                'comments' => [
+                    'text' => [
+                        'PLAY COUNT' => '143335',
+                        'play_count' => '42',
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(42, $personalStatistics->playCount);
+        $this->assertSame([
+            'ignored_global_play_count' => '143335',
+            'play_count' => '42',
+        ], $personalStatistics->sourceFields);
+    }
 }

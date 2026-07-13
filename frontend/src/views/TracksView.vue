@@ -7,12 +7,14 @@ import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
+import { usePlaylistsStore } from '@/stores/playlists'
 import { formatDateTime, formatDuration } from '@/utils/formatters'
 
 interface TrackFilters {
@@ -34,6 +36,7 @@ const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const player = usePlayerStore()
+const playlists = usePlaylistsStore()
 const storageKey = 'sonotheque:track-filters'
 const restoredFilters = initialFilters()
 const search = ref(restoredFilters.search)
@@ -290,6 +293,12 @@ watch([genre, genreName, playStatus, physicalCopy, sort], () => {
   syncFiltersToRoute()
 })
 watch([page, genre, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([
+  () => catalog.tracks.items.map((track) => track.id),
+  () => libraryRootScope.selectedRootId,
+], ([trackIds]) => {
+  if (trackIds.length) void playlists.loadMemberships(trackIds)
+}, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -449,6 +458,7 @@ onUnmounted(() => {
             variant="text"
             @click="openAddToPlaylist(track)"
           />
+          <TrackPlaylistMembershipMenu icon-only :track-id="track.id" />
           <TooltipIconButton
             :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
             :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
