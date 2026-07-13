@@ -20,11 +20,14 @@ $frontendPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'frontend
 if ($version -ne [string] $frontendPackage.version) {
     throw "Release tag version '$version' does not match frontend/package.json '$($frontendPackage.version)'."
 }
-Add-Type -AssemblyName System.Web.Extensions
-$json = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-$frontendLock = $json.DeserializeObject(
-    (Get-Content -LiteralPath (Join-Path $repositoryRoot 'frontend\package-lock.json') -Raw)
-)
+$frontendLockJson = Get-Content -LiteralPath (Join-Path $repositoryRoot 'frontend\package-lock.json') -Raw
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $frontendLock = $frontendLockJson | ConvertFrom-Json -AsHashtable
+} else {
+    Add-Type -AssemblyName System.Web.Extensions
+    $json = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $frontendLock = $json.DeserializeObject($frontendLockJson)
+}
 if ($version -ne [string] $frontendLock['version'] -or
     $version -ne [string] $frontendLock['packages']['']['version']) {
     throw "Release tag version '$version' does not match frontend/package-lock.json."
