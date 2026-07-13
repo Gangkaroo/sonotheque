@@ -64,6 +64,9 @@ services:
 
   migrate:
     <<: *backend-image
+    environment:
+      <<: *backend-environment
+      API_PLATFORM_RESOURCES_ENABLED: "false"
     command: ["php", "artisan", "migrate", "--force"]
     restart: "no"
 

@@ -30,6 +30,16 @@ jobs:
     env:
       APP_ENV: testing
       APP_KEY: base64:QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=
+      CACHE_STORE: array
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5433
+      DB_DATABASE: music_library_test
+      DB_USERNAME: music_library
+      DB_PASSWORD: music_library
+      DB_SSLMODE: disable
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
@@ -43,7 +53,15 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: backend
+        env:
+          API_PLATFORM_RESOURCES_ENABLED: "false"
         run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare test database
+        working-directory: backend
+        env:
+          API_PLATFORM_RESOURCES_ENABLED: "false"
+        run: php artisan migrate --force
 
       - name: Check PHP style and autoloading
         working-directory: backend
