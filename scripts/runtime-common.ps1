@@ -406,15 +406,33 @@ function Get-HttpStatusCode {
         [hashtable]$Headers = @{}
     )
 
+    Add-Type -AssemblyName System.Net.Http
+    $client = [System.Net.Http.HttpClient]::new()
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Get,
+        $Uri
+    )
+
     try {
-        return [int](Invoke-WebRequest -Uri $Uri -Headers $Headers -UseBasicParsing -TimeoutSec 5).StatusCode
-    }
-    catch {
-        if ($null -ne $_.Exception.Response) {
-            return [int]$_.Exception.Response.StatusCode
+        $client.Timeout = [TimeSpan]::FromSeconds(5)
+        foreach ($header in $Headers.GetEnumerator()) {
+            [void]$request.Headers.TryAddWithoutValidation([string]$header.Key, [string]$header.Value)
         }
 
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        try {
+            return [int]$response.StatusCode
+        }
+        finally {
+            $response.Dispose()
+        }
+    }
+    catch {
         return $null
+    }
+    finally {
+        $request.Dispose()
+        $client.Dispose()
     }
 }
 

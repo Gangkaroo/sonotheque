@@ -4,6 +4,8 @@
 
 - Rename internal runtime, database, and interface identifiers from the generic
   music-library name to Sonotheque.
+- Preserve expected authorization status codes during Windows LAN startup
+  verification.
 
 ## 0.1.0 - 2026-07-13
 
