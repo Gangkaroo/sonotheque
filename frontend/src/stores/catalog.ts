@@ -133,6 +133,7 @@ interface CatalogQuery {
   artist?: number | string | null
   playStatus?: string | null
   physicalCopy?: string | null
+  sort?: string | null
 }
 
 function emptyPage<T>(): CatalogPage<T> {
@@ -154,6 +155,7 @@ function queryPath(path: string, query: CatalogQuery): string {
   }
   if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
   if (query.physicalCopy?.trim()) parameters.set('physicalCopy', query.physicalCopy.trim())
+  if (query.sort?.trim()) parameters.set('sort', query.sort.trim())
   return withLibraryRootScope(`${path}?${parameters}`)
 }
 

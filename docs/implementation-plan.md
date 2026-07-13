@@ -409,6 +409,9 @@ Completed:
 - Tokenized album and track search so combined artist/title or artist/album
   searches work, plus aborting stale album and track search requests while
   typing
+- Persisted album, track, and playlist sorting controls for title or name,
+  release year, playback activity, creation or update time, and track count
+  where applicable
 - Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
   Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup
@@ -436,10 +439,8 @@ Completed:
 In progress or still required for the first milestone:
 
 - Broader end-to-end and packaging coverage
-- Packaged local runtime that hides Laravel, Vite, PostgreSQL, and queue-worker
-  details behind a straightforward startup flow
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation and LAN startup are now repeatable; current feature work focuses on reliable online enrichment and conservative external identity matching without coupling playback to provider availability.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, and the first portable release are repeatable; current feature work focuses on catalog workflow refinements and broader end-to-end coverage.
 
 ### 1. Project Foundation
 
@@ -486,7 +487,7 @@ The implementation order changed from the original phase list. The scanner and a
 - Add explicit user-selectable sorting controls to album and track lists. Keep
   sensible defaults, but allow sorting by common criteria such as artist,
   title, release year, play count, last played, and date added where data is
-  available.
+  available. (Complete)
 - Add responsive artwork grids and tabular track views.
 - Display the generated cover thumbnail for every album in album lists and grids.
 - Display the larger cached cover on album detail pages.
@@ -560,7 +561,7 @@ This phase was pulled forward after the queue model became stable. It builds on 
 - Add "add to playlist" actions from tracks, albums, queue entries, and the player. (Complete)
 - Allow creating a playlist from the current queue. (Complete)
 - Add explicit sorting controls to the playlists overview, at minimum by
-  folder/name, recently updated, and track count.
+  folder/name, recently updated, and track count. (Complete)
 - Show playlist membership for tracks that already belong to one or more
   playlists, and provide an action from track contexts to navigate directly to
   one of those playlists.
@@ -794,8 +795,8 @@ existing player queue when the selection changes. Personal album information is
 now stored independently from scanned metadata and supports purchase source,
 purchase date, physical-copy state, physical format, and notes, plus
 physical-copy filters in album and track lists. The next catalog refinements are
-explicit sorting controls for albums/tracks/playlists and track-to-playlist
-membership navigation.
+track-to-playlist membership navigation; explicit sorting controls are now
+complete for albums, tracks, and grouped playlists.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows
@@ -804,13 +805,13 @@ first-run setup, health checks, and checksummed manual backup and guarded
 restore for PostgreSQL and application storage are complete. The initial
 versioned Windows portable bundle, double-click launcher, host-folder picker,
 installation guide, and release checksum are also complete. Remaining release
-work is performing the first live tagged GitHub Release and verifying LAN
-behavior from a second physical device on the local network. Repeatable release
-builds and GitHub publication are now automated by a tag-driven workflow that
-runs backend and frontend validation before building and auditing the Windows
-portable archive. Packaged multi-root mount management uses a generated Compose
-override with stable `/music/root-N` mappings and a native Windows folder-selection
-flow.
+work is verifying LAN behavior from a second physical device on the local
+network and broadening upgrade and end-to-end coverage. Version `v0.1.0` has
+been published as the first live GitHub Release. Repeatable release builds and
+GitHub publication are automated by a tag-driven workflow that runs backend and
+frontend validation before building and auditing the Windows portable archive.
+Packaged multi-root mount management uses a generated Compose override with
+stable `/music/root-N` mappings and a native Windows folder-selection flow.
 
 ## First Milestone Definition
 

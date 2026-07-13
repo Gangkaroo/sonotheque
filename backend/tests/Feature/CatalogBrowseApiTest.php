@@ -412,6 +412,73 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.1.id', $alphaSecondAlbum->id);
     }
 
+    public function test_album_and_track_lists_support_explicit_sorting(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+        $olderAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $album->primary_artist_id,
+            'title' => 'Older Album',
+            'sort_title' => 'Older Album',
+            'relative_path' => 'Artist/Older Album',
+            'relative_path_hash' => hash('sha256', 'artist/older album'),
+            'original_release_year' => 1991,
+        ]);
+        $newerAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $album->primary_artist_id,
+            'title' => 'Newer Album',
+            'sort_title' => 'Newer Album',
+            'relative_path' => 'Artist/Newer Album',
+            'relative_path_hash' => hash('sha256', 'artist/newer album'),
+            'original_release_year' => 2020,
+        ]);
+        $olderTrack = $this->createTrackForAlbum($album->libraryRoot, $olderAlbum);
+        $newerTrack = $this->createTrackForAlbum($album->libraryRoot, $newerAlbum);
+        $track->update(['title' => 'Middle Track', 'sort_title' => 'Middle Track']);
+        $olderTrack->update(['title' => 'Alpha Track', 'sort_title' => 'Alpha Track']);
+        $newerTrack->update(['title' => 'Zulu Track', 'sort_title' => 'Zulu Track']);
+        TrackPlayStatistic::create([
+            'track_id' => $track->id,
+            'play_count' => 3,
+            'first_played_at' => '2026-06-01 12:00:00+00',
+            'last_played_at' => '2026-06-10 12:00:00+00',
+        ]);
+        TrackPlayStatistic::create([
+            'track_id' => $olderTrack->id,
+            'play_count' => 7,
+            'first_played_at' => '2026-05-01 12:00:00+00',
+            'last_played_at' => '2026-06-01 12:00:00+00',
+        ]);
+
+        $this->getJson('/api/catalog/albums?sort=year_desc')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $newerAlbum->id)
+            ->assertJsonPath('items.1.id', $album->id)
+            ->assertJsonPath('items.2.id', $olderAlbum->id);
+
+        $this->getJson('/api/catalog/albums?sort=plays')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $olderAlbum->id)
+            ->assertJsonPath('items.1.id', $album->id)
+            ->assertJsonPath('items.2.id', $newerAlbum->id);
+
+        $this->getJson('/api/catalog/tracks?sort=title')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $olderTrack->id)
+            ->assertJsonPath('items.1.id', $track->id)
+            ->assertJsonPath('items.2.id', $newerTrack->id);
+
+        $this->getJson('/api/catalog/tracks?sort=last_played')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('items.1.id', $olderTrack->id)
+            ->assertJsonPath('items.2.id', $newerTrack->id);
+
+        $this->getJson('/api/catalog/albums?sort=unsupported')->assertUnprocessable();
+        $this->getJson('/api/catalog/tracks?sort=unsupported')->assertUnprocessable();
+    }
+
     public function test_artist_filtered_albums_are_sorted_by_release_year(): void
     {
         $root = Library::create(['name' => 'Test'])->roots()->create([

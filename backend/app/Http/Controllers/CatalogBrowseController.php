@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class CatalogBrowseController extends Controller
 {
@@ -71,9 +72,11 @@ class CatalogBrowseController extends Controller
             'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'physicalCopy' => ['sometimes', 'nullable', 'string', 'in:owned,not_owned'],
+            'sort' => ['sometimes', 'string', 'in:artist,title,year_asc,year_desc,plays,last_played,added'],
         ]);
 
         $artistFilter = $filters['artist'] ?? null;
+        $sort = $filters['sort'] ?? ($artistFilter ? 'year_asc' : 'artist');
 
         $albums = $this->libraryRootScope->albums(Album::query(), $libraryRootId, 'albums.library_root_id')
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
@@ -108,21 +111,9 @@ class CatalogBrowseController extends Controller
                     });
                 }
             })
-            ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('primary_artists.browse_initial', $initial))
-            ->when(
-                $artistFilter,
-                fn (Builder $query) => $query
-                    ->orderByRaw('albums.original_release_year is null')
-                    ->orderBy('albums.original_release_year')
-                    ->orderByRaw('coalesce(albums.sort_title, albums.title)')
-                    ->orderBy('albums.title'),
-                fn (Builder $query) => $query
-                    ->orderByRaw('primary_artists.name is null')
-                    ->orderByRaw('coalesce(primary_artists.sort_name, primary_artists.name)')
-                    ->orderBy('primary_artists.name')
-                    ->orderByRaw('coalesce(albums.sort_title, albums.title)')
-                    ->orderBy('albums.title'),
-            )
+            ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('primary_artists.browse_initial', $initial));
+
+        $albums = $this->applyAlbumSort($albums, $sort)
             ->paginate(24);
 
         return response()->json($this->payloads->paginated($albums, fn (Album $album) => $this->payloads->albumSummary($album)));
@@ -207,10 +198,22 @@ class CatalogBrowseController extends Controller
             'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'playStatus' => ['sometimes', 'nullable', 'string', 'in:never'],
             'physicalCopy' => ['sometimes', 'nullable', 'string', 'in:owned,not_owned'],
+            'sort' => ['sometimes', 'string', 'in:album,title,year_asc,year_desc,plays,last_played,added'],
         ]);
 
         $tracks = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
-            ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
+            ->leftJoin('albums as sort_albums', 'sort_albums.id', '=', 'tracks.album_id')
+            ->leftJoin('artists as sort_artists', 'sort_artists.id', '=', 'sort_albums.primary_artist_id')
+            ->leftJoin('track_play_statistics as sort_statistics', 'sort_statistics.track_id', '=', 'tracks.id')
+            ->select([
+                'tracks.id',
+                'tracks.title',
+                'tracks.sort_title',
+                'tracks.duration_ms',
+                'tracks.track_number',
+                'tracks.disc_number',
+                'tracks.album_id',
+            ])
             ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->whereHas('artists', fn (Builder $artistQuery) => $artistQuery->whereKey($artist)))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
@@ -233,15 +236,13 @@ class CatalogBrowseController extends Controller
                 foreach ($this->searchTerms($search) as $term) {
                     $pattern = '%'.$this->escapeLike($term).'%';
                     $query->where(function (Builder $query) use ($pattern): void {
-                        $query->where('title', 'ilike', $pattern)
+                        $query->where('tracks.title', 'ilike', $pattern)
                             ->orWhereHas('artists', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
                     });
                 }
-            })
-            ->orderBy('album_id')
-            ->orderBy('disc_number')
-            ->orderBy('track_number')
-            ->orderBy('id')
+            });
+
+        $tracks = $this->applyTrackSort($tracks, $filters['sort'] ?? 'album')
             ->paginate(50);
 
         return response()->json($this->payloads->paginated($tracks, fn (Track $track) => $this->payloads->trackSummary($track)));
@@ -369,6 +370,111 @@ class CatalogBrowseController extends Controller
             ->orderBy('tracks.id')
             ->pluck('tracks.id')
             ->all();
+    }
+
+    private function applyAlbumSort(Builder $query, string $sort): Builder
+    {
+        if (in_array($sort, ['plays', 'last_played'], true)) {
+            $statistics = DB::table('track_play_statistics as statistics')
+                ->join('tracks as statistics_tracks', 'statistics_tracks.id', '=', 'statistics.track_id')
+                ->selectRaw(
+                    'statistics_tracks.album_id, sum(statistics.play_count) as play_count, '
+                    .'max(statistics.last_played_at) as last_played_at',
+                )
+                ->groupBy('statistics_tracks.album_id');
+            $query->leftJoinSub(
+                $statistics,
+                'sort_statistics',
+                fn ($join) => $join->on('sort_statistics.album_id', '=', 'albums.id'),
+            );
+        }
+
+        match ($sort) {
+            'title' => $query
+                ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+                ->orderBy('albums.title'),
+            'year_asc' => $this->orderAlbumsByYear($query, 'asc'),
+            'year_desc' => $this->orderAlbumsByYear($query, 'desc'),
+            'plays' => $query
+                ->orderByRaw('coalesce(sort_statistics.play_count, 0) desc')
+                ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+                ->orderBy('albums.title'),
+            'last_played' => $query
+                ->orderByRaw('sort_statistics.last_played_at desc nulls last')
+                ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+                ->orderBy('albums.title'),
+            'added' => $query
+                ->orderByDesc('albums.created_at'),
+            default => $this->orderAlbumsByArtist($query),
+        };
+
+        return $query->orderBy('albums.id');
+    }
+
+    private function applyTrackSort(Builder $query, string $sort): Builder
+    {
+        match ($sort) {
+            'title' => $query
+                ->orderByRaw('coalesce(tracks.sort_title, tracks.title)')
+                ->orderBy('tracks.title'),
+            'year_asc' => $this->orderTracksByYear($query, 'asc'),
+            'year_desc' => $this->orderTracksByYear($query, 'desc'),
+            'plays' => $query
+                ->orderByRaw('coalesce(sort_statistics.play_count, 0) desc')
+                ->orderByRaw('coalesce(tracks.sort_title, tracks.title)')
+                ->orderBy('tracks.title'),
+            'last_played' => $query
+                ->orderByRaw('sort_statistics.last_played_at desc nulls last')
+                ->orderByRaw('coalesce(tracks.sort_title, tracks.title)')
+                ->orderBy('tracks.title'),
+            'added' => $query
+                ->orderByDesc('tracks.created_at'),
+            default => $this->orderTracksByAlbum($query),
+        };
+
+        return $query->orderBy('tracks.id');
+    }
+
+    private function orderAlbumsByArtist(Builder $query): Builder
+    {
+        return $query
+            ->orderByRaw('primary_artists.name is null')
+            ->orderByRaw('coalesce(primary_artists.sort_name, primary_artists.name)')
+            ->orderBy('primary_artists.name')
+            ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+            ->orderBy('albums.title');
+    }
+
+    private function orderAlbumsByYear(Builder $query, string $direction): Builder
+    {
+        return $query
+            ->orderByRaw('albums.original_release_year is null')
+            ->orderBy('albums.original_release_year', $direction)
+            ->orderByRaw('coalesce(albums.sort_title, albums.title)')
+            ->orderBy('albums.title');
+    }
+
+    private function orderTracksByAlbum(Builder $query): Builder
+    {
+        return $query
+            ->orderByRaw('sort_artists.name is null')
+            ->orderByRaw('coalesce(sort_artists.sort_name, sort_artists.name)')
+            ->orderBy('sort_artists.name')
+            ->orderByRaw('coalesce(sort_albums.sort_title, sort_albums.title)')
+            ->orderBy('sort_albums.title')
+            ->orderBy('tracks.disc_number')
+            ->orderBy('tracks.track_number');
+    }
+
+    private function orderTracksByYear(Builder $query, string $direction): Builder
+    {
+        return $query
+            ->orderByRaw('sort_albums.original_release_year is null')
+            ->orderBy('sort_albums.original_release_year', $direction)
+            ->orderByRaw('coalesce(sort_albums.sort_title, sort_albums.title)')
+            ->orderBy('sort_albums.title')
+            ->orderBy('tracks.disc_number')
+            ->orderBy('tracks.track_number');
     }
 
     private function escapeLike(string $value): string

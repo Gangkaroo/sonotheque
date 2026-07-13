@@ -21,9 +21,11 @@ interface TrackFilters {
   genreName: string
   playStatus: 'all' | 'never'
   physicalCopy: PhysicalCopyFilter
+  sort: TrackSort
 }
 
 type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
+type TrackSort = 'album' | 'title' | 'year_asc' | 'year_desc' | 'plays' | 'last_played' | 'added'
 
 const { locale, t } = useI18n()
 const route = useRoute()
@@ -39,6 +41,7 @@ const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
+const sort = ref<TrackSort>(restoredFilters.sort)
 const page = ref(1)
 const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
@@ -50,6 +53,15 @@ const physicalCopyOptions = computed(() => [
   { title: t('albums.physicalCopyOwned'), value: 'owned' },
   { title: t('albums.physicalCopyMissing'), value: 'not_owned' },
 ])
+const sortOptions = computed(() => [
+  { title: t('tracks.sortAlbum'), value: 'album' },
+  { title: t('tracks.sortTitle'), value: 'title' },
+  { title: t('tracks.sortYearNewest'), value: 'year_desc' },
+  { title: t('tracks.sortYearOldest'), value: 'year_asc' },
+  { title: t('tracks.sortMostPlayed'), value: 'plays' },
+  { title: t('tracks.sortLastPlayed'), value: 'last_played' },
+  { title: t('tracks.sortRecentlyAdded'), value: 'added' },
+])
 
 function currentFilters(): TrackFilters {
   return {
@@ -58,6 +70,7 @@ function currentFilters(): TrackFilters {
     genreName: genreName.value,
     playStatus: playStatus.value,
     physicalCopy: physicalCopy.value,
+    sort: sort.value,
   }
 }
 
@@ -68,6 +81,7 @@ function defaultFilters(): TrackFilters {
     genreName: '',
     playStatus: 'all',
     physicalCopy: 'all',
+    sort: 'album',
   }
 }
 
@@ -88,11 +102,12 @@ function filtersFromQuery(): TrackFilters | null {
     genreName: querySearch(route.query.genreName),
     playStatus: queryPlayStatus(route.query.playStatus),
     physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
+    sort: queryTrackSort(route.query.sort),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'genre', 'genreName', 'playStatus', 'physicalCopy'].some((key) => route.query[key] !== undefined)
+  return ['search', 'genre', 'genreName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): TrackFilters | null {
@@ -108,6 +123,7 @@ function filtersFromStorage(): TrackFilters | null {
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
       playStatus: queryPlayStatus(parsed.playStatus),
       physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
+      sort: queryTrackSort(parsed.sort),
     }
   } catch {
     return null
@@ -135,6 +151,7 @@ function applyFilters(filters: TrackFilters) {
   genreName.value = filters.genreName
   playStatus.value = filters.playStatus
   physicalCopy.value = filters.physicalCopy
+  sort.value = filters.sort
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -148,6 +165,7 @@ function filterQuery(filters: TrackFilters) {
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
   if (filters.playStatus === 'never') query.playStatus = filters.playStatus
   if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
+  if (filters.sort !== 'album') query.sort = filters.sort
 
   return query
 }
@@ -159,6 +177,7 @@ function normalizedFilterQuery(query: typeof route.query) {
     genreName: querySearch(query.genreName),
     playStatus: queryPlayStatus(query.playStatus),
     physicalCopy: queryPhysicalCopy(query.physicalCopy),
+    sort: queryTrackSort(query.sort),
   })
 }
 
@@ -178,6 +197,12 @@ function queryPlayStatus(value: unknown): 'all' | 'never' {
 
 function queryPhysicalCopy(value: unknown): PhysicalCopyFilter {
   return value === 'owned' || value === 'not_owned' ? value : 'all'
+}
+
+function queryTrackSort(value: unknown): TrackSort {
+  return ['title', 'year_asc', 'year_desc', 'plays', 'last_played', 'added'].includes(String(value))
+    ? value as TrackSort
+    : 'album'
 }
 
 function clearGenreFilter() {
@@ -218,6 +243,7 @@ function load() {
     genre: genre.value,
     playStatus: playStatus.value === 'never' ? playStatus.value : null,
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
+    sort: sort.value,
   })
 }
 
@@ -256,14 +282,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([genre, genreName, playStatus, physicalCopy], () => {
+watch([genre, genreName, playStatus, physicalCopy, sort], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, genre, playStatus, physicalCopy, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, genre, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -300,7 +326,7 @@ onUnmounted(() => {
       {{ t('player.playRandomTrack') }}
     </v-btn>
   </div>
-  <div class="track-filter-row d-flex flex-column flex-sm-row ga-3 mb-6">
+  <div class="track-filter-row d-flex flex-column flex-sm-row flex-sm-wrap flex-lg-nowrap ga-3 mb-6">
     <v-text-field v-model="search" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('tracks.search')" />
     <v-switch
       v-model="playStatus"
@@ -320,6 +346,15 @@ onUnmounted(() => {
       :items="physicalCopyOptions"
       prepend-inner-icon="mdi-disc"
       :label="t('albums.physicalCopyFilter')"
+    />
+    <v-select
+      v-model="sort"
+      class="track-sort"
+      density="compact"
+      hide-details
+      :items="sortOptions"
+      prepend-inner-icon="mdi-sort"
+      :label="t('tracks.sortBy')"
     />
   </div>
   <div v-if="genre" class="d-flex flex-wrap ga-2 mb-6">
@@ -440,6 +475,18 @@ onUnmounted(() => {
 
 .physical-copy-filter {
   flex: 0 0 13rem;
+}
+
+.track-sort {
+  flex: 0 0 15rem;
+}
+
+@media (max-width: 599px) {
+  .physical-copy-filter,
+  .track-sort {
+    flex-basis: auto;
+    width: 100%;
+  }
 }
 
 .track-meta-link {

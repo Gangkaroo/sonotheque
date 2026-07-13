@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add persisted sorting controls for album, track, and grouped playlist views.
 - Rename internal runtime, database, and interface identifiers from the generic
   music-library name to Sonotheque.
 - Preserve expected authorization status codes during Windows LAN startup

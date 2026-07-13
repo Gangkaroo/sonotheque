@@ -20,9 +20,11 @@ interface AlbumFilters {
   genre: number | null
   genreName: string
   physicalCopy: PhysicalCopyFilter
+  sort: AlbumSort
 }
 
 type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
+type AlbumSort = 'artist' | 'title' | 'year_asc' | 'year_desc' | 'plays' | 'last_played' | 'added'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -39,6 +41,7 @@ const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const year = ref<number | null>(restoredFilters.year)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
+const sort = ref<AlbumSort>(restoredFilters.sort)
 const page = ref(1)
 const resultsTop = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -53,6 +56,15 @@ const physicalCopyOptions = computed(() => [
   { title: t('albums.physicalCopyOwned'), value: 'owned' },
   { title: t('albums.physicalCopyMissing'), value: 'not_owned' },
 ])
+const sortOptions = computed(() => [
+  { title: t('albums.sortArtist'), value: 'artist' },
+  { title: t('albums.sortTitle'), value: 'title' },
+  { title: t('albums.sortYearNewest'), value: 'year_desc' },
+  { title: t('albums.sortYearOldest'), value: 'year_asc' },
+  { title: t('albums.sortMostPlayed'), value: 'plays' },
+  { title: t('albums.sortLastPlayed'), value: 'last_played' },
+  { title: t('albums.sortRecentlyAdded'), value: 'added' },
+])
 
 function load() {
   void catalog.loadAlbums({
@@ -62,6 +74,7 @@ function load() {
     year: year.value,
     genre: genre.value,
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
+    sort: sort.value,
   })
 }
 
@@ -78,6 +91,7 @@ function currentFilters(): AlbumFilters {
     genre: genre.value,
     genreName: genreName.value,
     physicalCopy: physicalCopy.value,
+    sort: sort.value,
   }
 }
 
@@ -89,6 +103,7 @@ function defaultFilters(): AlbumFilters {
     genre: null,
     genreName: '',
     physicalCopy: 'all',
+    sort: 'artist',
   }
 }
 
@@ -110,11 +125,12 @@ function filtersFromQuery(): AlbumFilters | null {
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
     physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
+    sort: queryAlbumSort(route.query.sort),
   }
 }
 
 function hasFilterQuery() {
-  return ['search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy'].some((key) => route.query[key] !== undefined)
+  return ['search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -131,6 +147,7 @@ function filtersFromStorage(): AlbumFilters | null {
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
       physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
+      sort: queryAlbumSort(parsed.sort),
     }
   } catch {
     return null
@@ -159,6 +176,7 @@ function applyFilters(filters: AlbumFilters) {
   genre.value = filters.genre
   genreName.value = filters.genreName
   physicalCopy.value = filters.physicalCopy
+  sort.value = filters.sort
   page.value = 1
   applyingRouteFilters = false
   saveFilters()
@@ -173,6 +191,7 @@ function filterQuery(filters: AlbumFilters) {
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
   if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
+  if (filters.sort !== 'artist') query.sort = filters.sort
 
   return query
 }
@@ -185,6 +204,7 @@ function normalizedFilterQuery(query: typeof route.query) {
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
     physicalCopy: queryPhysicalCopy(query.physicalCopy),
+    sort: queryAlbumSort(query.sort),
   })
 }
 
@@ -209,6 +229,12 @@ function queryNumber(value: unknown) {
 
 function queryPhysicalCopy(value: unknown): PhysicalCopyFilter {
   return value === 'owned' || value === 'not_owned' ? value : 'all'
+}
+
+function queryAlbumSort(value: unknown): AlbumSort {
+  return ['title', 'year_asc', 'year_desc', 'plays', 'last_played', 'added'].includes(String(value))
+    ? value as AlbumSort
+    : 'artist'
 }
 
 function clearGenreFilter() {
@@ -247,14 +273,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([initial, year, genre, genreName, physicalCopy], () => {
+watch([initial, year, genre, genreName, physicalCopy, sort], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre, physicalCopy, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, initial, year, genre, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -291,7 +317,7 @@ onUnmounted(() => {
       {{ t('player.playRandomTrack') }}
     </v-btn>
   </div>
-  <div class="album-filter-row d-flex flex-column flex-sm-row ga-3 mb-4">
+  <div class="album-filter-row d-flex flex-column flex-sm-row flex-sm-wrap flex-lg-nowrap ga-3 mb-4">
     <v-text-field
       v-model="search"
       clearable
@@ -318,6 +344,15 @@ onUnmounted(() => {
       :items="physicalCopyOptions"
       prepend-inner-icon="mdi-disc"
       :label="t('albums.physicalCopyFilter')"
+    />
+    <v-select
+      v-model="sort"
+      class="album-sort"
+      density="compact"
+      hide-details
+      :items="sortOptions"
+      prepend-inner-icon="mdi-sort"
+      :label="t('albums.sortBy')"
     />
   </div>
   <div class="d-flex flex-wrap ga-1 mb-6">
@@ -403,6 +438,10 @@ onUnmounted(() => {
   flex: 0 0 13rem;
 }
 
+.album-sort {
+  flex: 0 0 15rem;
+}
+
 @media (max-width: 599px) {
   .album-filter-row {
     gap: 8px !important;
@@ -413,7 +452,8 @@ onUnmounted(() => {
     width: 100%;
   }
 
-  .album-physical-copy-filter {
+  .album-physical-copy-filter,
+  .album-sort {
     flex-basis: auto;
     width: 100%;
   }

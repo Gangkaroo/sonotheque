@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
@@ -8,10 +8,13 @@ import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { PlaylistFolder, PlaylistSummary } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 
+type PlaylistSort = 'name' | 'updated' | 'track_count'
+
 const { t, locale } = useI18n()
 const playlists = usePlaylistsStore()
 const activeTab = ref<'playlists' | 'folders'>('playlists')
 const playlistSearch = ref('')
+const playlistSort = ref<PlaylistSort>(readPlaylistSort())
 const folderDialog = ref(false)
 const playlistDialog = ref(false)
 const deleteFolderDialog = ref(false)
@@ -27,6 +30,11 @@ const editPlaylistFolderId = ref<number | null>(null)
 const folderOptions = computed(() => [
   { title: t('playlists.noFolder'), value: null },
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
+])
+const playlistSortOptions = computed(() => [
+  { title: t('playlists.sortName'), value: 'name' },
+  { title: t('playlists.sortRecentlyUpdated'), value: 'updated' },
+  { title: t('playlists.sortTrackCount'), value: 'track_count' },
 ])
 const filteredPlaylists = computed(() => {
   const search = playlistSearch.value.trim().toLocaleLowerCase(locale.value)
@@ -60,13 +68,13 @@ const playlistGroups = computed(() => {
 
   const result = [...groups.values()]
     .sort((left, right) => collator.compare(left.name, right.name))
-  result.forEach((group) => group.playlists.sort((left, right) => collator.compare(left.name, right.name)))
+  result.forEach((group) => group.playlists.sort((left, right) => comparePlaylists(left, right, collator)))
 
   if (unfiled.length) {
     result.push({
       key: 'unfiled',
       name: t('playlists.noFolder'),
-      playlists: unfiled.sort((left, right) => collator.compare(left.name, right.name)),
+      playlists: unfiled.sort((left, right) => comparePlaylists(left, right, collator)),
     })
   }
 
@@ -162,6 +170,36 @@ async function deletePlaylist() {
   playlistToDelete.value = null
 }
 
+function comparePlaylists(left: PlaylistSummary, right: PlaylistSummary, collator: Intl.Collator) {
+  const nameComparison = collator.compare(left.name, right.name)
+
+  if (playlistSort.value === 'updated') {
+    return timestamp(right.updatedAt) - timestamp(left.updatedAt) || nameComparison
+  }
+
+  if (playlistSort.value === 'track_count') {
+    return right.trackCount - left.trackCount || nameComparison
+  }
+
+  return nameComparison
+}
+
+function timestamp(value?: string) {
+  const parsed = value ? Date.parse(value) : Number.NaN
+
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function readPlaylistSort(): PlaylistSort {
+  const stored = window.sessionStorage.getItem('sonotheque:playlist-sort')
+
+  return stored === 'updated' || stored === 'track_count' ? stored : 'name'
+}
+
+watch(playlistSort, (value) => {
+  window.sessionStorage.setItem('sonotheque:playlist-sort', value)
+})
+
 onMounted(() => {
   void playlists.loadAll()
 })
@@ -189,6 +227,16 @@ onMounted(() => {
             hide-details
             :label="t('playlists.searchPlaylists')"
             prepend-inner-icon="mdi-magnify"
+            variant="outlined"
+          />
+          <v-select
+            v-model="playlistSort"
+            class="playlist-sort"
+            density="compact"
+            hide-details
+            :items="playlistSortOptions"
+            :label="t('playlists.sortBy')"
+            prepend-inner-icon="mdi-sort"
             variant="outlined"
           />
           <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreatePlaylistDialog">
@@ -405,6 +453,16 @@ onMounted(() => {
 <style scoped>
 .playlist-search {
   flex: 1 1 260px;
+}
+
+.playlist-sort {
+  flex: 0 0 15rem;
+}
+
+@media (max-width: 599px) {
+  .playlist-sort {
+    flex-basis: 100%;
+  }
 }
 
 .playlist-group + .playlist-group {
