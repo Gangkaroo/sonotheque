@@ -7,14 +7,29 @@ use App\Enums\ScanTrigger;
 use App\Models\Library;
 use App\Models\ScanRun;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 class SystemHealthApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        foreach ([
+            'app/private',
+            'app/artwork',
+            'framework/cache',
+            'framework/sessions',
+            'logs',
+        ] as $path) {
+            File::ensureDirectoryExists(storage_path($path));
+        }
+    }
 
     public function test_it_returns_runtime_health_information(): void
     {
