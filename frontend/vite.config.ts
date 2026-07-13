@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 import vuetify from 'vite-plugin-vuetify'
 
-const allowedHosts = (process.env.MUSIC_LIBRARY_VITE_ALLOWED_HOSTS ?? '')
+const allowedHosts = (process.env.SONOTHEQUE_VITE_ALLOWED_HOSTS ?? '')
   .split(',')
   .map((host) => host.trim())
   .filter(Boolean)

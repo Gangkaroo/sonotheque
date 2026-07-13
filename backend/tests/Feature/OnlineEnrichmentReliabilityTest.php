@@ -59,7 +59,7 @@ class OnlineEnrichmentReliabilityTest extends TestCase
     {
         [$track, $lookup] = $this->createTrackAndLookup();
         ApplicationSetting::current()->update(['online_lyrics_enabled' => true]);
-        config(['music-library.enrichment.lock_wait_seconds' => 1]);
+        config(['sonotheque.enrichment.lock_wait_seconds' => 1]);
         $repository = app(OnlineContentCacheRepository::class);
         $lock = Cache::lock($repository->lockKey('lrclib', OnlineContentType::Lyrics, $lookup), 10);
         $this->assertTrue($lock->get());
@@ -78,7 +78,7 @@ class OnlineEnrichmentReliabilityTest extends TestCase
 
     public function test_provider_request_gate_enforces_the_configured_limit(): void
     {
-        config(['music-library.enrichment.providers.lrclib.max_requests_per_minute' => 1]);
+        config(['sonotheque.enrichment.providers.lrclib.max_requests_per_minute' => 1]);
         RateLimiter::clear('online-enrichment:provider:lrclib');
         $gate = app(ProviderRequestGate::class);
 

@@ -33,7 +33,7 @@ describe('preferences store', () => {
   })
 
   it('falls back to defaults when saved preferences are invalid', () => {
-    window.localStorage.setItem('music-library:preferences', JSON.stringify({ locale: 'fr', theme: 'blue' }))
+    window.localStorage.setItem('sonotheque:preferences', JSON.stringify({ locale: 'fr', theme: 'blue' }))
 
     const preferences = usePreferencesStore()
 

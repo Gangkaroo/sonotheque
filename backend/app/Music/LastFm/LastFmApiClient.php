@@ -94,7 +94,7 @@ class LastFmApiClient
 
     public function authorizationUrl(string $apiKey, string $token): string
     {
-        return rtrim((string) config('music-library.lastfm.auth_url'), '/').'/?'.http_build_query([
+        return rtrim((string) config('sonotheque.lastfm.auth_url'), '/').'/?'.http_build_query([
             'api_key' => $apiKey,
             'token' => $token,
         ]);
@@ -105,10 +105,10 @@ class LastFmApiClient
     {
         try {
             $response = Http::acceptJson()
-                ->withUserAgent((string) config('music-library.enrichment.user_agent'))
+                ->withUserAgent((string) config('sonotheque.enrichment.user_agent'))
                 ->withOptions($this->connectionOptions())
-                ->timeout(max(1, (int) config('music-library.lastfm.timeout_seconds', 10)))
-                ->get((string) config('music-library.lastfm.api_url'), [
+                ->timeout(max(1, (int) config('sonotheque.lastfm.timeout_seconds', 10)))
+                ->get((string) config('sonotheque.lastfm.api_url'), [
                     'api_key' => $apiKey,
                     'method' => $method,
                     'format' => 'json',
@@ -146,8 +146,8 @@ class LastFmApiClient
             $response = Http::asForm()
                 ->acceptJson()
                 ->withOptions($this->connectionOptions())
-                ->timeout(max(1, (int) config('music-library.lastfm.timeout_seconds', 10)))
-                ->post((string) config('music-library.lastfm.api_url'), $requestParameters);
+                ->timeout(max(1, (int) config('sonotheque.lastfm.timeout_seconds', 10)))
+                ->post((string) config('sonotheque.lastfm.api_url'), $requestParameters);
         } catch (ConnectionException $exception) {
             throw new LastFmApiException(
                 'Last.fm could not be reached: '.$exception->getMessage(),
@@ -161,12 +161,12 @@ class LastFmApiClient
     /** @return array{proxy: string, verify: bool|string} */
     private function connectionOptions(): array
     {
-        $caBundle = trim((string) config('music-library.lastfm.ca_bundle'));
+        $caBundle = trim((string) config('sonotheque.lastfm.ca_bundle'));
 
         return [
             // An explicit empty value prevents inherited development proxies
             // from silently intercepting this outbound HTTPS request.
-            'proxy' => (string) config('music-library.lastfm.proxy', ''),
+            'proxy' => (string) config('sonotheque.lastfm.proxy', ''),
             'verify' => $caBundle !== '' ? $caBundle : true,
         ];
     }

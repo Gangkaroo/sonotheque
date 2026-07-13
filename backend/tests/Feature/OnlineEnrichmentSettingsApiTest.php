@@ -82,6 +82,6 @@ class OnlineEnrichmentSettingsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', 'available');
 
-        Http::assertSent(fn ($request): bool => $request['track_name'] === '__music_library_connection_test__');
+        Http::assertSent(fn ($request): bool => $request['track_name'] === '__sonotheque_connection_test__');
     }
 }

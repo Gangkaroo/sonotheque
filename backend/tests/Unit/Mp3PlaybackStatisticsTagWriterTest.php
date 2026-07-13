@@ -16,7 +16,7 @@ class Mp3PlaybackStatisticsTagWriterTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->temporaryDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'music-library-tag-writer-'.bin2hex(random_bytes(6));
+        $this->temporaryDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sonotheque-tag-writer-'.bin2hex(random_bytes(6));
         mkdir($this->temporaryDirectory);
     }
 

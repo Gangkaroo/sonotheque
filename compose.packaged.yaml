@@ -1,4 +1,4 @@
-name: music-library-packaged
+name: sonotheque-packaged
 
 x-backend-environment: &backend-environment
   APP_NAME: Sonotheque
@@ -12,9 +12,9 @@ x-backend-environment: &backend-environment
   DB_CONNECTION: pgsql
   DB_HOST: postgres
   DB_PORT: "5432"
-  DB_DATABASE: ${POSTGRES_DB:-music_library}
-  DB_USERNAME: ${POSTGRES_USER:-music_library}
-  DB_PASSWORD: ${POSTGRES_PASSWORD:-music_library}
+  DB_DATABASE: ${POSTGRES_DB:-sonotheque}
+  DB_USERNAME: ${POSTGRES_USER:-sonotheque}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-sonotheque}
   DB_SSLMODE: disable
   CACHE_STORE: ${CACHE_STORE:-file}
   CACHE_SERIALIZABLE_CLASSES: ${CACHE_SERIALIZABLE_CLASSES:-true}
@@ -22,11 +22,11 @@ x-backend-environment: &backend-environment
   QUEUE_CONNECTION: database
   DB_QUEUE_RETRY_AFTER: "86400"
   FILESYSTEM_DISK: local
-  MUSIC_LIBRARY_LAN_ENABLED: ${MUSIC_LIBRARY_LAN_ENABLED:-false}
-  MUSIC_LIBRARY_LOCAL_PROXY_ENABLED: ${MUSIC_LIBRARY_LOCAL_PROXY_ENABLED:-true}
-  MUSIC_LIBRARY_ADMIN_TOKEN: ${MUSIC_LIBRARY_ADMIN_TOKEN:-}
-  MUSIC_LIBRARY_TRUSTED_HOSTS: ${MUSIC_LIBRARY_TRUSTED_HOSTS:-localhost,127.0.0.1,::1}
-  MUSIC_LIBRARY_ALLOWED_ORIGINS: ${MUSIC_LIBRARY_ALLOWED_ORIGINS:-}
+  SONOTHEQUE_LAN_ENABLED: ${SONOTHEQUE_LAN_ENABLED:-false}
+  SONOTHEQUE_LOCAL_PROXY_ENABLED: ${SONOTHEQUE_LOCAL_PROXY_ENABLED:-true}
+  SONOTHEQUE_ADMIN_TOKEN: ${SONOTHEQUE_ADMIN_TOKEN:-}
+  SONOTHEQUE_TRUSTED_HOSTS: ${SONOTHEQUE_TRUSTED_HOSTS:-localhost,127.0.0.1,::1}
+  SONOTHEQUE_ALLOWED_ORIGINS: ${SONOTHEQUE_ALLOWED_ORIGINS:-}
   LASTFM_API_URL: ${LASTFM_API_URL:-https://ws.audioscrobbler.com/2.0/}
   LASTFM_AUTH_URL: ${LASTFM_AUTH_URL:-https://www.last.fm/api/auth/}
   LRCLIB_API_URL: ${LRCLIB_API_URL:-https://lrclib.net/api}
@@ -41,7 +41,7 @@ x-backend-image: &backend-image
   volumes:
     - backend-storage:/app/storage
     - type: bind
-      source: ${MUSIC_LIBRARY_ROOT_1:-./packaged/music-root-1}
+      source: ${SONOTHEQUE_ROOT_1:-./packaged/music-root-1}
       target: /music/root-1
   depends_on:
     postgres:
@@ -51,9 +51,9 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-music_library}
-      POSTGRES_USER: ${POSTGRES_USER:-music_library}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-music_library}
+      POSTGRES_DB: ${POSTGRES_DB:-sonotheque}
+      POSTGRES_USER: ${POSTGRES_USER:-sonotheque}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sonotheque}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

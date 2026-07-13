@@ -112,7 +112,7 @@ The base packaged Compose file provides a first host-folder mount at:
 ```
 
 To try the skeleton manually, copy `.env.packaged.example` to `.env.packaged`,
-set `APP_KEY`, set `MUSIC_LIBRARY_ROOT_1` to a real music folder, then run:
+set `APP_KEY`, set `SONOTHEQUE_ROOT_1` to a real music folder, then run:
 
 ```powershell
 docker compose --env-file .env.packaged -f compose.packaged.yaml up -d --build
@@ -153,7 +153,7 @@ the corresponding library roots in Settings and rescanning affected roots.
 The start script creates `.env.packaged` when missing, generates stable local
 secrets once, runs migrations, starts the Compose services, and prints the app
 URL. By default it binds to `127.0.0.1` and enables
-`MUSIC_LIBRARY_LOCAL_PROXY_ENABLED` so the packaged nginx proxy can access local
+`SONOTHEQUE_LOCAL_PROXY_ENABLED` so the packaged nginx proxy can access local
 settings APIs. LAN mode is still explicit:
 
 ```powershell
@@ -163,7 +163,7 @@ settings APIs. LAN mode is still explicit:
 In LAN mode the script generates an admin token if one is not configured and
 prints the narrow Windows Firewall rule to run from an elevated PowerShell
 window if another device cannot connect. LAN mode disables
-`MUSIC_LIBRARY_LOCAL_PROXY_ENABLED`, so settings, scan, folder-browsing, and
+`SONOTHEQUE_LOCAL_PROXY_ENABLED`, so settings, scan, folder-browsing, and
 metadata-edit operations require the admin token from remote clients.
 
 ## Migrating From Development Mode

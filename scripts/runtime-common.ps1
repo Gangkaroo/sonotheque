@@ -157,7 +157,7 @@ function Resolve-LanIpv4Address {
 function Get-LanTrustedHosts {
     param([Parameter(Mandatory)][string]$LanAddress)
 
-    $configuredValue = Get-RuntimeSetting -Name 'MUSIC_LIBRARY_TRUSTED_HOSTS'
+    $configuredValue = Get-RuntimeSetting -Name 'SONOTHEQUE_TRUSTED_HOSTS'
     $configuredHosts = if ([string]::IsNullOrWhiteSpace($configuredValue)) {
         @()
     }
@@ -176,9 +176,9 @@ function Get-LanTrustedHosts {
 }
 
 function Get-LanAdminToken {
-    $token = Get-RuntimeSetting -Name 'MUSIC_LIBRARY_ADMIN_TOKEN'
+    $token = Get-RuntimeSetting -Name 'SONOTHEQUE_ADMIN_TOKEN'
     if ([string]::IsNullOrWhiteSpace($token) -or $token.Length -lt 32) {
-        throw 'LAN mode requires MUSIC_LIBRARY_ADMIN_TOKEN in backend/.env with at least 32 characters.'
+        throw 'LAN mode requires SONOTHEQUE_ADMIN_TOKEN in backend/.env with at least 32 characters.'
     }
 
     return $token
@@ -311,8 +311,8 @@ function Stop-ManagedProcess {
 
 function Resolve-Php85 {
     $candidates = [System.Collections.Generic.List[string]]::new()
-    if (-not [string]::IsNullOrWhiteSpace($env:MUSIC_LIBRARY_PHP)) {
-        $candidates.Add($env:MUSIC_LIBRARY_PHP)
+    if (-not [string]::IsNullOrWhiteSpace($env:SONOTHEQUE_PHP)) {
+        $candidates.Add($env:SONOTHEQUE_PHP)
     }
 
     $pathPhp = Get-Command php -ErrorAction SilentlyContinue
@@ -343,7 +343,7 @@ function Resolve-Php85 {
         }
     }
 
-    throw 'PHP 8.5 was not found. Set MUSIC_LIBRARY_PHP to the PHP 8.5 executable.'
+    throw 'PHP 8.5 was not found. Set SONOTHEQUE_PHP to the PHP 8.5 executable.'
 }
 
 function Resolve-Node {
@@ -454,12 +454,12 @@ function Invoke-DockerCompose {
 
 function Get-PostgresStatus {
     try {
-        $running = (& docker inspect --format '{{.State.Running}}' music-library-postgres 2>$null | Out-String).Trim()
+        $running = (& docker inspect --format '{{.State.Running}}' sonotheque-postgres 2>$null | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or $running -ne 'true') {
             return 'Stopped'
         }
 
-        $health = (& docker inspect --format '{{.State.Health.Status}}' music-library-postgres 2>$null | Out-String).Trim()
+        $health = (& docker inspect --format '{{.State.Health.Status}}' sonotheque-postgres 2>$null | Out-String).Trim()
         if ($health -eq 'healthy') {
             return 'Healthy'
         }
@@ -523,7 +523,7 @@ function Get-RuntimeStatus {
         [pscustomobject]@{
             Service = 'PostgreSQL'
             Status = $postgresStatus
-            Details = 'Docker container music-library-postgres'
+            Details = 'Docker container sonotheque-postgres'
         },
         [pscustomobject]@{
             Service = 'Laravel API'

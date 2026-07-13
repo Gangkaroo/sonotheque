@@ -52,7 +52,7 @@ class AudioStreamController extends Controller
             $range = $this->rangeParser->parse(
                 $request->header('Range'),
                 $fileSize,
-                max(1, (int) config('music-library.audio_stream_open_ended_range_bytes')),
+                max(1, (int) config('sonotheque.audio_stream_open_ended_range_bytes')),
             );
         } catch (InvalidByteRange) {
             return $this->rangeNotSatisfiable($fileSize);

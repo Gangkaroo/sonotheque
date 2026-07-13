@@ -118,7 +118,7 @@ class TrackPlayStatisticsApiTest extends TestCase
     {
         Queue::fake();
         $this->freezeTime();
-        config(['music-library.play_statistics_sync_delay_seconds' => 30]);
+        config(['sonotheque.play_statistics_sync_delay_seconds' => 30]);
         ApplicationSetting::current()->update([
             'import_play_statistics_from_tags' => true,
             'export_play_statistics_to_tags' => true,

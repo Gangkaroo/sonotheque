@@ -21,7 +21,7 @@ class ScanLibraryRoot implements ShouldQueue
 
     public function handle(LibraryScanner $scanner): void
     {
-        $memoryLimit = config('music-library.scan_memory_limit');
+        $memoryLimit = config('sonotheque.scan_memory_limit');
 
         if (is_string($memoryLimit) && $memoryLimit !== '') {
             ini_set('memory_limit', $memoryLimit);

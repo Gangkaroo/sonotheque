@@ -65,7 +65,7 @@ class AudioStreamingApiTest extends TestCase
 
     public function test_it_returns_open_ended_ranges_as_complete_bounded_chunks(): void
     {
-        config(['music-library.audio_stream_open_ended_range_bytes' => 4]);
+        config(['sonotheque.audio_stream_open_ended_range_bytes' => 4]);
         $track = $this->createTrack('0123456789');
 
         $response = $this->get("/api/tracks/{$track->id}/stream", ['Range' => 'bytes=2-']);

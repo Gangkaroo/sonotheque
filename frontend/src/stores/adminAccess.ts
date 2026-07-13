@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-const sessionKey = 'music-library:admin-token'
-const persistentKey = 'music-library:admin-token:remembered'
+const sessionKey = 'sonotheque:admin-token'
+const persistentKey = 'sonotheque:admin-token:remembered'
 
 function read(storage: Storage, key: string) {
   try {

@@ -43,12 +43,12 @@ RUN composer install \
     --prefer-dist
 
 COPY backend/ ./
-COPY backend/docker/packaged-entrypoint.sh /usr/local/bin/music-library-entrypoint
+COPY backend/docker/packaged-entrypoint.sh /usr/local/bin/sonotheque-entrypoint
 
 RUN composer dump-autoload --optimize --no-dev --no-scripts \
-    && chmod +x /usr/local/bin/music-library-entrypoint
+    && chmod +x /usr/local/bin/sonotheque-entrypoint
 
 EXPOSE 8000
 
-ENTRYPOINT ["music-library-entrypoint"]
+ENTRYPOINT ["sonotheque-entrypoint"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

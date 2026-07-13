@@ -11,7 +11,7 @@ Artisan::command('inspire', function () {
 
 Schedule::call(function (): void {
     Cache::forever(
-        (string) config('music-library.system_health.scheduler_heartbeat_key'),
+        (string) config('sonotheque.system_health.scheduler_heartbeat_key'),
         now()->toJSON(),
     );
-})->name('music-library:system-health-heartbeat')->everyMinute();
+})->name('sonotheque:system-health-heartbeat')->everyMinute();

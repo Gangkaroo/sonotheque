@@ -10,7 +10,7 @@ class TrustConfiguredHosts extends TrustHosts
     /** @return list<string> */
     public function hosts(): array
     {
-        return config('music-library.lan.trusted_hosts', []);
+        return config('sonotheque.lan.trusted_hosts', []);
     }
 
     protected function shouldSpecifyTrustedHosts(): bool

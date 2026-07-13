@@ -28,26 +28,26 @@ try {
     $port = Get-PackagedAppPort
     if ($Lan) {
         $address = Resolve-PackagedLanIpv4Address -RequestedAddress $LanAddress
-        $adminToken = Get-PackagedEnvValue -Name 'MUSIC_LIBRARY_ADMIN_TOKEN'
+        $adminToken = Get-PackagedEnvValue -Name 'SONOTHEQUE_ADMIN_TOKEN'
         if ([string]::IsNullOrWhiteSpace($adminToken) -or $adminToken.Length -lt 32) {
             $adminToken = New-PackagedHexSecret
-            Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_ADMIN_TOKEN' -Value $adminToken
+            Set-PackagedEnvValue -Name 'SONOTHEQUE_ADMIN_TOKEN' -Value $adminToken
             Write-Host 'Generated LAN admin token for packaged mode.'
         }
 
         Set-PackagedEnvValue -Name 'APP_HTTP_BIND' -Value $address
         Set-PackagedEnvValue -Name 'APP_URL' -Value "http://${address}:$port"
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_LAN_ENABLED' -Value 'true'
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_LOCAL_PROXY_ENABLED' -Value 'false'
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_TRUSTED_HOSTS' -Value ("localhost,127.0.0.1,::1,$address,$([System.Net.Dns]::GetHostName())")
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_LAN_ENABLED' -Value 'true'
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_LOCAL_PROXY_ENABLED' -Value 'false'
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_TRUSTED_HOSTS' -Value ("localhost,127.0.0.1,::1,$address,$([System.Net.Dns]::GetHostName())")
     }
     else {
         $address = '127.0.0.1'
         Set-PackagedEnvValue -Name 'APP_HTTP_BIND' -Value $address
         Set-PackagedEnvValue -Name 'APP_URL' -Value "http://${address}:$port"
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_LAN_ENABLED' -Value 'false'
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_LOCAL_PROXY_ENABLED' -Value 'true'
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_TRUSTED_HOSTS' -Value 'localhost,127.0.0.1,::1'
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_LAN_ENABLED' -Value 'false'
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_LOCAL_PROXY_ENABLED' -Value 'true'
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_TRUSTED_HOSTS' -Value 'localhost,127.0.0.1,::1'
     }
 
     $buildArguments = if ($NoBuild) { @() } else { @('--build') }
@@ -69,7 +69,7 @@ try {
     if ($Lan) {
         Write-Host ''
         Write-Host 'Enter the generated admin token in Settings > Security from LAN devices:'
-        Write-Host (Get-PackagedEnvValue -Name 'MUSIC_LIBRARY_ADMIN_TOKEN')
+        Write-Host (Get-PackagedEnvValue -Name 'SONOTHEQUE_ADMIN_TOKEN')
         Write-Host ''
         Write-Host 'If another device cannot connect, allow only the selected port for Private networks and LocalSubnet:'
         Write-Host "New-NetFirewallRule -DisplayName 'Sonotheque Packaged LAN' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -LocalAddress $address -RemoteAddress LocalSubnet -Profile Private"

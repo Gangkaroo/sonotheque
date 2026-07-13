@@ -111,7 +111,7 @@ class OnlineEnrichmentApiTest extends TestCase
 
     public function test_artist_image_is_resolved_from_wikimedia_and_cached(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         $track = $this->createTrack([
             'comments' => [
                 'musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da'],
@@ -173,7 +173,7 @@ class OnlineEnrichmentApiTest extends TestCase
 
     public function test_artist_image_proxy_rejects_non_wikimedia_hosts(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         $track = $this->createTrack([
             'comments' => ['musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da']],
         ]);
@@ -207,7 +207,7 @@ class OnlineEnrichmentApiTest extends TestCase
 
     public function test_musicbrainz_identity_uses_identifiers_retained_during_the_scan(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         $track = $this->createTrack([
             'comments' => [
                 'musicbrainz_albumartistid' => ['5b11f4ce-a62d-471e-81fc-a69a8278c7da'],

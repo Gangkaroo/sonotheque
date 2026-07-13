@@ -9,7 +9,7 @@ interface StoredPreferences {
   theme?: ThemePreference
 }
 
-const storageKey = 'music-library:preferences'
+const storageKey = 'sonotheque:preferences'
 const defaultLocale: AppLocale = 'en'
 const defaultTheme: ThemePreference = 'dark'
 const locales = new Set<AppLocale>(['de', 'en'])

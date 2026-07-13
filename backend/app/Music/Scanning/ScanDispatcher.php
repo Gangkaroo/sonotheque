@@ -40,7 +40,7 @@ class ScanDispatcher
 
     private function failStaleScans(LibraryRoot $root): void
     {
-        $staleBefore = now()->subMinutes((int) config('music-library.scan_stale_after_minutes', 15));
+        $staleBefore = now()->subMinutes((int) config('sonotheque.scan_stale_after_minutes', 15));
 
         $root->scanRuns()
             ->where('status', ScanStatus::Running->value)

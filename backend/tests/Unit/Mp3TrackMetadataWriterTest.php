@@ -17,7 +17,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->temporaryDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'music-library-track-writer-'.bin2hex(random_bytes(6));
+        $this->temporaryDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sonotheque-track-writer-'.bin2hex(random_bytes(6));
         mkdir($this->temporaryDirectory);
     }
 
@@ -137,7 +137,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
 
         $this->assertSame($path, $verifiedPath);
         $this->assertStringEndsWith($audio, (string) file_get_contents($path));
-        $this->assertSame([], glob($path.'.music-library-tag-*.bak') ?: []);
+        $this->assertSame([], glob($path.'.sonotheque-tag-*.bak') ?: []);
     }
 
     public function test_it_discards_empty_frames_while_preserving_non_empty_frames_and_audio(): void
@@ -187,7 +187,7 @@ class Mp3TrackMetadataWriterTest extends TestCase
         }
 
         $this->assertSame($original, file_get_contents($path));
-        $this->assertSame([], glob($path.'.music-library-tag-*.bak') ?: []);
+        $this->assertSame([], glob($path.'.sonotheque-tag-*.bak') ?: []);
     }
 
     public function test_it_uses_the_full_copy_path_when_the_updated_tag_outgrows_existing_padding(): void

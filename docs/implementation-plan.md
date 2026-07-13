@@ -33,7 +33,7 @@ Build a local-first web application that scans configurable music folders, store
 ## Repository Structure
 
 ```text
-music-library/
+sonotheque/
 |-- backend/          Laravel and API Platform
 |-- frontend/         Vue application
 |-- docs/             Architecture and project documentation

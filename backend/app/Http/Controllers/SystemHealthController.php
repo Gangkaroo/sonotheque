@@ -28,8 +28,8 @@ class SystemHealthController extends Controller
             'app' => [
                 'environment' => app()->environment(),
                 'url' => config('app.url'),
-                'lanEnabled' => (bool) config('music-library.lan.enabled'),
-                'localProxyEnabled' => (bool) config('music-library.lan.local_proxy_enabled'),
+                'lanEnabled' => (bool) config('sonotheque.lan.enabled'),
+                'localProxyEnabled' => (bool) config('sonotheque.lan.local_proxy_enabled'),
                 'queueConnection' => config('queue.default'),
                 'cacheStore' => config('cache.default'),
             ],
@@ -47,7 +47,7 @@ class SystemHealthController extends Controller
     private function scheduler(): array
     {
         try {
-            $value = Cache::get((string) config('music-library.system_health.scheduler_heartbeat_key'));
+            $value = Cache::get((string) config('sonotheque.system_health.scheduler_heartbeat_key'));
             if (! is_string($value) || $value === '') {
                 return [
                     'status' => 'unknown',
@@ -60,7 +60,7 @@ class SystemHealthController extends Controller
 
             $heartbeat = CarbonImmutable::parse($value);
             $ageSeconds = (int) max(0, $heartbeat->diffInSeconds(now()));
-            $staleAfter = max(60, (int) config('music-library.system_health.scheduler_stale_seconds', 180));
+            $staleAfter = max(60, (int) config('sonotheque.system_health.scheduler_stale_seconds', 180));
             $stale = $ageSeconds > $staleAfter;
 
             return [
@@ -184,7 +184,7 @@ class SystemHealthController extends Controller
     /** @return array<string, mixed> */
     private function backup(): array
     {
-        $path = (string) config('music-library.system_health.backup_status_path');
+        $path = (string) config('sonotheque.system_health.backup_status_path');
         if (! is_file($path)) {
             return [
                 'available' => false,

@@ -121,7 +121,7 @@ function Assert-RootMappingsCoverDevelopmentRoots {
     )
 
     $developmentRootCount = [int](Invoke-PostgresScalar `
-        -Container 'music-library-postgres' `
+        -Container 'sonotheque-postgres' `
         -Password $Password `
         -User $User `
         -Database $Database `
@@ -133,7 +133,7 @@ function Assert-RootMappingsCoverDevelopmentRoots {
 
     foreach ($mapping in $Mappings) {
         $matchingRootCount = [int](Invoke-PostgresScalar `
-            -Container 'music-library-postgres' `
+            -Container 'sonotheque-postgres' `
             -Password $Password `
             -User $User `
             -Database $Database `
@@ -164,15 +164,15 @@ try {
     $devDatabase = Get-PackagedEnvValue -Path $backendEnvironmentPath -Name 'DB_DATABASE'
     $devUser = Get-PackagedEnvValue -Path $backendEnvironmentPath -Name 'DB_USERNAME'
     $devPassword = Get-PackagedEnvValue -Path $backendEnvironmentPath -Name 'DB_PASSWORD'
-    $devDatabase = if ([string]::IsNullOrWhiteSpace($devDatabase)) { 'music_library' } else { $devDatabase }
-    $devUser = if ([string]::IsNullOrWhiteSpace($devUser)) { 'music_library' } else { $devUser }
+    $devDatabase = if ([string]::IsNullOrWhiteSpace($devDatabase)) { 'sonotheque' } else { $devDatabase }
+    $devUser = if ([string]::IsNullOrWhiteSpace($devUser)) { 'sonotheque' } else { $devUser }
     $devPassword = if ($null -eq $devPassword) { '' } else { $devPassword }
 
     $packagedDatabase = Get-PackagedEnvValue -Name 'POSTGRES_DB'
     $packagedUser = Get-PackagedEnvValue -Name 'POSTGRES_USER'
     $packagedPassword = Get-PackagedEnvValue -Name 'POSTGRES_PASSWORD'
-    $packagedDatabase = if ([string]::IsNullOrWhiteSpace($packagedDatabase)) { 'music_library' } else { $packagedDatabase }
-    $packagedUser = if ([string]::IsNullOrWhiteSpace($packagedUser)) { 'music_library' } else { $packagedUser }
+    $packagedDatabase = if ([string]::IsNullOrWhiteSpace($packagedDatabase)) { 'sonotheque' } else { $packagedDatabase }
+    $packagedUser = if ([string]::IsNullOrWhiteSpace($packagedUser)) { 'sonotheque' } else { $packagedUser }
     $packagedPassword = if ($null -eq $packagedPassword) { '' } else { $packagedPassword }
 
     $devAppKey = Get-PackagedEnvValue -Path $backendEnvironmentPath -Name 'APP_KEY'
@@ -208,14 +208,14 @@ try {
     New-Item -ItemType Directory -Path $migrationDirectory -Force | Out-Null
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $dumpPath = Join-Path $migrationDirectory "dev-to-packaged-$timestamp.dump"
-    $containerDumpPath = '/tmp/music-library-dev.dump'
+    $containerDumpPath = '/tmp/sonotheque-dev.dump'
 
     Write-Host 'Dumping development database...'
     Invoke-Checked -FilePath 'docker' -ArgumentList @(
         'exec',
         '-e',
         "PGPASSWORD=$devPassword",
-        'music-library-postgres',
+        'sonotheque-postgres',
         'pg_dump',
         '-U',
         $devUser,
@@ -227,7 +227,7 @@ try {
     )
     Invoke-Checked -FilePath 'docker' -ArgumentList @(
         'cp',
-        "music-library-postgres:$containerDumpPath",
+        "sonotheque-postgres:$containerDumpPath",
         $dumpPath
     )
 

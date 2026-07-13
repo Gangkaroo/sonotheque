@@ -28,22 +28,22 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->when(AudioFileDiscoverer::class)
             ->needs('$extensions')
-            ->giveConfig('music-library.audio_extensions');
+            ->giveConfig('sonotheque.audio_extensions');
 
         $this->app->when(FfprobeAudioMetadataProbe::class)
             ->needs('$binary')
-            ->giveConfig('music-library.metadata_probe.ffprobe_binary');
+            ->giveConfig('sonotheque.metadata_probe.ffprobe_binary');
         $this->app->when(FfprobeAudioMetadataProbe::class)
             ->needs('$timeoutSeconds')
-            ->giveConfig('music-library.metadata_probe.timeout_seconds');
+            ->giveConfig('sonotheque.metadata_probe.timeout_seconds');
 
         foreach ([
-            '$disk' => 'music-library.artwork.disk',
-            '$thumbnailWidth' => 'music-library.artwork.thumbnail_width',
-            '$thumbnailHeight' => 'music-library.artwork.thumbnail_height',
-            '$thumbnailQuality' => 'music-library.artwork.thumbnail_quality',
-            '$maxSourceBytes' => 'music-library.artwork.max_source_bytes',
-            '$maxSourcePixels' => 'music-library.artwork.max_source_pixels',
+            '$disk' => 'sonotheque.artwork.disk',
+            '$thumbnailWidth' => 'sonotheque.artwork.thumbnail_width',
+            '$thumbnailHeight' => 'sonotheque.artwork.thumbnail_height',
+            '$thumbnailQuality' => 'sonotheque.artwork.thumbnail_quality',
+            '$maxSourceBytes' => 'sonotheque.artwork.max_source_bytes',
+            '$maxSourcePixels' => 'sonotheque.artwork.max_source_pixels',
         ] as $parameter => $configuration) {
             $this->app->when(AlbumArtworkManager::class)
                 ->needs($parameter)

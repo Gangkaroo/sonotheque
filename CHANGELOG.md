@@ -1,10 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Rename internal runtime, database, and interface identifiers from the generic
+  music-library name to Sonotheque.
+
 ## 0.1.0 - 2026-07-13
 
 Initial portable release candidate with:
 
-- local music-library scanning and metadata management;
+- local library scanning and metadata management;
 - artist, album, track, genre, favorites, history, and playlist views;
 - browser playback, queue management, and visualization;
 - playback statistics and optional metadata synchronization;

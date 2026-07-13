@@ -43,8 +43,8 @@ try {
     }
 
     $backendEnvironment = @{
-        MUSIC_LIBRARY_LAN_ENABLED = if ($Lan) { 'true' } else { 'false' }
-        MUSIC_LIBRARY_TRUSTED_HOSTS = 'localhost,127.0.0.1,::1'
+        SONOTHEQUE_LAN_ENABLED = if ($Lan) { 'true' } else { 'false' }
+        SONOTHEQUE_TRUSTED_HOSTS = 'localhost,127.0.0.1,::1'
     }
     $frontendEnvironment = @{}
     $adminToken = $null
@@ -52,9 +52,9 @@ try {
     if ($Lan) {
         $adminToken = Get-LanAdminToken
         $trustedHosts = Get-LanTrustedHosts -LanAddress $frontendHost
-        $backendEnvironment.MUSIC_LIBRARY_ADMIN_TOKEN = $adminToken
-        $backendEnvironment.MUSIC_LIBRARY_TRUSTED_HOSTS = $trustedHosts -join ','
-        $frontendEnvironment.MUSIC_LIBRARY_VITE_ALLOWED_HOSTS = [System.Net.Dns]::GetHostName()
+        $backendEnvironment.SONOTHEQUE_ADMIN_TOKEN = $adminToken
+        $backendEnvironment.SONOTHEQUE_TRUSTED_HOSTS = $trustedHosts -join ','
+        $frontendEnvironment.SONOTHEQUE_VITE_ALLOWED_HOSTS = [System.Net.Dns]::GetHostName()
 
         Write-Host "Preparing explicit LAN mode on $frontendHost..."
     }
@@ -161,7 +161,7 @@ try {
 
         $authorizedStatus = Get-HttpStatusCode `
             -Uri $accessUri `
-            -Headers @{ 'X-Music-Library-Admin-Token' = $adminToken }
+            -Headers @{ 'X-Sonotheque-Admin-Token' = $adminToken }
         if ($authorizedStatus -ne 200) {
             throw "LAN authorization check failed: the configured admin token returned HTTP $authorizedStatus."
         }

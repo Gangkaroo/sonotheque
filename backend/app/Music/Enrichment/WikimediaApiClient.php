@@ -23,7 +23,7 @@ SELECT ?item ?image WHERE {
 LIMIT 1
 SPARQL;
         $payload = $this->payload($this->request(
-            (string) config('music-library.enrichment.wikimedia.wikidata_query_url'),
+            (string) config('sonotheque.enrichment.wikimedia.wikidata_query_url'),
             ['query' => $query, 'format' => 'json'],
             'application/sparql-results+json',
         ));
@@ -45,7 +45,7 @@ SPARQL;
     public function fileInformation(string $fileName): ?array
     {
         $payload = $this->payload($this->request(
-            (string) config('music-library.enrichment.wikimedia.commons_api_url'),
+            (string) config('sonotheque.enrichment.wikimedia.commons_api_url'),
             [
                 'action' => 'query',
                 'format' => 'json',
@@ -65,7 +65,7 @@ SPARQL;
     /** @param array<string, mixed> $parameters */
     private function request(string $url, array $parameters, string $accept = 'application/json'): Response
     {
-        $configuration = config('music-library.enrichment.wikimedia');
+        $configuration = config('sonotheque.enrichment.wikimedia');
         $caBundle = trim((string) ($configuration['ca_bundle'] ?? ''));
 
         try {

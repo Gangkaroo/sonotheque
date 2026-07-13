@@ -18,7 +18,7 @@ class ProviderRequestGate
 
         $key = "online-enrichment:provider:{$provider}";
         $maximum = max(1, (int) config(
-            "music-library.enrichment.providers.{$provider}.max_requests_per_minute",
+            "sonotheque.enrichment.providers.{$provider}.max_requests_per_minute",
             60,
         ));
         $result = RateLimiter::attempt(
@@ -42,7 +42,7 @@ class ProviderRequestGate
     private function pace(string $provider): void
     {
         $minimumInterval = max(0, (int) config(
-            "music-library.enrichment.providers.{$provider}.minimum_interval_ms",
+            "sonotheque.enrichment.providers.{$provider}.minimum_interval_ms",
             0,
         ));
         if ($minimumInterval === 0) {

@@ -14,7 +14,7 @@ Windows. They are included in the Docker package.
 
 1. Start Docker Desktop and wait until it reports that the engine is running.
 2. Extract the release ZIP into a permanent folder, for example
-   `C:\MusicLibrary`. Do not run it directly from the ZIP or a temporary folder.
+   `C:\Sonotheque`. Do not run it directly from the ZIP or a temporary folder.
 3. Double-click `Start Sonotheque.cmd`.
 4. Select the host folders containing your music when prompted. After each
    selection, Sonotheque asks whether another folder should be added.

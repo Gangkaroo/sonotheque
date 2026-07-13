@@ -31,7 +31,7 @@ For daily use, start the complete stack from the repository root:
 ```
 
 Explicit LAN startup is available with `scripts\start.ps1 -Lan` after a
-32-character-or-longer `MUSIC_LIBRARY_ADMIN_TOKEN` is configured in `.env`.
+32-character-or-longer `SONOTHEQUE_ADMIN_TOKEN` is configured in `.env`.
 See `../docs/runtime.md` for address selection, token verification, and the
 narrow Windows Firewall rule.
 
@@ -75,4 +75,4 @@ PHP code follows PSR-12, enforced by the repository Pint configuration. PHP
 namespaces, class names, and file locations follow the PSR-4 mappings in
 `composer.json`.
 
-The tests use the isolated PostgreSQL database `music_library_test` on port `5433`.
+The tests use the isolated PostgreSQL database `sonotheque_test` on port `5433`.

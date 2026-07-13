@@ -22,7 +22,7 @@ function Restore-Database {
     )
 
     $container = Get-BackupPostgresContainer -Mode $Configuration.Mode
-    $containerPath = '/tmp/music-library-system-restore.dump'
+    $containerPath = '/tmp/sonotheque-system-restore.dump'
     Invoke-BackupChecked -FilePath 'docker' -ArgumentList @('cp', $DumpPath, "${container}:$containerPath")
     try {
         Invoke-BackupChecked -FilePath 'docker' -ArgumentList @(

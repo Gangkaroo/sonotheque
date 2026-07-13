@@ -41,7 +41,7 @@ class MusicBrainzApiClient
     /** @param array<string, mixed> $parameters */
     private function request(string $path, array $parameters): Response
     {
-        $configuration = config('music-library.enrichment.musicbrainz');
+        $configuration = config('sonotheque.enrichment.musicbrainz');
         $caBundle = trim((string) ($configuration['ca_bundle'] ?? ''));
 
         try {

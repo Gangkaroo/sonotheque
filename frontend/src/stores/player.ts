@@ -9,7 +9,7 @@ export type PlayableTrack = Track
 export type PlaybackContext = 'album' | 'track-list' | null
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error'
 
-const STORAGE_KEY = 'music-library.player'
+const STORAGE_KEY = 'sonotheque.player'
 
 interface PersistedPlayerState {
   queue?: PlayableTrack[]

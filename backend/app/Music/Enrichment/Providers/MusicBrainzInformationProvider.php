@@ -151,13 +151,13 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
 
         $candidate = $results[0];
         $score = (int) ($candidate['score'] ?? 0);
-        $minimumScore = max(1, (int) config('music-library.enrichment.musicbrainz.minimum_match_score', 95));
+        $minimumScore = max(1, (int) config('sonotheque.enrichment.musicbrainz.minimum_match_score', 95));
         if ($score < $minimumScore || $this->normalized($candidate[$nameKey] ?? null) !== $this->normalized($expectedName)) {
             return null;
         }
 
         $secondScore = is_array($results[1] ?? null) ? (int) ($results[1]['score'] ?? 0) : 0;
-        $requiredGap = max(1, (int) config('music-library.enrichment.musicbrainz.ambiguity_score_gap', 10));
+        $requiredGap = max(1, (int) config('sonotheque.enrichment.musicbrainz.ambiguity_score_gap', 10));
         if ($secondScore > 0 && ($score - $secondScore) < $requiredGap) {
             throw new AmbiguousEnrichmentMatchException('MusicBrainz returned several similarly ranked matches.');
         }
@@ -227,7 +227,7 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
 
     private function sourceUrl(string $entity, string $identifier): string
     {
-        return rtrim((string) config('music-library.enrichment.musicbrainz.web_url'), '/')
+        return rtrim((string) config('sonotheque.enrichment.musicbrainz.web_url'), '/')
             ."/{$entity}/{$identifier}";
     }
 

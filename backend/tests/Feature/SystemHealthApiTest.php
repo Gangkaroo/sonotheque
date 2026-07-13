@@ -35,9 +35,9 @@ class SystemHealthApiTest extends TestCase
     {
         config(['queue.default' => 'database']);
         $backupStatusPath = storage_path('app/system-health-test-backup.json');
-        config(['music-library.system_health.backup_status_path' => $backupStatusPath]);
+        config(['sonotheque.system_health.backup_status_path' => $backupStatusPath]);
         Cache::forever(
-            (string) config('music-library.system_health.scheduler_heartbeat_key'),
+            (string) config('sonotheque.system_health.scheduler_heartbeat_key'),
             now()->toJSON(),
         );
 
@@ -48,7 +48,7 @@ class SystemHealthApiTest extends TestCase
             'status' => 'completed',
             'mode' => 'Development',
             'completedAt' => now()->toJSON(),
-            'bundleName' => 'music-library-development-test',
+            'bundleName' => 'sonotheque-development-test',
             'bytes' => 1234,
         ], JSON_THROW_ON_ERROR));
 
@@ -83,7 +83,7 @@ class SystemHealthApiTest extends TestCase
             ->assertJsonPath('queue.failed', 1)
             ->assertJsonPath('scheduler.status', 'ok')
             ->assertJsonPath('backup.available', true)
-            ->assertJsonPath('backup.bundleName', 'music-library-development-test')
+            ->assertJsonPath('backup.bundleName', 'sonotheque-development-test')
             ->assertJsonPath('libraryRoots.0.name', 'Test Root')
             ->assertJsonPath('libraryRoots.0.readable', true)
             ->assertJsonPath('scans.latestFailed.0.message', 'The scan stopped.');
@@ -93,10 +93,10 @@ class SystemHealthApiTest extends TestCase
     {
         config([
             'queue.default' => 'sync',
-            'music-library.system_health.scheduler_stale_seconds' => 180,
+            'sonotheque.system_health.scheduler_stale_seconds' => 180,
         ]);
         Cache::forever(
-            (string) config('music-library.system_health.scheduler_heartbeat_key'),
+            (string) config('sonotheque.system_health.scheduler_heartbeat_key'),
             now()->subMinutes(5)->toJSON(),
         );
 

@@ -17,7 +17,7 @@ describe('library root scope store', () => {
 
     expect(scope.selectedRootId).toBe(12)
     expect(scope.scopeKey).toBe('root-12')
-    expect(window.sessionStorage.getItem('music-library.active-library-root')).toBe('12')
+    expect(window.sessionStorage.getItem('sonotheque.active-library-root')).toBe('12')
     expect(withLibraryRootScope('/catalog/albums?page=2')).toBe('/catalog/albums?page=2&libraryRoot=12')
   })
 
@@ -37,7 +37,7 @@ describe('library root scope store', () => {
 
     expect(scope.selectedRootId).toBeNull()
     expect(scope.scopeKey).toBe('all')
-    expect(window.sessionStorage.getItem('music-library.active-library-root')).toBeNull()
+    expect(window.sessionStorage.getItem('sonotheque.active-library-root')).toBeNull()
     expect(withLibraryRootScope('/catalog/albums')).toBe('/catalog/albums')
   })
 })

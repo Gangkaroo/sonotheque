@@ -2,7 +2,7 @@
 
 $allowedOrigins = array_values(array_filter(array_map(
     static fn (string $origin): string => trim($origin),
-    explode(',', (string) env('MUSIC_LIBRARY_ALLOWED_ORIGINS', '')),
+    explode(',', (string) env('SONOTHEQUE_ALLOWED_ORIGINS', '')),
 )));
 
 return [
@@ -13,7 +13,7 @@ return [
     'allowed_headers' => [
         'Accept',
         'Content-Type',
-        'X-Music-Library-Admin-Token',
+        'X-Sonotheque-Admin-Token',
     ],
     'exposed_headers' => [],
     'max_age' => 600,

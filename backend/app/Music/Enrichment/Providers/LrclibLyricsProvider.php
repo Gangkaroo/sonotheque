@@ -76,9 +76,9 @@ class LrclibLyricsProvider implements LyricsProvider
     public function testConnection(): void
     {
         $response = $this->request([
-            'track_name' => '__music_library_connection_test__',
-            'artist_name' => '__music_library_connection_test__',
-            'album_name' => '__music_library_connection_test__',
+            'track_name' => '__sonotheque_connection_test__',
+            'artist_name' => '__sonotheque_connection_test__',
+            'album_name' => '__sonotheque_connection_test__',
             'duration' => 1,
         ]);
 
@@ -90,12 +90,12 @@ class LrclibLyricsProvider implements LyricsProvider
     /** @param array<string, int|string> $parameters */
     private function request(array $parameters): Response
     {
-        $configuration = config('music-library.enrichment.lrclib');
+        $configuration = config('sonotheque.enrichment.lrclib');
         $caBundle = trim((string) ($configuration['ca_bundle'] ?? ''));
 
         try {
             return Http::acceptJson()
-                ->withUserAgent((string) config('music-library.enrichment.user_agent'))
+                ->withUserAgent((string) config('sonotheque.enrichment.user_agent'))
                 ->withOptions([
                     'proxy' => (string) ($configuration['proxy'] ?? ''),
                     'verify' => $caBundle !== '' ? $caBundle : true,

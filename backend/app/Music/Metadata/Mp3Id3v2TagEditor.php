@@ -126,7 +126,7 @@ class Mp3Id3v2TagEditor
             return;
         }
 
-        $suffix = '.music-library-metadata-'.bin2hex(random_bytes(8));
+        $suffix = '.sonotheque-metadata-'.bin2hex(random_bytes(8));
         $temporaryPath = $path.$suffix.'.tmp.'.pathinfo($path, PATHINFO_EXTENSION);
         $backupPath = $path.$suffix.'.bak';
 
@@ -198,7 +198,7 @@ class Mp3Id3v2TagEditor
         string $replacementTag,
         Closure $verify,
     ): void {
-        $backupPath = $path.'.music-library-tag-'.bin2hex(random_bytes(8)).'.bak';
+        $backupPath = $path.'.sonotheque-tag-'.bin2hex(random_bytes(8)).'.bak';
         $this->writeRecoveryTag($backupPath, $originalTag);
         $writeStarted = false;
 

@@ -33,8 +33,8 @@ class LanProtectionMiddlewareTest extends TestCase
     public function test_sensitive_routes_accept_configured_admin_token_when_lan_is_enabled(): void
     {
         config([
-            'music-library.lan.enabled' => true,
-            'music-library.lan.admin_token' => 'secret-token',
+            'sonotheque.lan.enabled' => true,
+            'sonotheque.lan.admin_token' => 'secret-token',
         ]);
 
         $this->call(
@@ -43,7 +43,7 @@ class LanProtectionMiddlewareTest extends TestCase
             server: [
                 'REMOTE_ADDR' => '192.168.1.20',
                 'HTTP_ACCEPT' => 'application/ld+json',
-                'HTTP_X_MUSIC_LIBRARY_ADMIN_TOKEN' => 'secret-token',
+                'HTTP_X_SONOTHEQUE_ADMIN_TOKEN' => 'secret-token',
             ],
         )
             ->assertOk();
@@ -54,7 +54,7 @@ class LanProtectionMiddlewareTest extends TestCase
             server: [
                 'REMOTE_ADDR' => '192.168.1.20',
                 'HTTP_ACCEPT' => 'application/json',
-                'HTTP_X_MUSIC_LIBRARY_ADMIN_TOKEN' => 'secret-token',
+                'HTTP_X_SONOTHEQUE_ADMIN_TOKEN' => 'secret-token',
             ],
         )
             ->assertOk()
@@ -64,8 +64,8 @@ class LanProtectionMiddlewareTest extends TestCase
     public function test_loopback_vite_proxy_preserves_lan_client_protection(): void
     {
         config([
-            'music-library.lan.enabled' => true,
-            'music-library.lan.admin_token' => 'secret-token',
+            'sonotheque.lan.enabled' => true,
+            'sonotheque.lan.admin_token' => 'secret-token',
         ]);
 
         $server = [
@@ -79,7 +79,7 @@ class LanProtectionMiddlewareTest extends TestCase
 
         $this->call('GET', '/api/settings/access', server: [
             ...$server,
-            'HTTP_X_MUSIC_LIBRARY_ADMIN_TOKEN' => 'secret-token',
+            'HTTP_X_SONOTHEQUE_ADMIN_TOKEN' => 'secret-token',
         ])
             ->assertOk()
             ->assertExactJson(['authorized' => true]);
@@ -88,8 +88,8 @@ class LanProtectionMiddlewareTest extends TestCase
     public function test_direct_lan_client_cannot_spoof_a_loopback_forwarded_address(): void
     {
         config([
-            'music-library.lan.enabled' => true,
-            'music-library.lan.admin_token' => 'secret-token',
+            'sonotheque.lan.enabled' => true,
+            'sonotheque.lan.admin_token' => 'secret-token',
         ]);
 
         $this->call(

@@ -136,7 +136,7 @@ class TrackPlayStatisticsController extends Controller
     {
         $minimumDurationMs = max(
             0,
-            (int) config('music-library.counted_play_minimum_track_seconds', 30) * 1000,
+            (int) config('sonotheque.counted_play_minimum_track_seconds', 30) * 1000,
         );
 
         if ($durationMs === null || $durationMs <= $minimumDurationMs) {
@@ -145,7 +145,7 @@ class TrackPlayStatisticsController extends Controller
 
         $maximumThresholdMs = max(
             0,
-            (int) config('music-library.counted_play_maximum_threshold_seconds', 240) * 1000,
+            (int) config('sonotheque.counted_play_maximum_threshold_seconds', 240) * 1000,
         );
         $requiredMs = min((int) ceil($durationMs / 2), $maximumThresholdMs);
 
@@ -156,7 +156,7 @@ class TrackPlayStatisticsController extends Controller
     {
         $idleDelaySeconds = max(
             0,
-            (int) config('music-library.play_statistics_sync_delay_seconds', 30),
+            (int) config('sonotheque.play_statistics_sync_delay_seconds', 30),
         );
         $remainingPlaybackMs = max(0, ($durationMs ?? $listenedMs) - $listenedMs);
 

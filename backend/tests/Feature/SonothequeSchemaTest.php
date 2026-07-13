@@ -18,11 +18,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
-class MusicLibrarySchemaTest extends TestCase
+class SonothequeSchemaTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_music_library_schema_uses_postgresql_jsonb_columns(): void
+    public function test_sonotheque_schema_uses_postgresql_jsonb_columns(): void
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 

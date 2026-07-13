@@ -16,7 +16,7 @@ class ScanLibraryRoot extends Command
         {root : The library root ID}
         {--sync : Run immediately instead of dispatching to the queue}';
 
-    protected $description = 'Scan a configured music-library root';
+    protected $description = 'Scan a configured sonotheque root';
 
     public function handle(LibraryScanner $scanner, ScanDispatcher $dispatcher): int
     {

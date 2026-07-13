@@ -49,7 +49,7 @@ class LibraryScannerTest extends TestCase
         parent::setUp();
 
         Storage::fake('artwork');
-        $this->musicPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'music-library-'.Str::uuid();
+        $this->musicPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sonotheque-'.Str::uuid();
         mkdir($this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut', recursive: true);
 
         $this->metadataReader = new FakeAudioMetadataReader(new AudioMetadata(

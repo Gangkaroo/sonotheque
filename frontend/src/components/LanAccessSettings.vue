@@ -24,7 +24,7 @@ async function save() {
   error.value = null
   try {
     await apiRequest<{ authorized: boolean }>('/settings/access', {
-      headers: { 'X-Music-Library-Admin-Token': candidate },
+      headers: { 'X-Sonotheque-Admin-Token': candidate },
     })
     adminAccess.save(candidate, remember.value)
     saved.value = true

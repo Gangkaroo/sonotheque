@@ -30,7 +30,7 @@ class CancelScanRunProcessor implements ProcessorInterface
                 'finished_at' => now(),
                 'summary' => ['phase' => 'cancelled'],
             ]);
-        } elseif ($scanRun->updated_at->lt(now()->subMinutes((int) config('music-library.scan_stale_after_minutes', 15)))) {
+        } elseif ($scanRun->updated_at->lt(now()->subMinutes((int) config('sonotheque.scan_stale_after_minutes', 15)))) {
             $issues = $scanRun->summary['issues'] ?? [];
             $issues[] = [
                 'code' => 'worker_stopped',

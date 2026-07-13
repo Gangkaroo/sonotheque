@@ -144,7 +144,7 @@ To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:
 
 ```text
-MUSIC_LIBRARY_ADMIN_TOKEN=replace-with-at-least-32-random-characters
+SONOTHEQUE_ADMIN_TOKEN=replace-with-at-least-32-random-characters
 ```
 
 ```powershell
@@ -243,7 +243,7 @@ Run the scan in the current process when debugging scanner behavior:
 & $php85 artisan music:scan 1 --sync
 ```
 
-Supported audio extensions are configured in `backend/config/music-library.php`.
+Supported audio extensions are configured in `backend/config/sonotheque.php`.
 At the moment they are:
 
 ```text
@@ -391,11 +391,11 @@ npm run test
 npm run build
 ```
 
-The backend test suite uses PostgreSQL database `music_library_test` on port
+The backend test suite uses PostgreSQL database `sonotheque_test` on port
 `5433`. Create it once if it does not exist:
 
 ```powershell
-docker exec -it music-library-postgres createdb -U music_library music_library_test
+docker exec -it sonotheque-postgres createdb -U sonotheque sonotheque_test
 ```
 
 ## Troubleshooting
@@ -428,9 +428,9 @@ and that `backend/.env` uses:
 ```text
 DB_HOST=127.0.0.1
 DB_PORT=5433
-DB_DATABASE=music_library
-DB_USERNAME=music_library
-DB_PASSWORD=music_library
+DB_DATABASE=sonotheque
+DB_USERNAME=sonotheque
+DB_PASSWORD=sonotheque
 ```
 
 If the wrong PHP version is used, `php --version` may show the XAMPP binary.
@@ -518,7 +518,7 @@ for its managed backend process and automatically trusts the selected address
 and computer hostname. Only the token needs to be stored in `backend/.env`:
 
 ```text
-MUSIC_LIBRARY_ADMIN_TOKEN=choose-a-long-random-token
+SONOTHEQUE_ADMIN_TOKEN=choose-a-long-random-token
 ```
 
 Generate a suitable token with PHP if needed:
@@ -530,7 +530,7 @@ php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
 Remote admin requests must include:
 
 ```text
-X-Music-Library-Admin-Token: choose-a-long-random-token
+X-Sonotheque-Admin-Token: choose-a-long-random-token
 ```
 
 Catalog browsing, artwork, audio streaming, favorites, and playlists are not
@@ -542,7 +542,7 @@ is kept in `sessionStorage` until the tab or browser session ends. The optional
 to same-origin `/api` requests and is never returned by the backend. Clearing
 it also clears protected library-root and scan data from the current page.
 
-`MUSIC_LIBRARY_TRUSTED_HOSTS` is a comma-separated list of exact hostnames and
+`SONOTHEQUE_TRUSTED_HOSTS` is a comma-separated list of exact hostnames and
 IP addresses accepted in HTTP `Host` headers. LAN startup combines any entries
 already configured there with localhost, the selected address, and the computer
 hostname. Requests with any other host are rejected.
@@ -552,7 +552,7 @@ normal same-origin deployment do not need CORS. If the frontend is deliberately
 served from a different origin, list only those exact origins:
 
 ```text
-MUSIC_LIBRARY_ALLOWED_ORIGINS=http://192.168.1.10:5173
+SONOTHEQUE_ALLOWED_ORIGINS=http://192.168.1.10:5173
 ```
 
 ### Windows Firewall

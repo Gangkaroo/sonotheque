@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RequireLocalOrAdminToken
 {
-    private const ADMIN_TOKEN_HEADER = 'X-Music-Library-Admin-Token';
+    private const ADMIN_TOKEN_HEADER = 'X-Sonotheque-Admin-Token';
 
     /**
      * @param  Closure(Request): Response  $next
@@ -32,7 +32,7 @@ class RequireLocalOrAdminToken
 
     private function shouldProtect(Request $request): bool
     {
-        return collect(config('music-library.lan.protected_paths', []))
+        return collect(config('sonotheque.lan.protected_paths', []))
             ->contains(fn (string $path): bool => $request->is($path));
     }
 
@@ -46,7 +46,7 @@ class RequireLocalOrAdminToken
             return true;
         }
 
-        if (! config('music-library.lan.local_proxy_enabled') || config('music-library.lan.enabled')) {
+        if (! config('sonotheque.lan.local_proxy_enabled') || config('sonotheque.lan.enabled')) {
             return false;
         }
 
@@ -81,11 +81,11 @@ class RequireLocalOrAdminToken
 
     private function hasValidAdminToken(Request $request): bool
     {
-        if (! config('music-library.lan.enabled')) {
+        if (! config('sonotheque.lan.enabled')) {
             return false;
         }
 
-        $configuredToken = (string) config('music-library.lan.admin_token', '');
+        $configuredToken = (string) config('sonotheque.lan.admin_token', '');
         $requestToken = (string) $request->headers->get(self::ADMIN_TOKEN_HEADER, '');
 
         return $configuredToken !== ''

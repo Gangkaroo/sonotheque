@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 import type { LibraryRoot } from '@/stores/libraryRoots'
 
-const STORAGE_KEY = 'music-library.active-library-root'
+const STORAGE_KEY = 'sonotheque.active-library-root'
 
 function readStoredRootId(): number | null {
   if (typeof window === 'undefined') return null
@@ -20,7 +20,7 @@ const activeLibraryRootId = ref<number | null>(readStoredRootId())
 export function withLibraryRootScope(path: string): string {
   if (activeLibraryRootId.value === null) return path
 
-  const url = new URL(path, 'http://music-library.local')
+  const url = new URL(path, 'http://sonotheque.local')
   url.searchParams.set('libraryRoot', String(activeLibraryRootId.value))
 
   return `${url.pathname}${url.search}${url.hash}`

@@ -17,13 +17,13 @@ jobs:
       postgres:
         image: postgres:18-alpine
         env:
-          POSTGRES_DB: music_library_test
-          POSTGRES_USER: music_library
-          POSTGRES_PASSWORD: music_library
+          POSTGRES_DB: sonotheque_test
+          POSTGRES_USER: sonotheque
+          POSTGRES_PASSWORD: sonotheque
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U music_library -d music_library_test"
+          --health-cmd "pg_isready -U sonotheque -d sonotheque_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -35,9 +35,9 @@ jobs:
       DB_CONNECTION: pgsql
       DB_HOST: 127.0.0.1
       DB_PORT: 5433
-      DB_DATABASE: music_library_test
-      DB_USERNAME: music_library
-      DB_PASSWORD: music_library
+      DB_DATABASE: sonotheque_test
+      DB_USERNAME: sonotheque
+      DB_PASSWORD: sonotheque
       DB_SSLMODE: disable
       QUEUE_CONNECTION: sync
       SESSION_DRIVER: array

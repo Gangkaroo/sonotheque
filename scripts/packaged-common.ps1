@@ -146,14 +146,14 @@ function Initialize-PackagedEnvironment {
             throw "Music root does not exist: $MusicRoot"
         }
 
-        Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_ROOT_1' -Value (Resolve-Path -LiteralPath $MusicRoot).Path
+        Set-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1' -Value (Resolve-Path -LiteralPath $MusicRoot).Path
     }
     else {
-        $configuredRoot = Get-PackagedEnvValue -Name 'MUSIC_LIBRARY_ROOT_1'
+        $configuredRoot = Get-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1'
         if ([string]::IsNullOrWhiteSpace($configuredRoot) -or $configuredRoot -eq './packaged/music-root-1') {
             $placeholderRoot = Join-Path $script:RepositoryRoot 'packaged\music-root-1'
             New-Item -ItemType Directory -Path $placeholderRoot -Force | Out-Null
-            Set-PackagedEnvValue -Name 'MUSIC_LIBRARY_ROOT_1' -Value $placeholderRoot
+            Set-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1' -Value $placeholderRoot
             Write-Host "Using placeholder music mount: $placeholderRoot"
             Write-Host 'Pass -MusicRoot "G:\Music" to mount a real music folder.'
         }
@@ -247,7 +247,7 @@ function Get-PackagedMusicRoots {
         return @($configuration.roots | ForEach-Object { [string] $_.hostPath })
     }
 
-    $configuredRoot = Get-PackagedEnvValue -Name 'MUSIC_LIBRARY_ROOT_1'
+    $configuredRoot = Get-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1'
     if ([string]::IsNullOrWhiteSpace($configuredRoot) -or $configuredRoot -eq './packaged/music-root-1') {
         return @()
     }

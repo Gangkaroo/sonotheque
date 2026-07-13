@@ -278,12 +278,12 @@ class OnlineEnrichmentManager
 
         $lock = Cache::lock(
             $this->cache->lockKey($provider, $type, $lookup),
-            max(5, (int) config('music-library.enrichment.lock_seconds', 30)),
+            max(5, (int) config('sonotheque.enrichment.lock_seconds', 30)),
         );
 
         try {
             return $lock->block(
-                max(1, (int) config('music-library.enrichment.lock_wait_seconds', 12)),
+                max(1, (int) config('sonotheque.enrichment.lock_wait_seconds', 12)),
                 function () use ($provider, $type, $lookup, $fetch, $backgroundRefresh): array {
                     $latest = $this->cache->find($provider, $type, $lookup);
                     if ($this->isFresh($latest)) {
@@ -329,7 +329,7 @@ class OnlineEnrichmentManager
                     $lookup,
                     OnlineContentStatus::NotFound,
                     null,
-                    now()->addHours(max(1, (int) config('music-library.enrichment.not_found_cache_hours', 24))),
+                    now()->addHours(max(1, (int) config('sonotheque.enrichment.not_found_cache_hours', 24))),
                 );
 
                 return $this->cachedState($cache, false);
@@ -338,7 +338,7 @@ class OnlineEnrichmentManager
             /** @var array<string, mixed> $payload */
             $payload = $content->toArray();
             $attribution = is_array($payload['attribution'] ?? null) ? $payload['attribution'] : [];
-            $expiresAt = now()->addDays(max(1, (int) config('music-library.enrichment.ready_cache_days', 30)));
+            $expiresAt = now()->addDays(max(1, (int) config('sonotheque.enrichment.ready_cache_days', 30)));
             $cache = $this->cache->store(
                 $provider,
                 $type,
@@ -346,7 +346,7 @@ class OnlineEnrichmentManager
                 OnlineContentStatus::Ready,
                 $payload,
                 $expiresAt,
-                $expiresAt->copy()->addDays(max(1, (int) config('music-library.enrichment.stale_cache_days', 7))),
+                $expiresAt->copy()->addDays(max(1, (int) config('sonotheque.enrichment.stale_cache_days', 7))),
                 providerReference: is_string($payload['providerReference'] ?? null) ? $payload['providerReference'] : null,
                 sourceUrl: is_string($attribution['sourceUrl'] ?? null) ? $attribution['sourceUrl'] : null,
             );
@@ -361,7 +361,7 @@ class OnlineEnrichmentManager
                 $lookup,
                 OnlineContentStatus::Ambiguous,
                 null,
-                now()->addHours(max(1, (int) config('music-library.enrichment.not_found_cache_hours', 24))),
+                now()->addHours(max(1, (int) config('sonotheque.enrichment.not_found_cache_hours', 24))),
             );
 
             return $this->cachedState($cache, false);
@@ -377,8 +377,8 @@ class OnlineEnrichmentManager
         EnrichmentProviderException $exception,
     ): array {
         $failureCount = max(1, ($previous?->failure_count ?? 0) + 1);
-        $baseMinutes = max(1, (int) config('music-library.enrichment.error_retry_minutes', 15));
-        $maximumMinutes = max($baseMinutes, (int) config('music-library.enrichment.max_error_retry_minutes', 360));
+        $baseMinutes = max(1, (int) config('sonotheque.enrichment.error_retry_minutes', 15));
+        $maximumMinutes = max($baseMinutes, (int) config('sonotheque.enrichment.max_error_retry_minutes', 360));
         $backoffMinutes = min($maximumMinutes, $baseMinutes * (2 ** min(5, $failureCount - 1)));
         $providerMinutes = $exception->retryAfterSeconds === null
             ? 0

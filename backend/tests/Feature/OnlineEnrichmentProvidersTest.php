@@ -134,7 +134,7 @@ class OnlineEnrichmentProvidersTest extends TestCase
 
     public function test_musicbrainz_prefers_tagged_identifiers(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         Http::fakeSequence()
             ->push([
                 'id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
@@ -171,7 +171,7 @@ class OnlineEnrichmentProvidersTest extends TestCase
 
     public function test_musicbrainz_accepts_only_a_clear_exact_search_match(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         Http::fake(['*' => Http::response([
             'artists' => [
                 ['id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'name' => 'Example Artist', 'score' => 100],
@@ -188,7 +188,7 @@ class OnlineEnrichmentProvidersTest extends TestCase
 
     public function test_musicbrainz_rejects_ambiguous_search_results(): void
     {
-        config(['music-library.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
         Http::fake(['*' => Http::response([
             'artists' => [
                 ['id' => '5b11f4ce-a62d-471e-81fc-a69a8278c7da', 'name' => 'Example Artist', 'score' => 100],

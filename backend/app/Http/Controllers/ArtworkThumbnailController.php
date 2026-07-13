@@ -17,7 +17,7 @@ class ArtworkThumbnailController extends Controller
 {
     public function __invoke(Artwork $artwork): StreamedResponse
     {
-        $storage = Storage::disk(config('music-library.artwork.disk'));
+        $storage = Storage::disk(config('sonotheque.artwork.disk'));
 
         abort_unless($storage->exists($artwork->thumbnail_path), 404);
 

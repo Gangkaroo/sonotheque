@@ -46,7 +46,7 @@ class MetadataBackupSettingsController extends Controller
         return [
             'enabled' => $settings->metadata_backups_enabled,
             'path' => $settings->metadata_backup_path
-                ?? config('music-library.metadata_backups.default_path'),
+                ?? config('sonotheque.metadata_backups.default_path'),
             'retentionDays' => $settings->metadata_backup_retention_days,
         ];
     }

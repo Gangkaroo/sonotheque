@@ -74,8 +74,8 @@ class ArtistImageCache
     private function download(string $url): ?array
     {
         $options = ['allow_redirects' => false];
-        $caBundle = trim((string) config('music-library.enrichment.wikimedia.ca_bundle'));
-        $proxy = trim((string) config('music-library.enrichment.wikimedia.proxy'));
+        $caBundle = trim((string) config('sonotheque.enrichment.wikimedia.ca_bundle'));
+        $proxy = trim((string) config('sonotheque.enrichment.wikimedia.proxy'));
         if ($caBundle !== '') {
             $options['verify'] = $caBundle;
         }
@@ -84,9 +84,9 @@ class ArtistImageCache
         }
 
         $response = Http::withHeaders([
-            'User-Agent' => (string) config('music-library.enrichment.wikimedia.user_agent'),
+            'User-Agent' => (string) config('sonotheque.enrichment.wikimedia.user_agent'),
         ])->withOptions($options)
-            ->timeout(max(1, (int) config('music-library.enrichment.wikimedia.timeout_seconds', 20)))
+            ->timeout(max(1, (int) config('sonotheque.enrichment.wikimedia.timeout_seconds', 20)))
             ->get($url);
 
         return $this->validate($response);
@@ -100,7 +100,7 @@ class ArtistImageCache
         }
 
         $bytes = $response->body();
-        if ($bytes === '' || strlen($bytes) > (int) config('music-library.enrichment.image_max_bytes')) {
+        if ($bytes === '' || strlen($bytes) > (int) config('sonotheque.enrichment.image_max_bytes')) {
             return null;
         }
 
@@ -110,7 +110,7 @@ class ArtistImageCache
         }
 
         $image = @getimagesizefromstring($bytes);
-        if ($image === false || ($image[0] * $image[1]) > (int) config('music-library.enrichment.image_max_pixels')) {
+        if ($image === false || ($image[0] * $image[1]) > (int) config('sonotheque.enrichment.image_max_pixels')) {
             return null;
         }
 
@@ -147,12 +147,12 @@ class ArtistImageCache
 
     private function disk(): string
     {
-        return (string) config('music-library.enrichment.image_disk', 'local');
+        return (string) config('sonotheque.enrichment.image_disk', 'local');
     }
 
     private function basePath(): string
     {
-        return trim((string) config('music-library.enrichment.image_path', 'enrichment-images'), '/');
+        return trim((string) config('sonotheque.enrichment.image_path', 'enrichment-images'), '/');
     }
 
     private function imagePath(string $hash): string

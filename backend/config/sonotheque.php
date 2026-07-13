@@ -2,7 +2,7 @@
 
 $trustedHosts = array_values(array_filter(array_map(
     static fn (string $host): string => trim($host),
-    explode(',', (string) env('MUSIC_LIBRARY_TRUSTED_HOSTS', 'localhost,127.0.0.1,::1')),
+    explode(',', (string) env('SONOTHEQUE_TRUSTED_HOSTS', 'localhost,127.0.0.1,::1')),
 )));
 $enrichmentCaBundle = env('ENRICHMENT_CA_BUNDLE') ?: env('LASTFM_CA_BUNDLE');
 
@@ -21,7 +21,7 @@ return [
 
     'system_health' => [
         'backup_status_path' => storage_path('app/system-backups/latest.json'),
-        'scheduler_heartbeat_key' => 'music-library:system-health:scheduler-heartbeat',
+        'scheduler_heartbeat_key' => 'sonotheque:system-health:scheduler-heartbeat',
         'scheduler_stale_seconds' => (int) env('SYSTEM_HEALTH_SCHEDULER_STALE_SECONDS', 180),
     ],
 
@@ -99,9 +99,9 @@ return [
     ],
 
     'lan' => [
-        'enabled' => (bool) env('MUSIC_LIBRARY_LAN_ENABLED', false),
-        'local_proxy_enabled' => (bool) env('MUSIC_LIBRARY_LOCAL_PROXY_ENABLED', false),
-        'admin_token' => env('MUSIC_LIBRARY_ADMIN_TOKEN'),
+        'enabled' => (bool) env('SONOTHEQUE_LAN_ENABLED', false),
+        'local_proxy_enabled' => (bool) env('SONOTHEQUE_LOCAL_PROXY_ENABLED', false),
+        'admin_token' => env('SONOTHEQUE_ADMIN_TOKEN'),
         'trusted_hosts' => array_map(
             static fn (string $host): string => '^'.preg_quote($host, '/').'$',
             $trustedHosts,

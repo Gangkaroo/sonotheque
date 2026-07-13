@@ -18,8 +18,8 @@ describe('admin access store', () => {
     access.save(' session-token ', false)
 
     expect(access.token).toBe('session-token')
-    expect(window.sessionStorage.getItem('music-library:admin-token')).toBe('session-token')
-    expect(window.localStorage.getItem('music-library:admin-token:remembered')).toBeNull()
+    expect(window.sessionStorage.getItem('sonotheque:admin-token')).toBe('session-token')
+    expect(window.localStorage.getItem('sonotheque:admin-token:remembered')).toBeNull()
   })
 
   it('persists and clears a remembered token', () => {
@@ -32,7 +32,7 @@ describe('admin access store', () => {
     expect(restored.token).toBe('remembered-token')
     expect(restored.remember).toBe(true)
     restored.clear()
-    expect(window.localStorage.getItem('music-library:admin-token:remembered')).toBeNull()
+    expect(window.localStorage.getItem('sonotheque:admin-token:remembered')).toBeNull()
   })
 
   it('adds the token to API requests without replacing an explicit candidate', async () => {
@@ -42,11 +42,11 @@ describe('admin access store', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await apiRequest('/settings/access')
-    await apiRequest('/settings/access', { headers: { 'X-Music-Library-Admin-Token': 'candidate-token' } })
+    await apiRequest('/settings/access', { headers: { 'X-Sonotheque-Admin-Token': 'candidate-token' } })
 
     const firstHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     const secondHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers)
-    expect(firstHeaders.get('X-Music-Library-Admin-Token')).toBe('stored-token')
-    expect(secondHeaders.get('X-Music-Library-Admin-Token')).toBe('candidate-token')
+    expect(firstHeaders.get('X-Sonotheque-Admin-Token')).toBe('stored-token')
+    expect(secondHeaders.get('X-Sonotheque-Admin-Token')).toBe('candidate-token')
   })
 })

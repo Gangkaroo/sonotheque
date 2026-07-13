@@ -36,8 +36,8 @@ function Get-SystemBackupConfiguration {
         return [pscustomobject]@{
             Mode = $Mode
             EnvironmentPath = $environmentPath
-            Database = (Get-BackupEnvValue -Path $environmentPath -Name 'DB_DATABASE' -Default 'music_library')
-            User = (Get-BackupEnvValue -Path $environmentPath -Name 'DB_USERNAME' -Default 'music_library')
+            Database = (Get-BackupEnvValue -Path $environmentPath -Name 'DB_DATABASE' -Default 'sonotheque')
+            User = (Get-BackupEnvValue -Path $environmentPath -Name 'DB_USERNAME' -Default 'sonotheque')
             Password = (Get-BackupEnvValue -Path $environmentPath -Name 'DB_PASSWORD' -Default '')
             AppKey = (Get-BackupEnvValue -Path $environmentPath -Name 'APP_KEY' -Default '')
         }
@@ -50,8 +50,8 @@ function Get-SystemBackupConfiguration {
     return [pscustomobject]@{
         Mode = $Mode
         EnvironmentPath = $script:PackagedEnvironmentPath
-        Database = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'POSTGRES_DB' -Default 'music_library')
-        User = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'POSTGRES_USER' -Default 'music_library')
+        Database = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'POSTGRES_DB' -Default 'sonotheque')
+        User = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'POSTGRES_USER' -Default 'sonotheque')
         Password = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'POSTGRES_PASSWORD' -Default '')
         AppKey = (Get-BackupEnvValue -Path $script:PackagedEnvironmentPath -Name 'APP_KEY' -Default '')
     }
@@ -148,7 +148,7 @@ function Export-BackupDatabase {
     )
 
     $container = Get-BackupPostgresContainer -Mode $Configuration.Mode
-    $containerPath = '/tmp/music-library-system-backup.dump'
+    $containerPath = '/tmp/sonotheque-system-backup.dump'
     Invoke-BackupChecked -FilePath 'docker' -ArgumentList @(
         'exec', '-e', "PGPASSWORD=$($Configuration.Password)", $container,
         'pg_dump', '-U', $Configuration.User, '-d', $Configuration.Database,

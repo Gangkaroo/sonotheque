@@ -11,8 +11,8 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   headers.set('Accept', 'application/ld+json')
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/ld+json')
   const token = adminToken()
-  if (token && !headers.has('X-Music-Library-Admin-Token')) {
-    headers.set('X-Music-Library-Admin-Token', token)
+  if (token && !headers.has('X-Sonotheque-Admin-Token')) {
+    headers.set('X-Sonotheque-Admin-Token', token)
   }
 
   const response = await fetch(`/api${path}`, { ...init, headers })
