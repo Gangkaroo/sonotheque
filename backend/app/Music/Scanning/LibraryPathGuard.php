@@ -29,6 +29,17 @@ class LibraryPathGuard
         return $this->normalizeRelativePathSegments($path, allowParentSegments: true);
     }
 
+    public function normalizeRelativeDirectoryPath(?string $path): ?string
+    {
+        if ($path === null) {
+            return null;
+        }
+
+        $normalized = trim(str_replace('\\', '/', $path), '/');
+
+        return $normalized === '' ? null : $this->normalizeRelativePath($normalized);
+    }
+
     private function normalizeRelativePathSegments(string $path, bool $allowParentSegments): string
     {
         $normalized = str_replace('\\', '/', trim($path));
@@ -78,6 +89,39 @@ class LibraryPathGuard
         }
 
         return $resolved;
+    }
+
+    public function resolveExistingDirectoryWithin(string $directory, ?string $relativePath): string
+    {
+        $base = $this->canonicalizeDirectory($directory);
+
+        if ($relativePath === null) {
+            return $base;
+        }
+
+        $relativePath = $this->normalizeRelativePath($relativePath);
+        $candidate = $base;
+
+        foreach (explode('/', $relativePath) as $segment) {
+            $candidate .= '/'.$segment;
+
+            if (is_link($candidate)) {
+                throw new InvalidLibraryPath("Directory [{$relativePath}] must not contain symbolic links.");
+            }
+        }
+
+        $resolved = realpath($candidate);
+
+        if ($resolved === false || ! is_dir($resolved) || ! is_readable($resolved)) {
+            throw new InvalidLibraryPath("Directory [{$relativePath}] does not exist or is not readable.");
+        }
+
+        $resolved = str_replace('\\', '/', $resolved);
+        if (! $this->containsDirectory($base, $resolved)) {
+            throw new InvalidLibraryPath("Directory [{$relativePath}] escapes the library root.");
+        }
+
+        return rtrim($resolved, '/');
     }
 
     public function resolveExistingFileWithinFrom(

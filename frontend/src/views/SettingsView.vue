@@ -35,9 +35,30 @@ const rootRows = computed(() => libraryRoots.roots.map((root) => ({
 const rootDialog = ref(false)
 const deleteDialog = ref(false)
 const scanDetailsDialog = ref(false)
+const scanIssuesLoading = ref(false)
+const scanIssuesError = ref(/** @type {string | null} */ (null))
+const scanIssuePage = ref(1)
+const selectedScanIssues = ref(/** @type {ScanIssue[]} */ ([]))
+const selectedScanIssueOccurrences = ref(0)
 const rootToDelete = ref(/** @type {LibraryRoot | null} */ (null))
 const rootToEdit = ref(/** @type {LibraryRoot | null} */ (null))
 const selectedScan = ref(/** @type {ScanRun | null} */ (null))
+const scanIssuePageSize = 50
+const displayedScanIssues = computed(() => {
+  const offset = (scanIssuePage.value - 1) * scanIssuePageSize
+
+  return selectedScanIssues.value.slice(offset, offset + scanIssuePageSize)
+})
+const scanIssuePageCount = computed(() => Math.ceil(selectedScanIssues.value.length / scanIssuePageSize))
+const expectedScanIssueOccurrences = computed(() => {
+  if (!selectedScan.value) return 0
+
+  return selectedScan.value.warningCount + selectedScan.value.errorCount
+})
+const scanIssueHistoryIncomplete = computed(() => (
+  !scanIssuesLoading.value
+  && selectedScanIssueOccurrences.value < expectedScanIssueOccurrences.value
+))
 let pollTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null)
 
 onMounted(async () => {
@@ -85,7 +106,7 @@ async function pollScans() {
   const completedScanWithIssues = scanRuns.scans.find((scan) =>
     activeScanIds.has(scan.id)
     && !isActive(scan)
-    && Boolean(scan.summary?.issues?.length),
+    && Boolean(scan.warningCount || scan.errorCount),
   )
 
   if (completedScanWithIssues) openScanDetails(completedScanWithIssues)
@@ -144,9 +165,31 @@ function rootName(rootId) {
 }
 
 /** @param {ScanRun} scan */
-function openScanDetails(scan) {
+async function openScanDetails(scan) {
   selectedScan.value = scan
+  selectedScanIssues.value = scan.summary?.issues ?? []
+  selectedScanIssueOccurrences.value = selectedScanIssues.value.reduce(
+    (total, issue) => total + (issue.count ?? 1),
+    0,
+  )
+  scanIssuePage.value = 1
+  scanIssuesError.value = null
+  scanIssuesLoading.value = true
   scanDetailsDialog.value = true
+
+  try {
+    const result = await scanRuns.loadIssues(scan.id)
+    if (selectedScan.value?.id !== scan.id) return
+
+    selectedScanIssues.value = result.items
+    selectedScanIssueOccurrences.value = result.totalOccurrences
+  } catch (cause) {
+    if (selectedScan.value?.id !== scan.id) return
+
+    scanIssuesError.value = cause instanceof Error ? cause.message : t('settings.scanIssuesLoadFailed')
+  } finally {
+    if (selectedScan.value?.id === scan.id) scanIssuesLoading.value = false
+  }
 }
 
 /** @param {ScanIssue} issue */
@@ -387,7 +430,7 @@ async function removeRoot() {
           <v-list-item-subtitle v-if="scan.summary?.playStatisticsImported">
             {{ t('settings.playStatisticsImported', { count: scan.summary.playStatisticsImported }) }}
           </v-list-item-subtitle>
-          <template v-if="scan.summary?.issues?.length" #append>
+          <template v-if="scan.warningCount || scan.errorCount" #append>
             <v-btn
               prepend-icon="mdi-alert-circle-outline"
               size="small"
@@ -431,9 +474,22 @@ async function removeRoot() {
           </v-chip>
           <span class="text-medium-emphasis">{{ formatDate(selectedScan.startedAt ?? selectedScan.createdAt) }}</span>
         </div>
+        <v-progress-linear v-if="scanIssuesLoading" class="mb-4" color="primary" indeterminate />
+        <v-alert v-if="scanIssuesError" class="mb-4" type="error" variant="tonal">
+          {{ scanIssuesError }}
+        </v-alert>
+        <v-alert v-if="scanIssueHistoryIncomplete" class="mb-4" type="warning" variant="tonal">
+          {{ t('settings.scanIssueHistoryIncomplete', {
+            available: selectedScanIssueOccurrences,
+            total: expectedScanIssueOccurrences,
+          }) }}
+        </v-alert>
+        <div v-if="selectedScanIssues.length" class="mb-3 text-medium-emphasis">
+          {{ t('settings.scanIssueTotal', { count: selectedScanIssues.length }) }}
+        </div>
         <v-alert
-          v-for="(issue, index) in selectedScan.summary?.issues ?? []"
-          :key="`${issue.code}-${issue.path ?? index}`"
+          v-for="(issue, index) in displayedScanIssues"
+          :key="issue.id ?? `${issue.code}-${issue.path ?? index}`"
           class="mb-3"
           density="compact"
           :type="issue.severity"
@@ -442,6 +498,12 @@ async function removeRoot() {
           <div>{{ issueText(issue) }}</div>
           <code v-if="issue.path" class="d-block mt-1 text-wrap">{{ issue.path }}</code>
         </v-alert>
+        <v-pagination
+          v-if="scanIssuePageCount > 1"
+          v-model="scanIssuePage"
+          :length="scanIssuePageCount"
+          :total-visible="7"
+        />
       </v-card-text>
       <v-card-actions>
         <v-spacer />

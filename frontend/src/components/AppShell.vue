@@ -50,6 +50,7 @@ const navigation = computed(() => [
   { title: t('navigation.genres'), icon: 'mdi-tag-multiple-outline', to: '/genres' },
   { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
   { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
+  { title: t('navigation.folders'), icon: 'mdi-folder-music-outline', to: '/folders' },
   { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
   { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
   { title: t('navigation.history'), icon: 'mdi-history', to: '/history' },

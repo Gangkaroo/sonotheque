@@ -7,13 +7,31 @@ use App\Enums\ScanTrigger;
 use App\Jobs\ScanLibraryRoot as ScanLibraryRootJob;
 use App\Models\LibraryRoot;
 use App\Models\ScanRun;
+use App\Models\ScanRunIssue;
 
 class ScanDispatcher
 {
-    public function dispatch(LibraryRoot $root, ScanTrigger $trigger = ScanTrigger::Manual): ScanRun
+    public function __construct(private readonly LibraryDirectoryResolver $directoryResolver)
     {
+    }
+
+    public function dispatch(
+        LibraryRoot $root,
+        ScanTrigger $trigger = ScanTrigger::Manual,
+        ?string $subtreePath = null,
+    ): ScanRun {
         if (! $root->enabled) {
             throw new ScanDispatchException('The requested library root is disabled.');
+        }
+
+        if ($subtreePath !== null && trim($subtreePath) !== '') {
+            try {
+                $subtreePath = $this->directoryResolver->resolve($root, $subtreePath)->relativePath;
+            } catch (InvalidLibraryPath $exception) {
+                throw new ScanDispatchException($exception->getMessage(), 'subtreePath');
+            }
+        } else {
+            $subtreePath = null;
         }
 
         $this->failStaleScans($root);
@@ -30,7 +48,11 @@ class ScanDispatcher
         $scanRun = $root->scanRuns()->create([
             'status' => ScanStatus::Pending,
             'trigger' => $trigger,
-            'summary' => ['phase' => 'queued'],
+            'subtree_path' => $subtreePath,
+            'summary' => array_filter([
+                'phase' => 'queued',
+                'subtreePath' => $subtreePath,
+            ]),
         ]);
 
         ScanLibraryRootJob::dispatch($scanRun->id);
@@ -49,12 +71,20 @@ class ScanDispatcher
                 $summary = $scanRun->summary ?? [];
                 $issues = $summary['issues'] ?? [];
                 $message = 'The scan worker stopped before the scan could finish.';
-                $issues[] = [
+                $issue = [
                     'code' => 'worker_stopped',
                     'severity' => 'error',
                     'message' => $message,
                     'count' => 1,
                 ];
+                $issues[] = $issue;
+                ScanRunIssue::query()->create([
+                    'scan_run_id' => $scanRun->id,
+                    'code' => $issue['code'],
+                    'severity' => $issue['severity'],
+                    'message' => $issue['message'],
+                    'occurrence_count' => $issue['count'],
+                ]);
 
                 $scanRun->update([
                     'status' => ScanStatus::Failed,

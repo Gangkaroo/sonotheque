@@ -77,8 +77,11 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
 
         $this->editor->write($path, $frames, [], function (string $temporaryPath) use ($values, &$verified): void {
             $verified = $this->metadataReader->read($temporaryPath);
-            if (! $this->verified($verified, $values)) {
-                throw new RuntimeException('Track metadata could not be verified after writing.');
+            $failedField = $this->failedVerificationField($verified, $values);
+            if ($failedField !== null) {
+                throw new RuntimeException(
+                    "Track metadata could not be verified after writing: {$failedField} read back differently.",
+                );
             }
         }, $commentFrames);
 
@@ -90,7 +93,7 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
     }
 
     /** @param array<string, mixed> $values */
-    private function verified(AudioMetadata $metadata, array $values): bool
+    private function failedVerificationField(AudioMetadata $metadata, array $values): ?string
     {
         $checks = [
             'title' => $metadata->title,
@@ -105,18 +108,18 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
         ];
         foreach ($checks as $field => $actual) {
             if (array_key_exists($field, $values) && $values[$field] !== $actual) {
-                return false;
+                return $field;
             }
         }
 
         foreach (['genres', 'artistNames', 'composers', 'performers'] as $field) {
             if (array_key_exists($field, $values)
                 && ! $this->sameNames($values[$field], $this->metadataValues($metadata, $field))) {
-                return false;
+                return $field;
             }
         }
 
-        return true;
+        return null;
     }
 
     /** @return array{?int, ?int, ?int} */

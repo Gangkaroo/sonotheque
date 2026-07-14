@@ -39,8 +39,9 @@ For manual diagnostics, run the API and queue listener in separate terminals.
 Prefer the PHP 8.5 binary if an older PHP appears first on `PATH`:
 
 ```powershell
-php artisan serve --host=127.0.0.1 --port=8000
-php artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
+$php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
+& $php85 artisan serve --host=127.0.0.1 --port=8000
+& $php85 artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
 ```
 
 Queue a scan for a configured library-root ID:
@@ -66,10 +67,15 @@ troubleshooting, and backup guide.
 ## Verification
 
 ```powershell
-vendor/bin/pint --test
-composer check:autoload
-php artisan test
+$php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
+$composerPhar = "C:\ProgramData\ComposerSetup\bin\composer.phar"
+& $php85 vendor\bin\pint --test
+& $php85 $composerPhar dump-autoload --optimize --strict-psr --no-scripts
+& $php85 artisan test
 ```
+
+Do not use bare `composer test` on this machine: `composer.bat` currently uses
+PHP 8.2, which is below Sonotheque's supported version.
 
 PHP code follows PSR-12, enforced by the repository Pint configuration. PHP
 namespaces, class names, and file locations follow the PSR-4 mappings in

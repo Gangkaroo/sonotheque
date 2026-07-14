@@ -6,11 +6,18 @@ import { apiRequest } from '@/api/client'
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface ScanIssue {
+  id?: number
   code: string
   severity: 'warning' | 'error'
   message: string
-  path?: string
+  path?: string | null
   count?: number
+}
+
+export interface ScanIssueCollection {
+  items: ScanIssue[]
+  total: number
+  totalOccurrences: number
 }
 
 export interface ScanRun {
@@ -18,6 +25,7 @@ export interface ScanRun {
   libraryRootId: number
   status: ScanStatus
   trigger: string
+  subtreePath: string | null
   filesDiscovered: number
   filesProcessed: number
   filesAdded: number
@@ -71,13 +79,16 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     }
   }
 
-  async function start(libraryRootId: number) {
+  async function start(libraryRootId: number, subtreePath: string | null = null) {
     startingRootId.value = libraryRootId
     error.value = null
     try {
       const scan = normalize(await apiRequest<ScanRun>('/scan_runs', {
         method: 'POST',
-        body: JSON.stringify({ libraryRootId: String(libraryRootId) }),
+        body: JSON.stringify({
+          libraryRootId: String(libraryRootId),
+          ...(subtreePath ? { subtreePath } : {}),
+        }),
       }))
       scans.value = [scan, ...scans.value]
       return scan
@@ -107,6 +118,10 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     }
   }
 
+  async function loadIssues(scanId: number) {
+    return apiRequest<ScanIssueCollection>(`/scan_runs/${scanId}/issues`)
+  }
+
   function latestForRoot(rootId: number) {
     return scans.value.find((scan) => scan.libraryRootId === rootId) ?? null
   }
@@ -127,6 +142,7 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     load,
     start,
     cancel,
+    loadIssues,
     latestForRoot,
     clear,
   }

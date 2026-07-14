@@ -36,6 +36,8 @@ class SonothequeSchemaTest extends TestCase
         $this->assertFalse(Schema::hasColumn('sessions', 'user_id'));
         $this->assertFalse(Schema::hasColumn('library_roots', 'cover_image_path'));
         $this->assertTrue(Schema::hasColumn('scan_runs', 'files_removed'));
+        $this->assertTrue(Schema::hasColumn('scan_runs', 'subtree_path'));
+        $this->assertTrue(Schema::hasColumn('media_files', 'metadata_parser_version'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_type'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_relative_path'));
         $this->assertFalse(Schema::hasColumn('artwork', 'cache_path'));
@@ -259,12 +261,13 @@ class SonothequeSchemaTest extends TestCase
                 'media_files_root_id_index',
                 'scan_runs_root_status_id_index',
                 'scan_runs_root_status_updated_index',
+                'scan_issues_run_severity_id_index',
                 'track_play_events_counted_recent_index',
                 'track_play_statistics_ranking_index',
             ])
             ->pluck('indexdef', 'indexname');
 
-        $this->assertCount(18, $indexes);
+        $this->assertCount(19, $indexes);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['artists_name_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['albums_title_trgm_index']);
         $this->assertStringContainsString('gin_trgm_ops', $indexes['tracks_title_trgm_index']);

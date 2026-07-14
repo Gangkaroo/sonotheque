@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'last_seen_at',
     'scan_error',
     'raw_metadata',
+    'metadata_parser_version',
 ])]
 class MediaFile extends Model
 {
@@ -54,6 +55,7 @@ class MediaFile extends Model
             'status' => MediaFileStatus::class,
             'last_seen_at' => 'immutable_datetime',
             'raw_metadata' => 'array',
+            'metadata_parser_version' => 'integer',
         ];
     }
 }

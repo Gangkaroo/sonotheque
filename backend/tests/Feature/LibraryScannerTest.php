@@ -16,6 +16,7 @@ use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\ScanRun;
+use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Music\Artwork\EmbeddedArtwork;
@@ -123,7 +124,7 @@ class LibraryScannerTest extends TestCase
         $cachedFile = array_values($cache)[0];
         $this->assertIsArray($cachedFile);
         $this->assertSame(
-            ['id', 'album_id', 'status', 'file_size', 'modified_at'],
+            ['id', 'album_id', 'status', 'file_size', 'modified_at', 'metadata_parser_version'],
             array_keys($cachedFile),
         );
 
@@ -132,6 +133,57 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(0, $secondScan->fresh()->files_updated);
         $this->assertSame(1, $secondScan->fresh()->files_processed);
         $this->assertSame(1, $this->metadataReader->calls);
+    }
+
+    public function test_scanner_persists_issue_details_beyond_the_summary_limit(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+
+        foreach (range(1, 55) as $number) {
+            file_put_contents(
+                $albumPath.DIRECTORY_SEPARATOR.sprintf('%02d - Track.mp3', $number),
+                'fake audio data '.$number,
+            );
+        }
+
+        $scan = $this->createScan($this->createRoot());
+        $this->app->make(LibraryScanner::class)->scan($scan);
+        $scan->refresh();
+
+        $this->assertSame(55, $scan->warning_count);
+        $this->assertCount(50, $scan->summary['issues']);
+        $this->assertTrue($scan->summary['issuesTruncated']);
+        $this->assertSame(55, ScanRunIssue::query()->whereBelongsTo($scan)->count());
+    }
+
+    public function test_scanner_reprocesses_unchanged_files_after_a_metadata_parser_upgrade(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $root = $this->createRoot();
+        $this->app->make(LibraryScanner::class)->scan($this->createScan($root));
+
+        $legacyGenre = Genre::create(['name' => '(137)Heavy Metal']);
+        Track::firstOrFail()->genres()->sync([$legacyGenre->id]);
+        MediaFile::firstOrFail()->update(['metadata_parser_version' => 2]);
+
+        $upgradedReader = new FakeAudioMetadataReader(new AudioMetadata(
+            title: 'Human Behaviour',
+            album: 'Debut',
+            albumArtist: 'BjÃ¶rk',
+            artists: ['BjÃ¶rk'],
+            genres: ['Heavy Metal'],
+        ));
+        $this->app->instance(AudioMetadataReader::class, $upgradedReader);
+        $scan = $this->createScan($root);
+
+        $this->app->make(LibraryScanner::class)->scan($scan);
+
+        $this->assertSame(1, $upgradedReader->calls);
+        $this->assertSame(1, $scan->fresh()->files_updated);
+        $this->assertSame(LibraryScanner::METADATA_PARSER_VERSION, MediaFile::firstOrFail()->metadata_parser_version);
+        $this->assertDatabaseHas(Genre::class, ['name' => 'Heavy Metal']);
+        $this->assertDatabaseMissing(Genre::class, ['name' => '(137)Heavy Metal']);
     }
 
     public function test_scanner_imports_tag_statistics_from_cached_metadata_once_enabled(): void
@@ -283,6 +335,42 @@ class LibraryScannerTest extends TestCase
         $this->assertDatabaseHas(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/03.mp3']);
         $this->assertDatabaseCount(MediaFile::class, 1);
         $this->assertDatabaseCount(Track::class, 1);
+    }
+
+    public function test_subtree_scan_removes_only_stale_files_inside_its_scope(): void
+    {
+        $scopedTrack = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        $otherAlbum = $this->musicPath.DIRECTORY_SEPARATOR.'Other'.DIRECTORY_SEPARATOR.'Album';
+        $otherTrack = $otherAlbum.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($scopedTrack, 'fake audio data');
+        mkdir($otherAlbum, recursive: true);
+        file_put_contents($otherTrack, 'fake audio data');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        $fullScanFinishedAt = $root->fresh()->last_scanned_at;
+
+        unlink($scopedTrack);
+        unlink($otherTrack);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(10));
+        $scan = $root->scanRuns()->create([
+            'status' => ScanStatus::Pending,
+            'trigger' => ScanTrigger::Manual,
+            'subtree_path' => 'Bjoerk',
+        ]);
+
+        $scanner->scan($scan);
+
+        $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
+        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertSame('Bjoerk', $scan->fresh()->summary['subtreePath']);
+        $this->assertDatabaseMissing(MediaFile::class, [
+            'relative_path' => 'Bjoerk/Debut/01.mp3',
+        ]);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Other/Album/01.mp3',
+        ]);
+        $this->assertTrue($fullScanFinishedAt->equalTo($root->fresh()->last_scanned_at));
     }
 
     public function test_empty_first_scan_completes_with_actionable_warnings(): void

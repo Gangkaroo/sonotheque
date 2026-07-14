@@ -33,7 +33,7 @@ class StartScanRunProcessor implements ProcessorInterface
         }
 
         try {
-            return $this->dispatcher->dispatch($root);
+            return $this->dispatcher->dispatch($root, subtreePath: $data->subtree_path);
         } catch (ScanDispatchException $exception) {
             throw new ValidationError(
                 $exception->getMessage(),

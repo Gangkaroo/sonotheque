@@ -12,6 +12,7 @@ use App\Music\Scanning\AudioMetadataProbe;
 use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\FfprobeAudioMetadataProbe;
 use App\Music\Scanning\GetId3MetadataReader;
+use App\Music\Scanning\LibraryFolderBrowser;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -27,6 +28,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(PlaybackStatisticsTagWriter::class, Mp3PlaybackStatisticsTagWriter::class);
 
         $this->app->when(AudioFileDiscoverer::class)
+            ->needs('$extensions')
+            ->giveConfig('sonotheque.audio_extensions');
+        $this->app->when(LibraryFolderBrowser::class)
             ->needs('$extensions')
             ->giveConfig('sonotheque.audio_extensions');
 

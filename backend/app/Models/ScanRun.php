@@ -16,11 +16,13 @@ use App\Enums\ScanTrigger;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'library_root_id',
     'status',
     'trigger',
+    'subtree_path',
     'files_discovered',
     'files_processed',
     'files_added',
@@ -53,7 +55,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
             strictQueryParameterValidation: true,
         ),
         new Post(
-            rules: ['library_root_id' => ['required', 'integer', 'min:1']],
+            rules: [
+                'library_root_id' => ['required', 'integer', 'min:1'],
+                'subtree_path' => ['nullable', 'string', 'max:4096'],
+            ],
             processor: StartScanRunProcessor::class,
         ),
         new Patch(
@@ -72,6 +77,12 @@ class ScanRun extends Model
     public function libraryRoot(): BelongsTo
     {
         return $this->belongsTo(LibraryRoot::class);
+    }
+
+    /** @return HasMany<ScanRunIssue, $this> */
+    public function issues(): HasMany
+    {
+        return $this->hasMany(ScanRunIssue::class);
     }
 
     protected function casts(): array

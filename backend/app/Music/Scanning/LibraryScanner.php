@@ -10,6 +10,7 @@ use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\MediaFile;
 use App\Models\ScanRun;
+use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\PlaybackStatistics\ImportedPlayStatistics;
@@ -22,6 +23,8 @@ use Throwable;
 
 class LibraryScanner
 {
+    public const METADATA_PARSER_VERSION = 3;
+
     private const CANCELLATION_CHECK_INTERVAL = 10;
 
     private const DISCOVERY_UPDATE_INTERVAL = 250;
@@ -29,6 +32,8 @@ class LibraryScanner
     private const MODEL_CACHE_RESET_INTERVAL = 250;
 
     private const MAX_REPORTED_ISSUES = 50;
+
+    private const ISSUE_FLUSH_INTERVAL = 100;
 
     private const PROGRESS_UPDATE_INTERVAL = 25;
 
@@ -44,7 +49,7 @@ class LibraryScanner
     /** @var array<string, Artist> */
     private array $artistCache = [];
 
-    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
+    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
     private array $existingFiles = [];
 
     /** @var array<string, Genre> */
@@ -56,6 +61,15 @@ class LibraryScanner
     private bool $importPlayStatisticsFromTags = false;
 
     private int $playStatisticsImported = 0;
+
+    private int $issueRecordCount = 0;
+
+    /** @var list<array{scan_run_id: int, code: string, severity: string, message: string, path: ?string, occurrence_count: int, created_at: mixed, updated_at: mixed}> */
+    private array $pendingScanIssues = [];
+
+    private ?int $pendingScanRunId = null;
+
+    private ?string $subtreePath = null;
 
     /** @var array<int, array{trackId: int, statistics: ImportedPlayStatistics}> */
     private array $pendingPlayStatisticsImports = [];
@@ -89,6 +103,7 @@ class LibraryScanner
         }
 
         $scanRun->refresh()->loadMissing('libraryRoot');
+        $this->subtreePath = $scanRun->subtree_path;
         $this->prepareScanCaches($scanRun);
         $issues = [];
         $progress = [
@@ -104,7 +119,7 @@ class LibraryScanner
         try {
             $countDiagnostics = new DiscoveryDiagnostics();
 
-            foreach ($this->discoverer->discover($scanRun->libraryRoot, $countDiagnostics) as $_file) {
+            foreach ($this->discover($scanRun, $countDiagnostics) as $_file) {
                 $progress['files_discovered']++;
 
                 if ($progress['files_discovered'] % self::DISCOVERY_UPDATE_INTERVAL === 0
@@ -126,7 +141,7 @@ class LibraryScanner
             ]));
             $diagnostics = new DiscoveryDiagnostics();
 
-            foreach ($this->discoverer->discover($scanRun->libraryRoot, $diagnostics) as $file) {
+            foreach ($this->discover($scanRun, $diagnostics) as $file) {
                 if ($progress['files_processed'] % self::CANCELLATION_CHECK_INTERVAL === 0
                     && $this->cancellationRequested($scanRun)) {
                     $this->flushUnchangedFiles($startedAt);
@@ -206,6 +221,7 @@ class LibraryScanner
                 $message = 'No supported audio files were found, although this root previously contained indexed files. Existing file availability was preserved.';
                 $this->addIssue($issues, 'empty_scan_preserved', 'error', $message);
                 $progress['error_count']++;
+                $this->flushScanIssues();
                 $scanRun->update(array_merge($progress, [
                     'status' => ScanStatus::Failed,
                     'finished_at' => now(),
@@ -228,6 +244,7 @@ class LibraryScanner
             $staleFiles = MediaFile::query()
                 ->where('library_root_id', $scanRun->library_root_id)
                 ->where('last_seen_at', '<', $startedAt);
+            $this->scopeMediaFilesToScan($staleFiles, $scanRun);
             $removed = $this->deleteStaleFiles($staleFiles, $diagnostics);
 
             if ($removed > 0) {
@@ -253,8 +270,11 @@ class LibraryScanner
 
             $this->deleteAlbumsWithoutMediaFiles($scanRun);
             $this->deleteOrphanedCatalogData();
+            $this->flushScanIssues();
 
-            $scanRun->libraryRoot->update(['last_scanned_at' => now()]);
+            if ($scanRun->subtree_path === null) {
+                $scanRun->libraryRoot->update(['last_scanned_at' => now()]);
+            }
             $scanRun->update(array_merge($progress, [
                 'status' => ScanStatus::Completed,
                 'files_removed' => $removed,
@@ -266,6 +286,7 @@ class LibraryScanner
             $this->flushPlayStatisticsImports();
             $this->addIssue($issues, 'scan_failed', 'error', $exception->getMessage());
             $progress['error_count']++;
+            $this->flushScanIssues();
             $scanRun->update(array_merge($progress, [
                 'status' => ScanStatus::Failed,
                 'finished_at' => now(),
@@ -285,7 +306,8 @@ class LibraryScanner
         if ($existing !== null
             && $existing['status'] === MediaFileStatus::Available
             && $existing['file_size'] === $file->fileSize
-            && $existing['modified_at'] === $file->modifiedAt) {
+            && $existing['modified_at'] === $file->modifiedAt
+            && $existing['metadata_parser_version'] === self::METADATA_PARSER_VERSION) {
             $album = $this->findAlbumById($existing['album_id']);
 
             if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
@@ -348,6 +370,7 @@ class LibraryScanner
                         'last_seen_at' => $seenAt,
                         'scan_error' => null,
                         'raw_metadata' => $metadata->rawMetadata,
+                        'metadata_parser_version' => self::METADATA_PARSER_VERSION,
                     ],
                 );
 
@@ -526,6 +549,7 @@ class LibraryScanner
      */
     private function cancelScan(ScanRun $scanRun, array $progress, array $issues): void
     {
+        $this->flushScanIssues();
         $scanRun->update(array_merge($progress, [
             'status' => ScanStatus::Cancelled,
             'finished_at' => now(),
@@ -545,6 +569,7 @@ class LibraryScanner
     ): void {
         $this->flushUnchangedFiles($seenAt);
         $this->flushPlayStatisticsImports();
+        $this->flushScanIssues();
         $scanRun->update(array_merge($progress, [
             'summary' => $this->summary('scanning', $issues),
         ]));
@@ -616,11 +641,16 @@ class LibraryScanner
         $this->artistCache = [];
         $this->genreCache = [];
         $this->unchangedFileIds = [];
+        $this->issueRecordCount = 0;
+        $this->pendingScanIssues = [];
+        $this->pendingScanRunId = $scanRun->id;
+        ScanRunIssue::query()->where('scan_run_id', $scanRun->id)->delete();
         $this->playStatisticsImported = 0;
         $this->pendingPlayStatisticsImports = [];
         $this->importPlayStatisticsFromTags = ApplicationSetting::current()->import_play_statistics_from_tags;
         $this->existingFiles = [];
         $query = $scanRun->libraryRoot->mediaFiles()
+            ->getQuery()
             ->select([
                 'media_files.id',
                 'media_files.album_id',
@@ -628,7 +658,9 @@ class LibraryScanner
                 'media_files.status',
                 'media_files.file_size',
                 'media_files.modified_at',
+                'media_files.metadata_parser_version',
             ]);
+        $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
 
         if ($this->importPlayStatisticsFromTags) {
             $query->leftJoin('tracks', 'tracks.media_file_id', '=', 'media_files.id')
@@ -646,7 +678,7 @@ class LibraryScanner
         }
     }
 
-    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int} */
+    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int} */
     private function compactFileState(MediaFile $mediaFile): array
     {
         return [
@@ -655,6 +687,7 @@ class LibraryScanner
             'status' => $mediaFile->status,
             'file_size' => $mediaFile->file_size,
             'modified_at' => $mediaFile->modified_at->getTimestamp(),
+            'metadata_parser_version' => $mediaFile->metadata_parser_version,
         ];
     }
 
@@ -735,17 +768,55 @@ class LibraryScanner
         ?string $path = null,
         int $count = 1,
     ): void {
-        if (count($issues) >= self::MAX_REPORTED_ISSUES) {
-            return;
-        }
-
+        $message = mb_convert_encoding(str_replace("\0", '', $message), 'UTF-8', 'UTF-8');
+        $path = $path === null
+            ? null
+            : mb_convert_encoding(str_replace("\0", '', $path), 'UTF-8', 'UTF-8');
         $issue = compact('code', 'severity', 'message', 'count');
 
         if ($path !== null && $path !== '') {
             $issue['path'] = $path;
         }
 
-        $issues[] = $issue;
+        if (count($issues) < self::MAX_REPORTED_ISSUES) {
+            $issues[] = $issue;
+        }
+
+        $timestamp = now();
+        $this->pendingScanIssues[] = [
+            'scan_run_id' => $this->scanRunId(),
+            'code' => mb_substr($code, 0, 64),
+            'severity' => mb_substr($severity, 0, 16),
+            'message' => $message,
+            'path' => $path,
+            'occurrence_count' => max(1, $count),
+            'created_at' => $timestamp,
+            'updated_at' => $timestamp,
+        ];
+        $this->issueRecordCount++;
+
+        if (count($this->pendingScanIssues) >= self::ISSUE_FLUSH_INTERVAL) {
+            $this->flushScanIssues();
+        }
+    }
+
+    private function flushScanIssues(): void
+    {
+        if ($this->pendingScanIssues === []) {
+            return;
+        }
+
+        ScanRunIssue::query()->insert($this->pendingScanIssues);
+        $this->pendingScanIssues = [];
+    }
+
+    private function scanRunId(): int
+    {
+        if ($this->pendingScanRunId === null) {
+            throw new \LogicException('A scan issue cannot be recorded before a scan has started.');
+        }
+
+        return $this->pendingScanRunId;
     }
 
     /**
@@ -756,8 +827,10 @@ class LibraryScanner
     {
         return array_filter([
             'phase' => $phase,
+            'subtreePath' => $this->subtreePath,
             'error' => $error,
             'playStatisticsImported' => $this->playStatisticsImported ?: null,
+            'issuesTruncated' => $this->issueRecordCount > count($issues) ?: null,
             'issues' => $issues,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
     }
@@ -779,6 +852,43 @@ class LibraryScanner
             'browse_initial' => $this->artistName->browseInitial($name),
         ]);
     }
+
+    /** @return iterable<int, DiscoveredAudioFile> */
+    private function discover(ScanRun $scanRun, DiscoveryDiagnostics $diagnostics): iterable
+    {
+        if ($scanRun->subtree_path === null) {
+            return $this->discoverer->discover($scanRun->libraryRoot, $diagnostics);
+        }
+
+        return $this->discoverer->discover(
+            $scanRun->libraryRoot,
+            $diagnostics,
+            $scanRun->subtree_path,
+        );
+    }
+
+    /** @param Builder<MediaFile> $query */
+    private function scopeMediaFilesToScan(
+        Builder $query,
+        ScanRun $scanRun,
+        string $column = 'relative_path',
+    ): void {
+        if ($scanRun->subtree_path === null) {
+            return;
+        }
+
+        $subtreePath = PHP_OS_FAMILY === 'Windows'
+            ? mb_strtolower($scanRun->subtree_path)
+            : $scanRun->subtree_path;
+        $comparisonColumn = PHP_OS_FAMILY === 'Windows' ? "LOWER({$column})" : $column;
+
+        $query->where(function (Builder $query) use ($comparisonColumn, $subtreePath): void {
+            $query
+                ->whereRaw("{$comparisonColumn} = ?", [$subtreePath])
+                ->orWhereRaw("starts_with({$comparisonColumn}, ?)", [$subtreePath.'/']);
+        });
+    }
+
 
     private function findOrCreateGenre(string $name): Genre
     {

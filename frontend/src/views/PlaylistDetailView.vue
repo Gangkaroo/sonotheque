@@ -10,7 +10,7 @@ import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
-import { formatDuration as duration } from '@/utils/formatters'
+import { formatDuration as duration, formatTotalDuration } from '@/utils/formatters'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -26,6 +26,11 @@ const targetPlaylistItemId = computed(() => {
 })
 const playlist = computed(() => playlists.current)
 const tracks = computed(() => playlist.value?.items.map((item) => item.track) ?? [])
+const playlistPlayingTime = computed(() => {
+  const total = tracks.value.reduce((sum, track) => sum + (track.durationMs ?? 0), 0)
+
+  return total > 0 ? formatTotalDuration(total) : null
+})
 const selectionMode = ref(false)
 const selectedItemIds = ref<number[]>([])
 const draggedItemId = ref<number | null>(null)
@@ -240,7 +245,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
         </template>
         <v-card-title>{{ playlist.name }}</v-card-title>
         <v-card-subtitle>
-          {{ playlist.folder?.name ?? t('playlists.noFolder') }} · {{ t('playlists.trackCount', { count: playlist.trackCount }) }}
+          {{ playlist.folder?.name ?? t('playlists.noFolder') }} · {{ t('playlists.trackCount', { count: playlist.trackCount }) }}<span v-if="playlistPlayingTime"> · {{ t('catalog.playingTime', { duration: playlistPlayingTime }) }}</span>
         </v-card-subtitle>
       </v-card-item>
       <v-card-text v-if="playlist.description" class="text-medium-emphasis">

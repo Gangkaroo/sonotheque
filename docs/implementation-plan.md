@@ -489,11 +489,14 @@ Completed:
 - Last.fm authorization and asynchronous scrobbling with encrypted credentials, shared counted-play rules, retry handling, and delivery state
 - Opt-in current-track enrichment using attributed Last.fm artist/album context and LRCLIB lyrics
 - Provider-aware enrichment caching with atomic request deduplication, unique stale refresh jobs, configurable throttling, exponential backoff, diagnostics, and cache controls
+- Root-scoped folder browsing with guarded relative paths, virtualized large
+  listings, indexed-file and recursive folder actions, and subtree scan runs
+  whose stale cleanup cannot affect records outside the selected directory
 
 Open roadmap work:
 
-- Root-scoped folder browsing, folder/file playback actions, and safe subtree
-  rescans
+- Folder-browser follow-up work: large-action confirmation, inline scan
+  progress/cancellation, and packaged browser coverage
 - Broader end-to-end, upgrade, and packaging coverage
 - Browsable metadata-backup audit and clearer failed/ignored Last.fm delivery
   visibility
@@ -593,33 +596,41 @@ into a general-purpose file manager.
 
 - Add a Folders navigation entry that uses the current session root when one is
   selected and requests a specific root when the scope is "All roots".
+  (Complete)
 - Reuse or extract the existing guarded folder-listing service so the page loads
   one directory level at a time instead of recursively walking a drive.
+  (Complete with a dedicated catalog browser sharing the path resolver)
 - Accept only a root ID and normalized relative path in folder APIs. Resolve the
   path within the enabled root and reject traversal, symbolic links, excluded
   directories, unavailable roots, and paths outside configured mounts.
+  (Complete)
 - Return immediate child directories plus supported files enriched with indexed
   track, artist, album, duration, availability, and artwork data where present.
-  Hide unrelated non-audio files in the first version.
+  Hide unrelated non-audio files in the first version. (Complete)
 - Add breadcrumb and parent navigation, clear loading/error/empty states, and
-  responsive English and German layouts.
+  responsive English and German layouts. (Complete; large directories use
+  virtualized rendering)
 - Add play-now, add-to-queue, and add-to-playlist actions for a single indexed
-  track.
+  track. (Complete)
 - Add the same actions for all indexed tracks in the selected folder subtree.
   Show the affected track count, confirm unusually large actions, and use a
-  deterministic relative-path/disc/track order.
+  deterministic relative-path/disc/track order. (Actions and deterministic
+  ordering complete; explicit large-action confirmation remains)
 - Reuse the Pinia player queue, playlist chooser, and existing playback payloads
-  instead of creating folder-specific playback state.
+  instead of creating folder-specific playback state. (Complete)
 - Add an optional normalized subtree path to scan runs and dispatch. Keep one
   active scan per root so full and subtree scans cannot overlap initially.
+  (Complete)
 - Restrict discovery, progress, diagnostics, incremental updates, and stale-file
   removal to the selected subtree. Preserve unseen records beneath unreadable
-  paths and leave every record outside the subtree untouched.
+  paths and leave every record outside the subtree untouched. (Complete)
 - Expose subtree scan progress, cancellation, completion details, and scan
   history consistently from both the folder view and Settings.
 - Protect subtree rescans with the existing scan-management admin-token rules.
+  (Complete)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
+  (Backend and store coverage complete; packaged browser coverage remains)
 - Defer rename, move, delete, folder creation, and other write operations to a
   later filesystem-management phase with explicit conflict and rollback rules.
 
@@ -897,13 +908,15 @@ physical-copy filters in album and track lists. Track-to-playlist membership
 navigation and explicit sorting controls are now complete for albums, tracks,
 and grouped playlists.
 
-The next feature phase is the root-scoped folder browser. Start with the guarded
-backend contract and optional scan-run subtree scope, including tests that prove
-stale cleanup cannot escape the selected subtree. Then add lazy breadcrumb
-navigation and reuse the existing player, queue, and playlist actions for files
-and recursively collected folder tracks. Filesystem mutations remain outside
-this phase. Afterward, return to the browsable metadata-backup audit and
-operational visibility for failed or ignored Last.fm scrobbles.
+The first root-scoped folder-browser slice is complete: guarded APIs expose only
+relative paths, large directory listings are virtualized, indexed files and
+recursive folder contents reuse the existing player and playlist workflows, and
+subtree scan cleanup is constrained by PostgreSQL-backed tests. The next pass
+should add explicit confirmation for unusually large folder actions and show
+subtree scan progress/cancellation directly in the folder view. Filesystem
+mutations remain outside this phase. Afterward, return to the browsable
+metadata-backup audit and operational visibility for failed or ignored Last.fm
+scrobbles.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows

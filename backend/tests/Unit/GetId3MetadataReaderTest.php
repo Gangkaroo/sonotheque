@@ -61,6 +61,58 @@ class GetId3MetadataReaderTest extends TestCase
         $this->assertSame(['Other'], $metadata->genres);
     }
 
+    public function test_it_hides_non_actionable_id3v1_padding_warnings(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'space-padded-id3v1.mp3';
+        $tag = 'TAG'
+            .str_pad('Legacy title', 30, ' ')
+            .str_pad('Legacy artist', 30, ' ')
+            .str_pad('Legacy album', 30, ' ')
+            .'1991'
+            .str_pad('', 28, ' ')
+            ."\0".chr(1).chr(12);
+        file_put_contents($path, $this->audio().$tag);
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame('Legacy title', $metadata->title);
+        $this->assertSame([], $metadata->warnings);
+        $this->assertContains(
+            'Some ID3v1 fields do not use NULL characters for padding',
+            $metadata->rawMetadata['warning'],
+        );
+    }
+
+    public function test_it_hides_the_known_lame_sync_warning_but_keeps_generic_sync_warnings(): void
+    {
+        $knownLameWarning = 'Unknown data before synch (ID3v2 header ends at 4096, then 1044 bytes garbage, '
+            .'synch detected at 5140). This is a known problem with some versions of LAME (3.90-3.92) DLL in CBR mode.';
+        $genericWarning = 'Unknown data before synch (ID3v2 header ends at 4096, then 37 bytes garbage, '
+            .'synch detected at 4133).';
+        $reader = new class (new RawMetadataSanitizer(), $knownLameWarning, $genericWarning) extends GetId3MetadataReader {
+            public function __construct(
+                RawMetadataSanitizer $metadataSanitizer,
+                private readonly string $knownLameWarning,
+                private readonly string $genericWarning,
+            ) {
+                parent::__construct($metadataSanitizer);
+            }
+
+            protected function analyze(string $absolutePath): array
+            {
+                return [
+                    'warning' => [$this->knownLameWarning, $this->genericWarning],
+                    'comments' => ['title' => ['Track title']],
+                ];
+            }
+        };
+
+        $metadata = $reader->read('synthetic.mp3');
+
+        $this->assertSame([$genericWarning], $metadata->warnings);
+        $this->assertContains($knownLameWarning, $metadata->rawMetadata['warning']);
+    }
+
     public function test_it_preserves_literal_slashes_in_id3v23_genres(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'slash-genre.mp3';
@@ -75,6 +127,99 @@ class GetId3MetadataReaderTest extends TestCase
         $metadata = $this->reader()->read($path);
 
         $this->assertSame(['Singer/Songwriter'], $metadata->genres);
+    }
+
+    public function test_it_resolves_legacy_numeric_id3v23_genres(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'numeric-genre.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('TCON', "\0(137)");
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame(['Heavy Metal'], $metadata->genres);
+    }
+
+    public function test_it_resolves_a_legacy_numeric_genre_followed_by_duplicate_text(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'numeric-text-genre.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('TCON', "\0(17)Rock");
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame(['Rock'], $metadata->genres);
+    }
+
+    public function test_it_resolves_composite_legacy_and_custom_genres(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'composite-genre.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('TCON', "\0(26)(138)Dark Ambient;Doom Metal;Experimental;8;9;67");
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame([
+            'Ambient',
+            'Black Metal',
+            'Dark Ambient',
+            'Doom Metal',
+            'Experimental',
+            'Jazz',
+            'Metal',
+            'Psychedelic',
+        ], $metadata->genres);
+    }
+
+    public function test_it_reads_an_undescribed_utf16_comment_without_double_decoding_it(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'utf16-comment.mp3';
+        $comment = 'Japan, VICP-64367';
+        $commentPayload = chr(1).'eng'."\xFF\xFE\0\0".mb_convert_encoding($comment, 'UTF-16LE', 'UTF-8');
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('COMM', $commentPayload);
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame($comment, $metadata->comment);
+    }
+
+    public function test_it_decodes_an_undescribed_utf16_comment_that_get_id3_leaves_as_bytes(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'utf16-byte-comment.mp3';
+        $commentPayload = chr(1).'eng'."\xFF\xFE\0\0\xFF\xFE\x30\x00";
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('COMM', $commentPayload);
+        $payload .= str_repeat("\0", 1024 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$this->audio(),
+        );
+
+        $metadata = $this->reader()->read($path);
+
+        $this->assertSame('0', $metadata->comment);
+        $this->assertTrue(mb_check_encoding($metadata->comment, 'UTF-8'));
     }
 
     public function test_it_ignores_an_oversized_disc_total_without_rejecting_the_track(): void
@@ -157,6 +302,45 @@ class GetId3MetadataReaderTest extends TestCase
             $metadata->warnings[3],
         );
         $this->assertSame('mp3', $metadata->rawMetadata['ffprobe_fallback']['format']['format_name']);
+    }
+
+    public function test_it_summarizes_a_malformed_id3_frame_recovered_by_the_probe(): void
+    {
+        $probe = new class () implements AudioMetadataProbe {
+            public function probe(string $absolutePath): ProbedAudioMetadata
+            {
+                return new ProbedAudioMetadata(
+                    tags: ['title' => 'Recovered title'],
+                    durationMs: 123456,
+                    container: 'mp3',
+                    codec: 'mp3',
+                    bitrate: 320000,
+                    sampleRate: 44100,
+                    channels: 2,
+                    rawMetadata: [],
+                );
+            }
+        };
+        $reader = new class (new RawMetadataSanitizer(), $probe) extends GetId3MetadataReader {
+            protected function analyze(string $absolutePath): array
+            {
+                return [
+                    'error' => ['Next ID3v2 frame is also invalid, aborting processing.'],
+                    'warning' => [
+                        'error parsing "D" (594 bytes into the ID3v2.3 tag). '
+                            .'(ERROR: !IsValidID3v2FrameName("D ", 3))).',
+                    ],
+                ];
+            }
+        };
+
+        $metadata = $reader->read('malformed-id3.mp3');
+
+        $this->assertSame('Recovered title', $metadata->title);
+        $this->assertSame([
+            'Part of a malformed ID3v2 tag could not be read. FFprobe recovered the main tags and found a valid '
+                .'audio stream, but optional metadata or embedded artwork after the damaged frame may be unavailable.',
+        ], $metadata->warnings);
     }
 
     private function reader(): GetId3MetadataReader

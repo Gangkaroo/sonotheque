@@ -10,6 +10,20 @@ class GetId3MetadataReader implements AudioMetadataReader
 {
     private const MAX_DIAGNOSTICS = 10;
 
+    private const NON_ACTIONABLE_WARNINGS = [
+        'Some ID3v1 fields do not use NULL characters for padding',
+    ];
+
+    private const NON_ACTIONABLE_WARNING_PATTERNS = [
+        '/^Unknown data before synch .+\. This is a known problem with some versions of LAME \(3\.90\s*-\s*3\.92\) DLL in CBR mode\.$/',
+    ];
+
+    private const INVALID_ID3_FRAME_ERROR = 'Next ID3v2 frame is also invalid, aborting processing.';
+
+    private const RECOVERED_INVALID_ID3_FRAME_WARNING = 'Part of a malformed ID3v2 tag could not be read. '
+        .'FFprobe recovered the main tags and found a valid audio stream, but optional metadata or embedded artwork '
+        .'after the damaged frame may be unavailable.';
+
     public function __construct(
         private readonly RawMetadataSanitizer $metadataSanitizer,
         private readonly ?AudioMetadataProbe $fallbackProbe = null,
@@ -49,7 +63,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             composers: $this->values($comments, ['composer']),
             performers: $this->values($comments, ['performer', 'conductor']),
             comment: $this->comment($information, $comments),
-            genres: $this->id3v2TextValues($information, 'TCON') ?: $this->values($comments, ['genre']),
+            genres: $this->genres($information, $comments),
             year: $year,
             originalReleaseYear: $originalReleaseYear,
             trackNumber: $trackNumber,
@@ -103,7 +117,7 @@ class GetId3MetadataReader implements AudioMetadataReader
             }
 
             $values = array_values(array_filter(
-                array_map(static fn (mixed $value): string => trim((string) $value), (array) $comments[$key]),
+                array_map(fn (mixed $value): string => $this->text($value), (array) $comments[$key]),
                 static fn (string $value): bool => $value !== '',
             ));
 
@@ -129,6 +143,24 @@ class GetId3MetadataReader implements AudioMetadataReader
             return $this->first($comments, ['comment']);
         }
 
+        $decodedComments = $information['id3v2']['comments']['comment'] ?? null;
+        if (is_array($decodedComments)) {
+            foreach ($decodedComments as $description => $value) {
+                if (! is_int($description) || ! is_scalar($value)) {
+                    continue;
+                }
+
+                if (! mb_check_encoding((string) $value, 'UTF-8')) {
+                    continue;
+                }
+
+                $comment = trim((string) $value, "\0 \t\n\r\x0B");
+                if ($comment !== '') {
+                    return $comment;
+                }
+            }
+        }
+
         foreach ($frames as $frame) {
             if (! is_array($frame)
                 || trim((string) ($frame['description'] ?? '')) !== ''
@@ -144,6 +176,84 @@ class GetId3MetadataReader implements AudioMetadataReader
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $information
+     * @param  array<string, mixed>  $comments
+     * @return list<string>
+     */
+    private function genres(array $information, array $comments): array
+    {
+        $rawGenres = $this->id3v2TextValues($information, 'TCON');
+        if ($rawGenres === []) {
+            return $this->values($comments, ['genre']);
+        }
+
+        $genres = [];
+        foreach ($rawGenres as $rawGenre) {
+            array_push($genres, ...$this->normalizeGenre($rawGenre));
+        }
+
+        $seen = [];
+
+        return array_values(array_filter($genres, static function (string $genre) use (&$seen): bool {
+            $key = mb_strtolower($genre);
+            if (isset($seen[$key])) {
+                return false;
+            }
+
+            $seen[$key] = true;
+
+            return true;
+        }));
+    }
+
+    /** @return list<string> */
+    private function normalizeGenre(string $genre): array
+    {
+        $genre = trim($genre);
+        if ($genre === '') {
+            return [];
+        }
+
+        if (preg_match('/^\d{1,3}$/', $genre) === 1) {
+            return [$this->legacyGenreName($genre, $genre)];
+        }
+
+        if (preg_match(
+            '/^(?<references>(?:\((?:\d{1,3}|RX|CR)\))+)(?<custom>.*)$/i',
+            $genre,
+            $matches,
+        ) !== 1) {
+            return [$genre];
+        }
+
+        preg_match_all('/\((\d{1,3}|RX|CR)\)/i', $matches['references'], $references);
+        $genres = array_map(
+            fn (string $reference): string => $this->legacyGenreName($reference, "({$reference})"),
+            $references[1],
+        );
+
+        $custom = str_replace('((', '(', trim($matches['custom']));
+        foreach (preg_split('/\s*;\s*/', $custom) ?: [] as $value) {
+            if ($value === '') {
+                continue;
+            }
+
+            $genres[] = preg_match('/^\d{1,3}$/', $value) === 1
+                ? $this->legacyGenreName($value, $value)
+                : $value;
+        }
+
+        return $genres;
+    }
+
+    private function legacyGenreName(string $reference, string $fallback): string
+    {
+        $name = \getid3_id3v1::LookupGenreName(strtoupper($reference));
+
+        return is_string($name) ? $name : $fallback;
     }
 
     /** @param array<string, mixed> $information
@@ -281,14 +391,34 @@ class GetId3MetadataReader implements AudioMetadataReader
      */
     private function diagnostics(array $information, array $errors, bool $usedFallback): array
     {
+        $parserWarnings = array_map('trim', array_map('strval', (array) ($information['warning'] ?? [])));
+        $recoveredInvalidFrame = $usedFallback
+            && in_array(self::INVALID_ID3_FRAME_ERROR, $errors, true)
+            && array_any($parserWarnings, self::isInvalidId3FrameWarning(...));
+
+        if ($recoveredInvalidFrame) {
+            $errors = array_values(array_filter(
+                $errors,
+                static fn (mixed $error): bool => $error !== self::INVALID_ID3_FRAME_ERROR,
+            ));
+            $parserWarnings = array_values(array_filter(
+                $parserWarnings,
+                static fn (string $warning): bool => ! self::isInvalidId3FrameWarning($warning),
+            ));
+        }
+
         $errorDiagnostics = array_map(
             static fn (mixed $error): string => ($usedFallback ? 'FFprobe fallback used after getID3 error: ' : '').strval($error),
             $errors,
         );
         $warningDiagnostics = array_values(array_unique(array_filter(
-            array_map('trim', array_map('strval', (array) ($information['warning'] ?? []))),
-            static fn (string $warning): bool => $warning !== '',
+            $parserWarnings,
+            self::isActionableWarning(...),
         )));
+
+        if ($recoveredInvalidFrame) {
+            $warningDiagnostics[] = self::RECOVERED_INVALID_ID3_FRAME_WARNING;
+        }
 
         if ($usedFallback && count($warningDiagnostics) > 2) {
             $omitted = count($warningDiagnostics) - 2;
@@ -313,6 +443,34 @@ class GetId3MetadataReader implements AudioMetadataReader
             ...array_slice($diagnostics, 0, self::MAX_DIAGNOSTICS - 1),
             "{$omitted} additional parser diagnostics were omitted.",
         ];
+    }
+
+    private static function isActionableWarning(string $warning): bool
+    {
+        if ($warning === '' || in_array($warning, self::NON_ACTIONABLE_WARNINGS, true)) {
+            return false;
+        }
+
+        return array_all(
+            self::NON_ACTIONABLE_WARNING_PATTERNS,
+            static fn (string $pattern): bool => preg_match($pattern, $warning) !== 1,
+        );
+    }
+
+    private static function isInvalidId3FrameWarning(string $warning): bool
+    {
+        return str_starts_with($warning, 'error parsing "')
+            && str_contains($warning, '!IsValidID3v2FrameName');
+    }
+
+    private function text(mixed $value): string
+    {
+        $text = (string) $value;
+        if (! mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+        }
+
+        return trim($text);
     }
 
     private function container(?string $formats): ?string

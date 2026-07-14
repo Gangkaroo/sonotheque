@@ -12,6 +12,7 @@ export const router = createRouter({
     { path: '/genres', name: 'genres', component: () => import('@/views/GenresView.vue') },
     { path: '/tracks', name: 'tracks', component: () => import('@/views/TracksView.vue') },
     { path: '/tracks/:id', name: 'track-detail', component: () => import('@/views/TrackDetailView.vue') },
+    { path: '/folders', name: 'folders', component: () => import('@/views/FoldersView.vue') },
     { path: '/history', name: 'history', component: () => import('@/views/HistoryView.vue') },
     { path: '/playlists', name: 'playlists', component: () => import('@/views/PlaylistsView.vue') },
     { path: '/playlists/:id', name: 'playlist-detail', component: () => import('@/views/PlaylistDetailView.vue') },

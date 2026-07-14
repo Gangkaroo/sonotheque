@@ -19,6 +19,7 @@ import {
   formatDateOnly as formatLocalizedDate,
   formatDateTime,
   formatDuration as duration,
+  formatTotalDuration,
 } from '@/utils/formatters'
 
 const { locale, t } = useI18n()
@@ -141,6 +142,11 @@ const backRoute = computed(() => backArtistId.value
 const backLabel = computed(() => backArtistId.value ? t('albums.backToArtist') : t('albums.back'))
 const album = computed(() => catalog.albumDetail)
 const tracks = computed(() => album.value?.tracks ?? [])
+const albumPlayingTime = computed(() => {
+  const total = tracks.value.reduce((sum, track) => sum + (track.durationMs ?? 0), 0)
+
+  return total > 0 ? formatTotalDuration(total) : null
+})
 const selectedTracks = computed(() => {
   const selected = new Set(selectedTrackIds.value)
   return tracks.value.filter((track) => selected.has(track.id))
@@ -616,7 +622,7 @@ onUnmounted(() => {
             </v-card-subtitle>
           </v-card-item>
           <v-card-text class="text-medium-emphasis">
-            {{ albumDetails }}
+            {{ albumDetails }}<span v-if="albumPlayingTime"> · {{ t('catalog.playingTime', { duration: albumPlayingTime }) }}</span>
             <div v-if="albumGenres.length" class="d-flex flex-wrap ga-2 mt-4">
               <v-chip
                 v-for="genre in albumGenres"

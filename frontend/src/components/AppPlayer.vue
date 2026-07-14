@@ -17,7 +17,7 @@ import {
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { openExternalUrl } from '@/utils/externalLinks'
-import { formatDuration as queueDuration } from '@/utils/formatters'
+import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
 const { locale, t } = useI18n()
@@ -108,6 +108,11 @@ const playbackStateText = computed(() => {
   return null
 })
 const queueItems = computed(() => player.queue.map((track, index) => ({ track, index })))
+const queuePlayingTime = computed(() => {
+  const total = player.queue.reduce((sum, track) => sum + (track.durationMs ?? 0), 0)
+
+  return total > 0 ? formatTotalDuration(total) : null
+})
 const nowPlayingQueueItem = computed(() => queueItems.value.find((item) => item.index === player.currentIndex) ?? null)
 const upcomingQueueItems = computed(() => queueItems.value.filter((item) => item.index > player.currentIndex))
 const previousQueueItems = computed(() => queueItems.value.filter((item) => item.index < player.currentIndex).reverse())
@@ -747,7 +752,7 @@ onMounted(() => {
             :aria-label="t('player.queue')"
             icon="mdi-playlist-music-outline"
             variant="text"
-            @click="nowPlayingPanel.open('queue')"
+            @click="nowPlayingPanel.toggle('queue')"
           />
         </v-badge>
         <TooltipIconButton
@@ -923,7 +928,9 @@ onMounted(() => {
     <v-window v-model="nowPlayingPanel.activeTab">
       <v-window-item value="queue">
         <div class="queue-toolbar pa-4">
-          <div class="text-caption text-medium-emphasis">{{ t('player.queueCount', { count: player.queue.length }) }}</div>
+          <div class="text-caption text-medium-emphasis">
+            {{ t('player.queueCount', { count: player.queue.length }) }}<span v-if="queuePlayingTime"> · {{ t('catalog.playingTime', { duration: queuePlayingTime }) }}</span>
+          </div>
           <div class="d-flex align-center ga-1">
         <TooltipIconButton
           :text="t('playlists.createFromQueue')"

@@ -15,17 +15,26 @@ class AudioFileDiscoverer
     /** @param list<string> $extensions */
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
+        private readonly LibraryDirectoryResolver $directoryResolver,
         private readonly array $extensions,
     ) {
     }
 
     /** @return Generator<int, DiscoveredAudioFile> */
-    public function discover(LibraryRoot $libraryRoot, ?DiscoveryDiagnostics $diagnostics = null): Generator
-    {
+    public function discover(
+        LibraryRoot $libraryRoot,
+        ?DiscoveryDiagnostics $diagnostics = null,
+        ?string $subtreePath = null,
+    ): Generator {
         $diagnostics ??= new DiscoveryDiagnostics();
-        $rootPath = $this->pathGuard->canonicalizeDirectory($libraryRoot->path);
+        $directory = $this->directoryResolver->resolve($libraryRoot, $subtreePath);
 
-        yield from $this->walk($rootPath, $rootPath, $libraryRoot, $diagnostics);
+        yield from $this->walk(
+            $directory->absolutePath,
+            $directory->rootPath,
+            $libraryRoot,
+            $diagnostics,
+        );
     }
 
     /** @return Generator<int, DiscoveredAudioFile> */
@@ -66,7 +75,7 @@ class AudioFileDiscoverer
                 }
 
                 if ($file->isDir()) {
-                    if ($this->isExcludedDirectory($relativePath, $libraryRoot)) {
+                    if ($this->directoryResolver->isExcluded($libraryRoot, $relativePath)) {
                         continue;
                     }
 
@@ -181,18 +190,4 @@ class AudioFileDiscoverer
         return preg_match('/^(?:cd|disc|disk)[\s._-]*0*[1-9]\d*(?:\b|[\s._-].*)$/iu', trim($folder)) === 1;
     }
 
-    private function isExcludedDirectory(string $relativePath, LibraryRoot $libraryRoot): bool
-    {
-        $comparisonPath = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($relativePath) : $relativePath;
-
-        foreach ($libraryRoot->excluded_directories ?? [] as $excluded) {
-            $excluded = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($excluded) : $excluded;
-
-            if ($comparisonPath === $excluded || str_starts_with($comparisonPath, $excluded.'/')) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

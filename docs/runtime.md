@@ -39,8 +39,31 @@ binary explicitly when needed:
 
 ```powershell
 $php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
+$composerPhar = "C:\ProgramData\ComposerSetup\bin\composer.phar"
 & $php85 --version
 ```
+
+Do not use bare `php` or `composer` commands unless `php --version` first
+confirms PHP 8.5. The installed `composer.bat` currently resolves PHP 8.2.
+Invoke Composer through PHP 8.5 instead:
+
+```powershell
+& $php85 $composerPhar install
+& $php85 artisan migrate --force
+& $php85 artisan test
+& $php85 vendor\bin\pint --test
+```
+
+The `composer check:autoload` script recursively invokes the PATH-bound
+Composer on this machine and can hang after it has generated the autoloader.
+Use its strict underlying command directly:
+
+```powershell
+& $php85 $composerPhar dump-autoload --optimize --strict-psr --no-scripts
+```
+
+The managed startup scripts already locate PHP 8.5 themselves. Set
+`SONOTHEQUE_PHP` only when that executable moves to another location.
 
 Confirm that the metadata fallback is available in development mode:
 
@@ -377,8 +400,9 @@ Backend checks:
 
 ```powershell
 cd backend
-vendor/bin/pint --test
+& $php85 vendor\bin\pint --test
 & $php85 artisan test
+& $php85 $composerPhar dump-autoload --optimize --strict-psr --no-scripts
 ```
 
 Frontend checks:

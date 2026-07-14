@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add a root-scoped folder view with lazy directory navigation, virtualized
+  large-folder rendering, file/folder playback and playlist actions, and safe
+  subtree rescans.
+- Correctly verify UTF-16 ID3 comments and normalize legacy numeric genre
+  references during metadata editing and scans, with parser-version invalidation
+  so the next scan refreshes affected unchanged files once.
 - Show track playlist memberships and navigate directly to the matching playlist item.
 - Normalize non-standard little-endian ID3 play counters during statistics import.
 - Exclude global popularity fields that are ambiguously tagged as personal play counts.

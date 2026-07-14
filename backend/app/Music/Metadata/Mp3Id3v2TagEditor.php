@@ -9,6 +9,8 @@ use Throwable;
 
 class Mp3Id3v2TagEditor
 {
+    private readonly ApeV2CommentEditor $apeV2CommentEditor;
+
     /** @var array<string, string> */
     private const V22_FRAME_MAP = [
         'BUF' => 'RBUF', 'CNT' => 'PCNT', 'COM' => 'COMM', 'CRA' => 'AENC',
@@ -38,6 +40,11 @@ class Mp3Id3v2TagEditor
     public const ISSUE_FOOTER = 'id3v2_footer';
 
     public const ISSUE_COMPRESSION = 'id3v2_compression';
+
+    public function __construct(?ApeV2CommentEditor $apeV2CommentEditor = null)
+    {
+        $this->apeV2CommentEditor = $apeV2CommentEditor ?? new ApeV2CommentEditor();
+    }
 
     public function supports(string $path): bool
     {
@@ -111,8 +118,8 @@ class Mp3Id3v2TagEditor
             throw new RuntimeException("Audio file [{$path}] is not a writable regular file.");
         }
 
-        $updatesId3v1Comment = array_key_exists('COMM', $commentFrames) && $this->hasId3v1Tag($path);
-        $inPlaceReplacement = $updatesId3v1Comment
+        $updatesComment = array_key_exists('COMM', $commentFrames);
+        $inPlaceReplacement = $updatesComment
             ? null
             : $this->inPlaceReplacement($path, $textFrames, $userTextFrames, $commentFrames);
         if ($inPlaceReplacement !== null) {
@@ -363,22 +370,7 @@ class Mp3Id3v2TagEditor
             $header = 'ID3'.chr($majorVersion).chr($revision).chr($flags).$this->encodeSynchsafe($payloadSize);
             $this->writeAll($target, $header.$payload);
 
-            $id3v1Tag = array_key_exists('COMM', $commentFrames)
-                ? $this->readId3v1Tag($source)
-                : null;
-            if ($id3v1Tag !== null) {
-                $sourceSize = fstat($source)['size'] ?? null;
-                $sourcePosition = ftell($source);
-                if (! is_int($sourceSize) || ! is_int($sourcePosition) || $sourceSize - $sourcePosition < 128) {
-                    throw new RuntimeException('Could not locate the existing ID3v1 tag safely.');
-                }
-                if (stream_copy_to_stream($source, $target, $sourceSize - $sourcePosition - 128) === false) {
-                    throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
-                }
-                $this->writeAll($target, $this->withId3v1Comment($id3v1Tag, $commentFrames['COMM']));
-            } elseif (stream_copy_to_stream($source, $target) === false) {
-                throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
-            }
+            $this->copyAudioAndTrailingTags($source, $target, $commentFrames);
 
             fflush($target);
             if (function_exists('fsync')) {
@@ -400,17 +392,46 @@ class Mp3Id3v2TagEditor
         }
     }
 
-    private function hasId3v1Tag(string $path): bool
+    /**
+     * @param  resource  $source
+     * @param  resource  $target
+     * @param  array<string, ?string>  $commentFrames
+     */
+    private function copyAudioAndTrailingTags($source, $target, array $commentFrames): void
     {
-        $stream = fopen($path, 'rb');
-        if ($stream === false) {
-            return false;
+        if (! array_key_exists('COMM', $commentFrames)) {
+            if (stream_copy_to_stream($source, $target) === false) {
+                throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
+            }
+
+            return;
         }
 
-        try {
-            return $this->readId3v1Tag($stream) !== null;
-        } finally {
-            fclose($stream);
+        $sourceSize = fstat($source)['size'] ?? null;
+        $sourcePosition = ftell($source);
+        $id3v1Tag = $this->readId3v1Tag($source);
+        if (! is_int($sourceSize) || ! is_int($sourcePosition)) {
+            throw new RuntimeException('Could not locate the trailing audio metadata safely.');
+        }
+
+        $id3v1Length = $id3v1Tag === null ? 0 : 128;
+        $apeReplacement = $this->apeV2CommentEditor->replacement(
+            $source,
+            $sourceSize,
+            $id3v1Length,
+            $commentFrames['COMM'],
+        );
+        $copyEnd = $apeReplacement['offset'] ?? ($sourceSize - $id3v1Length);
+        $copyLength = $copyEnd - $sourcePosition;
+        if ($copyLength < 0 || stream_copy_to_stream($source, $target, $copyLength) !== $copyLength) {
+            throw new RuntimeException('Could not copy the audio payload during ID3v2 editing.');
+        }
+
+        if ($apeReplacement !== null) {
+            $this->writeAll($target, $apeReplacement['replacement']);
+        }
+        if ($id3v1Tag !== null) {
+            $this->writeAll($target, $this->withId3v1Comment($id3v1Tag, $commentFrames['COMM']));
         }
     }
 

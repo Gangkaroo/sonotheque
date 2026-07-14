@@ -334,6 +334,44 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame(chr(13), $writtenTag[127]);
     }
 
+    public function test_it_clears_an_apev2_comment_while_preserving_other_ape_items(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'ape-comment.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('COMM', "\0eng\0User comment");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        $apeTag = $this->apeTag([
+            'Comment' => 'download.example',
+            'REPLAYGAIN_TRACK_GAIN' => '-6.00 dB',
+            'Custom' => 'Preserve me',
+        ]);
+        $id3v1 = 'TAG'
+            .str_pad('Legacy title', 30, "\0")
+            .str_pad('Legacy artist', 30, "\0")
+            .str_pad('Legacy album', 30, "\0")
+            .'2002'
+            .str_pad('download.example', 30, "\0")
+            .chr(13);
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64)
+                .$apeTag
+                .$id3v1,
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['comment' => null]);
+
+        $apeItems = $metadata->rawMetadata['ape']['items'];
+        $this->assertNull($metadata->comment);
+        $this->assertArrayNotHasKey('comment', $apeItems);
+        $this->assertSame('-6.00 dB', $apeItems['replaygain_track_gain']['data'][0]);
+        $this->assertSame('Preserve me', $apeItems['custom']['data'][0]);
+    }
+
     public function test_it_rejects_an_unknown_id3v22_frame_without_changing_the_file(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-unknown.mp3';
@@ -392,6 +430,37 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame(['Singer/Songwriter'], $metadata->genres);
     }
 
+    public function test_it_verifies_an_album_edit_with_a_utf16_comment_and_legacy_numeric_genre(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'album-edit.mp3';
+        $payload = $this->frame('TIT2', "\0The Arrival")
+            .$this->frame('TALB', "\0Iron Savior (Japan, VICP-64367)")
+            .$this->frame('TCON', "\0(137)")
+            .$this->frame('TRCK', "\0".'1')
+            .$this->frame('TYER', "\0".'1997');
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64),
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, [
+            'albumTitle' => 'Iron Savior',
+            'totalDiscs' => 1,
+            'genres' => ['Power Metal'],
+            'comment' => 'Japan, VICP-64367',
+        ]);
+
+        $this->assertSame('Iron Savior', $metadata->album);
+        $this->assertSame(1, $metadata->discTotal);
+        $this->assertSame(['Power Metal'], $metadata->genres);
+        $this->assertSame('Japan, VICP-64367', $metadata->comment);
+    }
+
     private function textFrame(string $description, string $value): string
     {
         return $this->frame('TXXX', "\0{$description}\0{$value}");
@@ -412,6 +481,23 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $length = strlen($payload);
 
         return $name.pack('C3', ($length >> 16) & 0xFF, ($length >> 8) & 0xFF, $length & 0xFF).$payload;
+    }
+
+    /** @param array<string, string> $items */
+    private function apeTag(array $items): string
+    {
+        $payload = '';
+        foreach ($items as $key => $value) {
+            $payload .= pack('V', strlen($value)).pack('V', 0).$key."\0".$value;
+        }
+
+        $size = strlen($payload) + 32;
+        $header = 'APETAGEX'.pack('V', 2000).pack('V', $size).pack('V', count($items))
+            .pack('V', 0xA0000000).str_repeat("\0", 8);
+        $footer = 'APETAGEX'.pack('V', 2000).pack('V', $size).pack('V', count($items))
+            .pack('V', 0x80000000).str_repeat("\0", 8);
+
+        return $header.$payload.$footer;
     }
 
     private function synchsafe(int $value): string
