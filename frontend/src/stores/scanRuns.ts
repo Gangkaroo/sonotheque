@@ -126,6 +126,12 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     return scans.value.find((scan) => scan.libraryRootId === rootId) ?? null
   }
 
+  function activeForRoot(rootId: number) {
+    return scans.value.find((scan) => (
+      scan.libraryRootId === rootId && ['pending', 'running'].includes(scan.status)
+    )) ?? null
+  }
+
   function clear() {
     scans.value = []
     error.value = null
@@ -144,6 +150,7 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     cancel,
     loadIssues,
     latestForRoot,
+    activeForRoot,
     clear,
   }
 })

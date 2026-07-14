@@ -90,7 +90,20 @@ class LibraryFolderApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('path', 'Artist')
             ->assertJsonPath('total', 1)
+            ->assertJsonPath('requiresConfirmation', false)
             ->assertJsonPath('tracks.0.title', 'First Track');
+    }
+
+    public function test_it_returns_only_the_count_when_a_folder_action_needs_confirmation(): void
+    {
+        $this->getJson(
+            "/api/catalog/library-roots/{$this->root->id}/folder-tracks?path=Artist&confirmationThreshold=1",
+        )
+            ->assertOk()
+            ->assertJsonPath('path', 'Artist')
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('requiresConfirmation', true)
+            ->assertJsonCount(0, 'tracks');
     }
 
     public function test_it_rejects_paths_outside_or_excluded_from_the_root(): void

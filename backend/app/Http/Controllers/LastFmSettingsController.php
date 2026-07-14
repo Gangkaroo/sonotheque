@@ -3,21 +3,80 @@
 namespace App\Http\Controllers;
 
 use App\Models\ApplicationSetting;
+use App\Models\TrackPlayEvent;
 use App\Music\LastFm\LastFmApiClient;
 use App\Music\LastFm\LastFmApiException;
+use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class LastFmSettingsController extends Controller
 {
-    public function __construct(private readonly LastFmApiClient $lastFm)
-    {
+    public function __construct(
+        private readonly LastFmApiClient $lastFm,
+        private readonly CatalogPayloads $payloads,
+    ) {
     }
 
     public function show(): JsonResponse
     {
         return response()->json($this->payload(ApplicationSetting::current()));
+    }
+
+    public function deliveries(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'status' => ['sometimes', 'string', 'in:pending,sent,ignored,failed'],
+        ]);
+        $summary = TrackPlayEvent::query()
+            ->whereNotNull('lastfm_status')
+            ->selectRaw('lastfm_status, count(*) as aggregate')
+            ->groupBy('lastfm_status')
+            ->pluck('aggregate', 'lastfm_status');
+        $deliveries = TrackPlayEvent::query()
+            ->select([
+                'id',
+                'track_id',
+                'played_at',
+                'lastfm_status',
+                'lastfm_attempts',
+                'lastfm_scrobbled_at',
+                'lastfm_error',
+                'lastfm_ignored_code',
+            ])
+            ->whereNotNull('lastfm_status')
+            ->when(
+                isset($validated['status']),
+                fn ($query) => $query->where('lastfm_status', $validated['status']),
+            )
+            ->with(['track' => fn ($query) => $query
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
+                ->with([
+                    'album:id,title,original_release_year,artwork_id',
+                    'album.personalMetadata',
+                    'artists:id,name',
+                    'playStatistic:track_id,play_count,first_played_at,last_played_at',
+                ])])
+            ->orderByDesc('played_at')
+            ->orderByDesc('id')
+            ->paginate(15);
+
+        return response()->json([
+            ...$this->payloads->paginated($deliveries, fn (TrackPlayEvent $event) => [
+                'id' => $event->id,
+                'status' => $event->lastfm_status,
+                'attempts' => $event->lastfm_attempts,
+                'playedAt' => $event->played_at?->toJSON(),
+                'scrobbledAt' => $event->lastfm_scrobbled_at?->toJSON(),
+                'error' => $event->lastfm_error,
+                'ignoredCode' => $event->lastfm_ignored_code,
+                'track' => $event->track ? $this->payloads->trackSummary($event->track) : null,
+            ]),
+            'summary' => collect(['pending', 'sent', 'ignored', 'failed'])
+                ->mapWithKeys(fn (string $status) => [$status => (int) ($summary[$status] ?? 0)]),
+        ]);
     }
 
     public function connect(Request $request): JsonResponse

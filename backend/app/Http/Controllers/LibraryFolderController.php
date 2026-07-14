@@ -27,8 +27,19 @@ class LibraryFolderController extends Controller
         LibraryRoot $libraryRoot,
         LibraryFolderBrowser $browser,
     ): JsonResponse {
+        $validated = $request->validate([
+            'path' => ['nullable', 'string', 'max:4096'],
+            'confirmationThreshold' => ['nullable', 'integer', 'min:1', 'max:1000000'],
+        ]);
+
         try {
-            return response()->json($browser->tracks($libraryRoot, $this->path($request)));
+            return response()->json($browser->tracks(
+                $libraryRoot,
+                $validated['path'] ?? null,
+                isset($validated['confirmationThreshold'])
+                    ? (int) $validated['confirmationThreshold']
+                    : null,
+            ));
         } catch (InvalidLibraryPath $exception) {
             return response()->json(['message' => $exception->getMessage()], 422);
         }

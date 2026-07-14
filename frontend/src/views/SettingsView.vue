@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import GeneralSettings from '@/components/GeneralSettings.vue'
 import LibraryRootDialog from '@/components/LibraryRootDialog.vue'
 import LanAccessSettings from '@/components/LanAccessSettings.vue'
+import LastFmDeliveryLog from '@/components/LastFmDeliveryLog.vue'
 import LastFmSettings from '@/components/LastFmSettings.vue'
 import MetadataSettings from '@/components/MetadataSettings.vue'
 import OnlineEnrichmentSettings from '@/components/OnlineEnrichmentSettings.vue'
@@ -21,13 +23,27 @@ import { formatDateTime } from '@/utils/formatters'
 /** @typedef {import('@/stores/scanRuns').ScanIssue} ScanIssue */
 
 const { t, locale } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const adminAccess = useAdminAccessStore()
 const catalog = useCatalogStore()
 const libraryRoots = useLibraryRootsStore()
 const scanRuns = useScanRunsStore()
 const localBrowser = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname)
 const canAccessProtectedSettings = computed(() => localBrowser || adminAccess.hasToken)
-const activeSettingsTab = ref('general')
+const settingsTabs = new Set(['general', 'media-library', 'metadata', 'connections', 'system', 'security'])
+const protectedSettingsTabs = new Set(['media-library', 'metadata', 'connections', 'system'])
+const activeSettingsTab = computed({
+  get: () => availableSettingsTab(route.query.tab),
+  set: (tab) => {
+    if (!settingsTabs.has(tab) || tab === route.query.tab) return
+
+    void router.push({
+      name: 'settings',
+      query: { ...route.query, tab },
+    })
+  },
+})
 const rootRows = computed(() => libraryRoots.roots.map((root) => ({
   root,
   scan: scanRuns.latestForRoot(root.id),
@@ -62,6 +78,7 @@ const scanIssueHistoryIncomplete = computed(() => (
 let pollTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null)
 
 onMounted(async () => {
+  await normalizeSettingsTabAddress()
   if (canAccessProtectedSettings.value) await loadProtectedSettings()
   schedulePolling()
 })
@@ -157,6 +174,22 @@ function statusColor(status) {
 /** @param {string | null} value */
 function formatDate(value) {
   return formatDateTime(value, locale.value, '—')
+}
+
+/** @param {unknown} value */
+function availableSettingsTab(value) {
+  const tab = typeof value === 'string' && settingsTabs.has(value) ? value : 'general'
+
+  return protectedSettingsTabs.has(tab) && !canAccessProtectedSettings.value ? 'security' : tab
+}
+
+async function normalizeSettingsTabAddress() {
+  if (route.query.tab === undefined || route.query.tab === activeSettingsTab.value) return
+
+  await router.replace({
+    name: 'settings',
+    query: { ...route.query, tab: activeSettingsTab.value },
+  })
 }
 
 /** @param {number} rootId */
@@ -380,6 +413,7 @@ async function removeRoot() {
   <template v-if="activeSettingsTab === 'connections' && canAccessProtectedSettings">
     <OnlineEnrichmentSettings :key="`enrichment-${adminAccess.revision}`" />
     <LastFmSettings :key="`lastfm-${adminAccess.revision}`" />
+    <LastFmDeliveryLog :key="`lastfm-deliveries-${adminAccess.revision}`" />
   </template>
 
   <SystemHealthSettings

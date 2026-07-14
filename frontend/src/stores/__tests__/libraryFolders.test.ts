@@ -24,13 +24,14 @@ describe('library folders store', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         path: 'Artist/Album',
         total: 1,
+        requiresConfirmation: false,
         tracks: [{ id: 8, title: 'Track' }],
       }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     const store = useLibraryFoldersStore()
     await store.load(3, 'Artist/Album')
-    const tracks = await store.loadTracks(3, 'Artist/Album')
+    const tracks = await store.loadTracks(3, 'Artist/Album', 500)
 
     expect(store.listing?.path).toBe('Artist/Album')
     expect(tracks.total).toBe(1)
@@ -41,7 +42,7 @@ describe('library folders store', () => {
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/catalog/library-roots/3/folder-tracks?path=Artist%2FAlbum',
+      '/api/catalog/library-roots/3/folder-tracks?path=Artist%2FAlbum&confirmationThreshold=500',
       expect.any(Object),
     )
   })

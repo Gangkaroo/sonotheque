@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -12,6 +12,18 @@ import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { usePlayerStore } from '@/stores/player'
 import { useScanRunsStore } from '@/stores/scanRuns'
 
+type FolderAction = 'play' | 'queue' | 'playlist'
+
+const LARGE_FOLDER_ACTION_TRACK_COUNT = 500
+
+interface PendingFolderAction {
+  action: FolderAction
+  folder: string
+  path: string | null
+  rootId: number
+  total: number
+}
+
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +35,9 @@ const scanRuns = useScanRunsStore()
 
 const playlistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
+const largeActionDialog = ref(false)
+const largeActionLoading = ref(false)
+const pendingFolderAction = ref<PendingFolderAction | null>(null)
 const actionLoading = ref('')
 const notice = ref('')
 const noticeVisible = ref(false)
@@ -41,6 +56,28 @@ const browserEntries = computed(() => [
 ])
 const browserListHeight = computed(() => Math.min(720, Math.max(72, browserEntries.value.length * 72)))
 const currentFolderName = computed(() => listing.value?.breadcrumbs.at(-1)?.name ?? selectedRoot.value?.name ?? '')
+const activeRootScan = computed(() => selectedRootId.value === null
+  ? null
+  : scanRuns.activeForRoot(selectedRootId.value))
+const activeScanProgress = computed(() => {
+  const scan = activeRootScan.value
+  if (!scan?.filesDiscovered) return 0
+
+  return Math.min(100, Math.round((scan.filesProcessed / scan.filesDiscovered) * 100))
+})
+const activeScanIndeterminate = computed(() => (
+  activeRootScan.value?.summary?.phase === 'counting' || !activeRootScan.value?.filesDiscovered
+))
+let scanPollTimer: ReturnType<typeof setTimeout> | null = null
+
+onMounted(async () => {
+  await scanRuns.load({ silent: true })
+  scheduleScanPolling()
+})
+
+onUnmounted(() => {
+  if (scanPollTimer) clearTimeout(scanPollTimer)
+})
 
 watch(
   [selectedRootId, currentPath],
@@ -58,6 +95,7 @@ watch(
 function selectRoot(rootId: number | null) {
   libraryRootScope.select(rootId)
   void router.replace({ name: 'folders' })
+  scheduleScanPolling()
 }
 
 function openFolder(path: string | null) {
@@ -90,32 +128,92 @@ function addTrackToPlaylist(track: Track) {
   playlistDialog.value = true
 }
 
-async function useFolderTracks(path: string | null, action: 'play' | 'queue' | 'playlist') {
+async function useFolderTracks(path: string | null, action: FolderAction) {
   const rootId = selectedRootId.value
   if (rootId === null) return
 
   actionLoading.value = `${action}:${path ?? ''}`
   try {
-    const result = await folders.loadTracks(rootId, path)
+    const result = await folders.loadTracks(rootId, path, LARGE_FOLDER_ACTION_TRACK_COUNT)
+    if (result.requiresConfirmation) {
+      pendingFolderAction.value = {
+        action,
+        folder: folderName(path),
+        path,
+        rootId,
+        total: result.total,
+      }
+      largeActionDialog.value = true
+      return
+    }
+
     if (!result.tracks.length) {
       showNotice(t('folders.noPlayableTracks'))
       return
     }
 
-    if (action === 'play') {
-      player.playTrack(result.tracks[0]!, result.tracks, 'track-list')
-    } else if (action === 'queue') {
-      player.queueTracks(result.tracks, 'track-list')
-      showNotice(t('folders.tracksQueued', { count: result.total }))
-    } else {
-      playlistTracks.value = result.tracks
-      playlistDialog.value = true
-    }
+    applyFolderAction(action, result.tracks, result.total)
   } catch (cause) {
     showNotice(cause instanceof Error ? cause.message : t('folders.actionFailed'))
   } finally {
     actionLoading.value = ''
   }
+}
+
+function applyFolderAction(action: FolderAction, tracks: Track[], total: number) {
+  if (action === 'play') {
+    player.playTrack(tracks[0]!, tracks, 'track-list')
+  } else if (action === 'queue') {
+    player.queueTracks(tracks, 'track-list')
+    showNotice(t('folders.tracksQueued', { count: total }))
+  } else {
+    playlistTracks.value = tracks
+    playlistDialog.value = true
+  }
+}
+
+async function confirmLargeFolderAction() {
+  const pending = pendingFolderAction.value
+  if (!pending) return
+
+  largeActionLoading.value = true
+  try {
+    const result = await folders.loadTracks(pending.rootId, pending.path)
+    if (!result.tracks.length) {
+      resetLargeActionDialog()
+      showNotice(t('folders.noPlayableTracks'))
+      return
+    }
+
+    resetLargeActionDialog()
+    applyFolderAction(pending.action, result.tracks, result.total)
+  } catch (cause) {
+    showNotice(cause instanceof Error ? cause.message : t('folders.actionFailed'))
+  } finally {
+    largeActionLoading.value = false
+  }
+}
+
+function closeLargeActionDialog() {
+  if (largeActionLoading.value) return
+
+  resetLargeActionDialog()
+}
+
+function resetLargeActionDialog() {
+  largeActionDialog.value = false
+  pendingFolderAction.value = null
+}
+
+function folderName(path: string | null) {
+  return path?.split('/').at(-1) ?? selectedRoot.value?.name ?? t('folders.title')
+}
+
+function largeActionMessage(action: FolderAction) {
+  return t(`folders.largeActions.${action}`, {
+    count: pendingFolderAction.value?.total ?? 0,
+    folder: pendingFolderAction.value?.folder ?? '',
+  })
 }
 
 async function rescan(path: string | null) {
@@ -130,7 +228,45 @@ async function rescan(path: string | null) {
     showNotice(cause instanceof Error ? cause.message : t('folders.scanFailed'))
   } finally {
     actionLoading.value = ''
+    scheduleScanPolling()
   }
+}
+
+async function cancelActiveScan() {
+  const scan = activeRootScan.value
+  if (!scan) return
+
+  try {
+    await scanRuns.cancel(scan.id)
+    showNotice(t('folders.scanCancellationRequested'))
+  } catch (cause) {
+    showNotice(cause instanceof Error ? cause.message : t('folders.cancelScanFailed'))
+  } finally {
+    scheduleScanPolling()
+  }
+}
+
+function scheduleScanPolling() {
+  if (scanPollTimer) clearTimeout(scanPollTimer)
+  scanPollTimer = activeRootScan.value ? setTimeout(pollScan, 2000) : null
+}
+
+async function pollScan() {
+  const activeScanId = activeRootScan.value?.id
+  const rootId = selectedRootId.value
+  await scanRuns.load({ silent: true })
+
+  const finishedScan = activeScanId
+    ? scanRuns.scans.find((scan) => scan.id === activeScanId && !['pending', 'running'].includes(scan.status))
+    : null
+  if (finishedScan) {
+    showNotice(t('folders.scanFinished', { status: t(`settings.scanStatuses.${finishedScan.status}`) }))
+    if (rootId !== null && rootId === selectedRootId.value) {
+      await folders.load(rootId, currentPath.value)
+    }
+  }
+
+  scheduleScanPolling()
 }
 
 function showNotice(message: string) {
@@ -240,10 +376,68 @@ function showNotice(message: string) {
             :text="t('folders.rescanFolder')"
             :aria-label="t('folders.rescanFolder')"
             :loading="actionLoading === `scan:${listing?.path ?? ''}`"
+            :disabled="Boolean(activeRootScan)"
             icon="mdi-folder-refresh-outline"
             variant="text"
             @click="void rescan(listing?.path ?? null)"
           />
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <v-card v-if="activeRootScan" class="mb-4" color="primary" rounded="xl" variant="tonal">
+      <v-card-text class="pa-4">
+        <div class="d-flex align-start ga-3">
+          <v-icon class="mt-1" icon="mdi-folder-sync-outline" />
+          <div class="flex-grow-1 min-width-0">
+            <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+              <div>
+                <div class="font-weight-bold">
+                  {{ activeRootScan.subtreePath
+                    ? t('folders.scanningSubtree', { path: activeRootScan.subtreePath })
+                    : t('folders.scanningRoot', { root: selectedRoot?.name }) }}
+                </div>
+                <div class="text-caption text-medium-emphasis mt-1">
+                  <template v-if="activeRootScan.cancelRequestedAt">
+                    {{ t('folders.scanCancellationRequested') }}
+                  </template>
+                  <template v-else-if="activeRootScan.summary?.phase === 'counting'">
+                    {{ t('settings.scanCounting', { count: activeRootScan.filesDiscovered }) }}
+                  </template>
+                  <template v-else>
+                    {{ t('settings.scanFiles', {
+                      processed: activeRootScan.filesProcessed,
+                      discovered: activeRootScan.filesDiscovered,
+                    }) }}
+                  </template>
+                </div>
+              </div>
+              <v-btn
+                color="warning"
+                :loading="scanRuns.cancellingScanId === activeRootScan.id"
+                prepend-icon="mdi-stop-circle-outline"
+                size="small"
+                variant="text"
+                @click="void cancelActiveScan()"
+              >
+                {{ t('settings.cancelScan') }}
+              </v-btn>
+            </div>
+            <v-progress-linear
+              class="mt-3"
+              color="primary"
+              :indeterminate="activeScanIndeterminate"
+              :model-value="activeScanProgress"
+              rounded
+            />
+            <div class="d-flex flex-wrap ga-2 mt-2 text-caption text-medium-emphasis">
+              <span>{{ t('settings.scanAdded', { count: activeRootScan.filesAdded }) }}</span>
+              <span>·</span>
+              <span>{{ t('settings.scanUpdated', { count: activeRootScan.filesUpdated }) }}</span>
+              <span>·</span>
+              <span>{{ t('settings.scanRemoved', { count: activeRootScan.filesRemoved }) }}</span>
+            </div>
+          </div>
         </div>
       </v-card-text>
     </v-card>
@@ -307,6 +501,7 @@ function showNotice(message: string) {
                   :text="t('folders.rescanFolder')"
                   :aria-label="t('folders.rescanFolder')"
                   :loading="actionLoading === `scan:${item.path}`"
+                  :disabled="Boolean(activeRootScan)"
                   density="comfortable"
                   icon="mdi-folder-refresh-outline"
                   variant="text"
@@ -370,6 +565,31 @@ function showNotice(message: string) {
     </v-card>
   </template>
 
+  <v-dialog
+    v-model="largeActionDialog"
+    max-width="540"
+    :persistent="largeActionLoading"
+    @after-leave="pendingFolderAction = null"
+  >
+    <v-card rounded="xl">
+      <v-card-title class="d-flex align-center ga-2 pa-5 pb-2">
+        <v-icon color="warning" icon="mdi-folder-alert-outline" />
+        {{ t('folders.largeActionTitle') }}
+      </v-card-title>
+      <v-card-text class="px-5">
+        {{ pendingFolderAction ? largeActionMessage(pendingFolderAction.action) : '' }}
+      </v-card-text>
+      <v-card-actions class="px-5 pb-5">
+        <v-spacer />
+        <v-btn :disabled="largeActionLoading" variant="text" @click="closeLargeActionDialog">
+          {{ t('folders.cancel') }}
+        </v-btn>
+        <v-btn color="primary" :loading="largeActionLoading" variant="flat" @click="void confirmLargeFolderAction()">
+          {{ t('folders.continueAction') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
   <AddToPlaylistDialog v-model="playlistDialog" :tracks="playlistTracks" />
   <v-snackbar v-model="noticeVisible" timeout="3500">{{ notice }}</v-snackbar>
 </template>

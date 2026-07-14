@@ -31,9 +31,10 @@ export interface LibraryFolderListing {
   files: LibraryFileEntry[]
 }
 
-interface FolderTracks {
+export interface FolderTracks {
   path: string | null
   total: number
+  requiresConfirmation: boolean
   tracks: Track[]
 }
 
@@ -42,6 +43,17 @@ function pathQuery(path: string | null) {
 
   const query = new URLSearchParams({ path })
   return `?${query.toString()}`
+}
+
+function folderTracksQuery(path: string | null, confirmationThreshold?: number) {
+  const query = new URLSearchParams()
+  if (path) query.set('path', path)
+  if (confirmationThreshold !== undefined) {
+    query.set('confirmationThreshold', String(confirmationThreshold))
+  }
+
+  const value = query.toString()
+  return value ? `?${value}` : ''
 }
 
 export const useLibraryFoldersStore = defineStore('libraryFolders', () => {
@@ -70,9 +82,13 @@ export const useLibraryFoldersStore = defineStore('libraryFolders', () => {
     }
   }
 
-  async function loadTracks(libraryRootId: number, path: string | null = null) {
+  async function loadTracks(
+    libraryRootId: number,
+    path: string | null = null,
+    confirmationThreshold?: number,
+  ) {
     return apiRequest<FolderTracks>(
-      `/catalog/library-roots/${libraryRootId}/folder-tracks${pathQuery(path)}`,
+      `/catalog/library-roots/${libraryRootId}/folder-tracks${folderTracksQuery(path, confirmationThreshold)}`,
     )
   }
 

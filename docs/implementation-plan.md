@@ -75,6 +75,12 @@ The implemented release baseline and active roadmap include:
   physical-copy state, physical format, and notes
 - Root-scoped folder browsing with file and folder playback, queue, playlist,
   and subtree-rescan actions
+- Database-backed listening history and statistics with optional MP3 tag
+  synchronization
+- Optional Last.fm scrobbling with asynchronous retries and a filterable
+  delivery log
+- Optional cached artist, album, identity, portrait, and lyrics enrichment
+  through Last.fm, MusicBrainz, Wikidata, Wikimedia Commons, and LRCLIB
 - English and German translations
 - Localhost access by default and optional LAN access
 
@@ -121,8 +127,8 @@ Audio is delivered through a dedicated streaming endpoint supporting HTTP range 
 
 ### Folder Browsing And Subtree Scans
 
-The catalog will gain a root-scoped folder view without creating a second,
-duplicated folder hierarchy in PostgreSQL. Navigation should lazily list only
+The catalog provides a root-scoped folder view without creating a second,
+duplicated folder hierarchy in PostgreSQL. Navigation lazily lists only
 the immediate children of the current directory from the filesystem, then join
 supported files to `media_files` and `tracks` for playable metadata and actions.
 Empty or not-yet-indexed directories therefore remain visible, while playback
@@ -137,9 +143,9 @@ specific root before folder navigation begins.
 Single-file actions operate on one indexed, playable track. Folder actions use
 all supported, indexed tracks in the selected directory and its descendants so
 multi-disc and nested layouts behave as one collection. Large folder actions
-should show the number of affected tracks and retain deterministic filesystem,
+show the number of affected tracks and retain deterministic filesystem,
 disc, and track ordering. Existing player queue and add-to-playlist workflows
-must be reused rather than introducing another queue representation.
+are reused rather than introducing another queue representation.
 
 Subtree scans extend a normal scan run with an optional relative directory
 scope. Discovery, progress, diagnostics, cancellation, incremental fingerprint
@@ -495,13 +501,14 @@ Completed:
 
 Open roadmap work:
 
-- Folder-browser follow-up work: large-action confirmation, inline scan
-  progress/cancellation, and packaged browser coverage
-- Broader end-to-end, upgrade, and packaging coverage
-- Browsable metadata-backup audit and clearer failed/ignored Last.fm delivery
-  visibility
+- Packaged browser coverage for folder navigation, large folder actions, and
+  subtree scans
+- LAN verification from a second physical device and broader upgrade and
+  end-to-end coverage
+- Browsable metadata-backup audit (deferred; the command-based recovery
+  workflow is sufficient for now)
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, and the `v0.1.0` portable release are repeatable; current feature work focuses on folder-based catalog workflows and broader end-to-end coverage.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, the folder workflow, and the `v0.1.0` portable release are repeatable; current work focuses on packaged-runtime, LAN-device, upgrade, and broader end-to-end coverage.
 
 ### 1. Project Foundation
 
@@ -614,8 +621,8 @@ into a general-purpose file manager.
   track. (Complete)
 - Add the same actions for all indexed tracks in the selected folder subtree.
   Show the affected track count, confirm unusually large actions, and use a
-  deterministic relative-path/disc/track order. (Actions and deterministic
-  ordering complete; explicit large-action confirmation remains)
+  deterministic relative-path/disc/track order. (Complete; actions affecting
+  500 or more tracks use a count-only preflight before loading the full list)
 - Reuse the Pinia player queue, playlist chooser, and existing playback payloads
   instead of creating folder-specific playback state. (Complete)
 - Add an optional normalized subtree path to scan runs and dispatch. Keep one
@@ -625,7 +632,7 @@ into a general-purpose file manager.
   removal to the selected subtree. Preserve unseen records beneath unreadable
   paths and leave every record outside the subtree untouched. (Complete)
 - Expose subtree scan progress, cancellation, completion details, and scan
-  history consistently from both the folder view and Settings.
+  history consistently from both the folder view and Settings. (Complete)
 - Protect subtree rescans with the existing scan-management admin-token rules.
   (Complete)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
@@ -750,6 +757,9 @@ Last.fm integration.
   disconnect workflow. (Complete with encrypted secrets and session state)
 - Add Last.fm scrobbling for eligible app plays. (Complete with queued delivery,
   retry handling, and per-play delivery state)
+- Add operational visibility for Last.fm deliveries. (Complete with status
+  totals, filtering, attempt and provider-error details, track links, and manual
+  refresh without polling)
 - Consider Last.fm history import only after local statistics and scrobbling are
   stable.
 
@@ -862,14 +872,14 @@ details, and provides cleanup and path-checked restore commands.
 The planned MP3 metadata field set is complete. Album track selection now adds
 bulk playback, queue, playlist, favorite, and metadata actions; selected-track
 metadata edits show common and mixed values and only write explicitly enabled
-fields. A browsable backup audit in Settings remains as a later workflow
-refinement.
+fields. A browsable backup audit in Settings is deferred while the existing
+command-based recovery workflow remains sufficient.
 
 The first Last.fm connector milestone is complete: account authorization,
 encrypted local credentials, opt-in scrobbling, shared local/Last.fm eligibility
-rules, and asynchronous delivery are implemented. The next connector refinement
-is operational visibility for failed or ignored scrobbles before considering
-history import or now-playing updates.
+rules, asynchronous delivery, and a filterable delivery log with status totals,
+attempt details, and provider errors are implemented. History import and
+now-playing updates remain optional later refinements.
 
 The first online-enrichment milestone and its reliability layer are complete:
 provider-neutral services, opt-in settings, attributed Last.fm and LRCLIB
@@ -908,15 +918,15 @@ physical-copy filters in album and track lists. Track-to-playlist membership
 navigation and explicit sorting controls are now complete for albums, tracks,
 and grouped playlists.
 
-The first root-scoped folder-browser slice is complete: guarded APIs expose only
-relative paths, large directory listings are virtualized, indexed files and
-recursive folder contents reuse the existing player and playlist workflows, and
-subtree scan cleanup is constrained by PostgreSQL-backed tests. The next pass
-should add explicit confirmation for unusually large folder actions and show
-subtree scan progress/cancellation directly in the folder view. Filesystem
-mutations remain outside this phase. Afterward, return to the browsable
-metadata-backup audit and operational visibility for failed or ignored Last.fm
-scrobbles.
+The root-scoped folder browser is complete for its read-and-play phase: guarded
+APIs expose only relative paths, large directory listings are virtualized,
+indexed files and recursive folder contents reuse the existing player and
+playlist workflows, large actions use a count-only confirmation preflight, and
+subtree scans expose progress and cancellation while keeping cleanup constrained
+by PostgreSQL-backed tests. Filesystem mutations remain outside this phase.
+Last.fm delivery visibility is complete, while the browsable metadata-backup
+audit remains deferred. The next pass should focus on broader packaged-runtime
+and upgrade coverage before selecting another user-facing roadmap feature.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows

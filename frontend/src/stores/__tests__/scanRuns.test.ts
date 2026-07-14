@@ -59,6 +59,20 @@ describe('scan runs store', () => {
     expect(store.hasActiveScans).toBe(true)
   })
 
+  it('finds the active scan for a library root', async () => {
+    const completed = { ...scan, id: 5, status: 'completed' }
+    const running = { ...scan, id: 6, status: 'running', subtreePath: 'Artist/Album' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ member: [completed, running] }), { status: 200 }),
+    ))
+
+    const store = useScanRunsStore()
+    await store.load()
+
+    expect(store.activeForRoot(2)?.id).toBe(6)
+    expect(store.activeForRoot(3)).toBeNull()
+  })
+
   it('loads the complete issue list for one scan on demand', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       items: [{ id: 1, code: 'file_warning', severity: 'warning', message: 'Warning' }],

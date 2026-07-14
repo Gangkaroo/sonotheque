@@ -62,6 +62,7 @@ Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsControl
 Route::get('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'show']);
 Route::patch('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'update']);
 Route::get('/settings/lastfm', [LastFmSettingsController::class, 'show']);
+Route::get('/settings/lastfm/deliveries', [LastFmSettingsController::class, 'deliveries']);
 Route::post('/settings/lastfm/connect', [LastFmSettingsController::class, 'connect']);
 Route::post('/settings/lastfm/complete', [LastFmSettingsController::class, 'complete']);
 Route::patch('/settings/lastfm', [LastFmSettingsController::class, 'update']);

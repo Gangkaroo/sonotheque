@@ -88,23 +88,39 @@ class LibraryFolderBrowser
         ];
     }
 
-    /** @return array{path: ?string, total: int, tracks: mixed} */
-    public function tracks(LibraryRoot $libraryRoot, ?string $relativePath): array
-    {
+    /** @return array{path: ?string, total: int, requiresConfirmation: bool, tracks: mixed} */
+    public function tracks(
+        LibraryRoot $libraryRoot,
+        ?string $relativePath,
+        ?int $confirmationThreshold = null,
+    ): array {
         $directory = $this->resolveEnabledRoot($libraryRoot, $relativePath);
         $query = MediaFile::query()
             ->where('library_root_id', $libraryRoot->id)
             ->where('status', MediaFileStatus::Available->value)
             ->whereHas('track')
-            ->with([
+            ->orderBy('relative_path');
+        $this->scopeToDirectory($query, $directory->relativePath);
+
+        if ($confirmationThreshold !== null) {
+            $total = (clone $query)->count();
+
+            if ($total >= $confirmationThreshold) {
+                return [
+                    'path' => $directory->relativePath,
+                    'total' => $total,
+                    'requiresConfirmation' => true,
+                    'tracks' => [],
+                ];
+            }
+        }
+
+        $tracks = $query->with([
                 'track.album:id,title,original_release_year,artwork_id',
                 'track.album.personalMetadata',
                 'track.artists:id,name',
                 'track.playStatistic:track_id,play_count,first_played_at,last_played_at',
             ])
-            ->orderBy('relative_path');
-        $this->scopeToDirectory($query, $directory->relativePath);
-        $tracks = $query
             ->get()
             ->map(fn (MediaFile $mediaFile): array => $this->payloads->trackSummary($mediaFile->track))
             ->values();
@@ -112,6 +128,7 @@ class LibraryFolderBrowser
         return [
             'path' => $directory->relativePath,
             'total' => $tracks->count(),
+            'requiresConfirmation' => false,
             'tracks' => $tracks,
         ];
     }
