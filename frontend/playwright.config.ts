@@ -4,6 +4,7 @@ const baseURL = process.env.SONOTHEQUE_E2E_BASE_URL ?? 'http://127.0.0.1:18080'
 
 export default defineConfig({
   testDir: './e2e',
+  testMatch: ['folders.spec.ts', 'playback.spec.ts'],
   fullyParallel: false,
   workers: 1,
   timeout: 30_000,
@@ -22,7 +23,10 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
+      },
     },
   ],
 })

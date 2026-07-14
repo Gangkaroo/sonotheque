@@ -357,12 +357,18 @@ remain the explicit default.
 
 ## Packaged Browser Verification
 
-The packaged folder workflow has a Playwright suite that starts an isolated
-Compose project, creates a small generated music fixture, scans it through the
-real queue worker, and exercises folder navigation and actions in Chromium.
-The suite uses `http://127.0.0.1:18080`, owns separate Docker volumes, and
-removes its containers, volumes, and generated fixture when it finishes. It
-does not use the development or normal packaged database.
+The packaged browser workflow has a Playwright suite that starts an isolated
+Compose project, creates two small generated music fixtures, scans them through
+the real queue worker, and exercises folder navigation, actions, streaming, and
+playback in Chromium.
+A separate upgrade suite populates the published `v0.1.0` package, retains its
+PostgreSQL and application-storage volumes, starts the current package over
+them, and verifies that migrations and user data survive.
+
+The suites use `http://127.0.0.1:18080` and `http://127.0.0.1:18081`, own
+separate Docker volumes, and remove their containers, volumes, and generated
+fixtures when they finish. They do not use the development or normal packaged
+database. The upgrade suite requires the `v0.1.0` Git tag to be available.
 
 Install the browser once and run the suite from `frontend` while Docker Desktop
 is available:
@@ -370,12 +376,18 @@ is available:
 ```powershell
 npx playwright install chromium
 npm run test:e2e:packaged
+npm run test:e2e:upgrade
 ```
 
-The tagged-release workflow installs Chromium and runs this suite after the
-normal frontend checks. It covers real packaged setup, scanning, and folder
-navigation, plus the large-folder confirmation and subtree-scan cancellation
-states.
+The tagged-release workflow fetches the repository tags, installs Chromium,
+and runs both suites after the normal frontend checks. The browser suite covers
+real packaged setup, scanning, folder navigation, large-folder confirmation,
+subtree-scan cancellation, range streaming, play/pause, seeking, switching
+after a seek, queue progression, previous/next controls, and playback restoration
+after refresh. The upgrade suite preserves library roots, catalog records,
+favorites, playlists, personal album metadata, settings, first-run state,
+application storage, and stable mounted paths while applying all current
+migrations.
 
 ## Publishing A Release
 
@@ -395,10 +407,10 @@ git push origin v0.1.0
 ```
 
 The `Publish Sonotheque Release` workflow then runs the PostgreSQL-backed PHP
-suite, PSR-12 and PSR-4 checks, frontend lint/tests/build, the packaged folder
-workflow browser suite, and the Windows portable package build. It verifies the
-archive contents and SHA-256 checksum before creating the GitHub Release from
-the matching changelog section.
+suite, PSR-12 and PSR-4 checks, frontend lint/tests/build, packaged folder and
+upgrade suites, and the Windows portable package build. It verifies the archive
+contents and SHA-256 checksum before creating the GitHub Release from the
+matching changelog section.
 
 Maintainers can reproduce the package checks locally without publishing:
 

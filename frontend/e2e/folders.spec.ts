@@ -2,14 +2,11 @@
 
 import { expect, test, type Page } from '@playwright/test'
 
-interface LibraryRootPayload {
-  id: number
-  name: string
-}
-
-interface HydraCollection<T> {
-  member: T[]
-}
+import {
+  directoryRow,
+  openPackagedFixtureAlbum,
+  selectPackagedFixtureRoot,
+} from './packaged-fixture'
 
 const runningScan = {
   id: 9001,
@@ -32,28 +29,17 @@ const runningScan = {
 }
 
 test.beforeEach(async ({ page, request }) => {
-  const response = await request.get('/api/library_roots')
-  expect(response.ok()).toBeTruthy()
-  const roots = await response.json() as HydraCollection<LibraryRootPayload>
-  const root = roots.member.find((candidate) => candidate.name === 'Packaged Fixture')
-  expect(root).toBeDefined()
-
-  await page.addInitScript((rootId) => {
-    window.sessionStorage.setItem('sonotheque.active-library-root', String(rootId))
-  }, root!.id)
+  await selectPackagedFixtureRoot(page, request)
 })
 
 test('navigates a scanned folder tree and shows its indexed track', async ({ page }) => {
-  await page.goto('/folders')
-
+  await openPackagedFixtureAlbum(page)
   await expect(page.getByRole('heading', { name: 'Folders' })).toBeVisible()
-  await directoryRow(page, 'Fixture Artist').click()
-  await expect(page).toHaveURL(/\/folders\?path=Fixture\+Artist/)
-
-  await directoryRow(page, 'Fixture Album').click()
   await expect(page).toHaveURL(/path=Fixture\+Artist\/Fixture\+Album/)
   await expect(page.getByText('01 - Fixture Track', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled()
+  await expect(
+    directoryRow(page, '01 - Fixture Track').getByRole('button', { name: 'Play', exact: true }),
+  ).toBeEnabled()
 
   await page.getByText('Parent folder', { exact: true }).click()
   await expect(page).toHaveURL(/path=Fixture\+Artist/)
@@ -142,8 +128,4 @@ async function mockScanLifecycle(page: Page) {
 
     await route.continue()
   })
-}
-
-function directoryRow(page: Page, name: string) {
-  return page.locator('.folder-row').filter({ hasText: name }).first()
 }

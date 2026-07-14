@@ -25,7 +25,7 @@ frontend/dist
 frontend/.vite
 frontend/e2e
 frontend/playwright-report
-frontend/playwright.config.ts
+frontend/playwright*.config.ts
 frontend/test-results
 
 packaged/music-root-1

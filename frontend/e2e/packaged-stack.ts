@@ -36,7 +36,8 @@ export async function prepareFixtureLibrary() {
 
   const albumDirectory = path.join(musicRoot, 'Fixture Artist', 'Fixture Album')
   await mkdir(albumDirectory, { recursive: true })
-  await writeFile(path.join(albumDirectory, '01 - Fixture Track.wav'), silentWav())
+  await writeFile(path.join(albumDirectory, '01 - Fixture Track.wav'), createSilentWav(12))
+  await writeFile(path.join(albumDirectory, '02 - Second Fixture Track.wav'), createSilentWav(12))
 }
 
 export function startPackagedStack() {
@@ -50,7 +51,8 @@ export function startPackagedStack() {
     'migrate',
     'migrate',
   ])
-  compose(['up', '-d', 'backend', 'queue', 'scheduler', 'web'])
+  compose(['up', '-d', '--wait', 'backend'])
+  compose(['up', '-d', 'queue', 'scheduler', 'web'])
 }
 
 export function stopPackagedStack(ignoreErrors = false) {
@@ -94,11 +96,11 @@ function assertRuntimeDirectory() {
   }
 }
 
-function silentWav() {
+export function createSilentWav(durationSeconds = 1) {
   const sampleRate = 8_000
   const channels = 1
   const bitsPerSample = 16
-  const sampleCount = sampleRate
+  const sampleCount = sampleRate * durationSeconds
   const blockAlign = channels * bitsPerSample / 8
   const byteRate = sampleRate * blockAlign
   const dataSize = sampleCount * blockAlign

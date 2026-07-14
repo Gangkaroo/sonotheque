@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up PHP 8.5
         uses: shivammathur/setup-php@v2
@@ -96,9 +98,13 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Validate packaged folder workflows
+      - name: Validate packaged browser workflows
         working-directory: frontend
         run: npm run test:e2e:packaged
+
+      - name: Validate packaged upgrade
+        working-directory: frontend
+        run: npm run test:e2e:upgrade
 
   publish:
     name: Build and publish portable package
