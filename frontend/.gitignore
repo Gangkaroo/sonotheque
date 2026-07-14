@@ -4,4 +4,7 @@ dist
 .env.local
 .env.*.local
 coverage
+e2e/runtime/
+playwright-report/
+test-results/
 *.tsbuildinfo

@@ -355,6 +355,28 @@ remain the explicit default.
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
 
+## Packaged Browser Verification
+
+The packaged folder workflow has a Playwright suite that starts an isolated
+Compose project, creates a small generated music fixture, scans it through the
+real queue worker, and exercises folder navigation and actions in Chromium.
+The suite uses `http://127.0.0.1:18080`, owns separate Docker volumes, and
+removes its containers, volumes, and generated fixture when it finishes. It
+does not use the development or normal packaged database.
+
+Install the browser once and run the suite from `frontend` while Docker Desktop
+is available:
+
+```powershell
+npx playwright install chromium
+npm run test:e2e:packaged
+```
+
+The tagged-release workflow installs Chromium and runs this suite after the
+normal frontend checks. It covers real packaged setup, scanning, and folder
+navigation, plus the large-folder confirmation and subtree-scan cancellation
+states.
+
 ## Publishing A Release
 
 Release publication is intentionally tag-driven. Ordinary branch pushes never
@@ -373,9 +395,10 @@ git push origin v0.1.0
 ```
 
 The `Publish Sonotheque Release` workflow then runs the PostgreSQL-backed PHP
-suite, PSR-12 and PSR-4 checks, frontend lint/tests/build, and the Windows
-portable package build. It verifies the archive contents and SHA-256 checksum
-before creating the GitHub Release from the matching changelog section.
+suite, PSR-12 and PSR-4 checks, frontend lint/tests/build, the packaged folder
+workflow browser suite, and the Windows portable package build. It verifies the
+archive contents and SHA-256 checksum before creating the GitHub Release from
+the matching changelog section.
 
 Maintainers can reproduce the package checks locally without publishing:
 

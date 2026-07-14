@@ -546,7 +546,7 @@ export default {
     refreshLastFmDeliveries: 'Last.fm-Übertragungen aktualisieren',
     onlineContent: 'Online-Inhalte',
     onlineContentDescription: 'Optionale Informationen zu Interpreten, Alben und Songtexten verwalten.',
-    onlineContentPrivacy: 'Standardmäßig deaktiviert. Anbieteranfragen laufen über Laravel und verzögern niemals die lokale Wiedergabe.',
+    onlineContentPrivacy: 'Standardmäßig deaktiviert. Anbieteranfragen werden sicher von Sonotheque verarbeitet und verzögern niemals die lokale Wiedergabe.',
     onlineInformation: 'Informationen zu Interpreten und Alben',
     onlineInformationHint: 'Konfigurierten Anbietern erlauben, Hintergrundinformationen mit Quellenangabe zum aktuellen Interpreten und Album abzurufen.',
     onlineLyrics: 'Songtexte',

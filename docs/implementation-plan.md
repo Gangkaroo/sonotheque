@@ -498,17 +498,17 @@ Completed:
 - Root-scoped folder browsing with guarded relative paths, virtualized large
   listings, indexed-file and recursive folder actions, and subtree scan runs
   whose stale cleanup cannot affect records outside the selected directory
+- Isolated packaged Playwright coverage for setup, scanning, folder navigation,
+  large folder confirmation, and subtree scan cancellation
 
 Open roadmap work:
 
-- Packaged browser coverage for folder navigation, large folder actions, and
-  subtree scans
-- LAN verification from a second physical device and broader upgrade and
-  end-to-end coverage
+- LAN verification from a second physical device and broader upgrade coverage
+- Broader end-to-end coverage for configuration and playback workflows
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, the folder workflow, and the `v0.1.0` portable release are repeatable; current work focuses on packaged-runtime, LAN-device, upgrade, and broader end-to-end coverage.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, the packaged folder workflow, and the `v0.1.0` portable release are repeatable; current work focuses on LAN-device, upgrade, and broader end-to-end coverage.
 
 ### 1. Project Foundation
 
@@ -637,7 +637,8 @@ into a general-purpose file manager.
   (Complete)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
-  (Backend and store coverage complete; packaged browser coverage remains)
+  (Complete with PostgreSQL-backed API coverage, frontend store coverage, and
+  an isolated packaged Playwright fixture)
 - Defer rename, move, delete, folder creation, and other write operations to a
   later filesystem-management phase with explicit conflict and rollback rules.
 
@@ -839,6 +840,8 @@ Last.fm integration.
 - Use small MP3, FLAC, Ogg, and malformed-file fixtures. (Partially complete)
 - Add frontend store and component tests. (Store tests complete for catalog, roots, scans, preferences, player, favorites, and playlists)
 - Add end-to-end coverage for configuration, scanning, browsing, and playback.
+  (Packaged setup, scanning, folder browsing, large folder confirmation, and
+  subtree scan cancellation complete; playback coverage remains)
 - Keep the current developer runtime documented separately from the planned
   packaged runtime. (Development runtime complete; packaged runtime plan
   documented in `docs/setup-and-distribution.md`)
@@ -923,7 +926,9 @@ APIs expose only relative paths, large directory listings are virtualized,
 indexed files and recursive folder contents reuse the existing player and
 playlist workflows, large actions use a count-only confirmation preflight, and
 subtree scans expose progress and cancellation while keeping cleanup constrained
-by PostgreSQL-backed tests. Filesystem mutations remain outside this phase.
+by PostgreSQL-backed tests. An isolated packaged Playwright suite verifies setup,
+real fixture scanning and navigation, large-action confirmation, and scan
+cancellation. Filesystem mutations remain outside this phase.
 Last.fm delivery visibility is complete, while the browsable metadata-backup
 audit remains deferred. The next pass should focus on broader packaged-runtime
 and upgrade coverage before selecting another user-facing roadmap feature.
@@ -936,7 +941,7 @@ restore for PostgreSQL and application storage are complete. The initial
 versioned Windows portable bundle, double-click launcher, host-folder picker,
 installation guide, and release checksum are also complete. Remaining release
 work is verifying LAN behavior from a second physical device on the local
-network and broadening upgrade and end-to-end coverage. Version `v0.1.0` has
+network and broadening upgrade, playback, and configuration coverage. Version `v0.1.0` has
 been published as the first live GitHub Release. Repeatable release builds and
 GitHub publication are automated by a tag-driven workflow that runs backend and
 frontend validation before building and auditing the Windows portable archive.

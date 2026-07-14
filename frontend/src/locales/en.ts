@@ -546,7 +546,7 @@ export default {
     refreshLastFmDeliveries: 'Refresh Last.fm deliveries',
     onlineContent: 'Online content',
     onlineContentDescription: 'Control optional artist, album, and lyrics enrichment.',
-    onlineContentPrivacy: 'Disabled by default. Provider requests run through Laravel and never delay local playback.',
+    onlineContentPrivacy: 'Disabled by default. Provider requests are handled securely by Sonotheque and never delay local playback.',
     onlineInformation: 'Artist and album information',
     onlineInformationHint: 'Allow configured providers to retrieve attributed background information for the current artist and album.',
     onlineLyrics: 'Lyrics',
