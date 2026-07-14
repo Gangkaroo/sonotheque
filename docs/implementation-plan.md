@@ -501,18 +501,22 @@ Completed:
 - Isolated packaged Playwright coverage for setup, scanning, folder navigation,
   large folder confirmation, subtree scan cancellation, range streaming,
   seeking, queue progression, track switching, and playback restoration
+- Empty-install first-run coverage that configures a library root and ordered
+  cover paths, persists optional metadata settings across refresh, leaves
+  online providers disabled, scans the mounted fixture, and completes setup
 - A real `v0.1.0`-to-current packaged upgrade test that preserves PostgreSQL,
   application storage, catalog state, favorites, playlists, personal metadata,
   settings, and mounted library paths while running all current migrations
+- Physical-device LAN verification for catalog browsing and playback, anonymous
+  administration denial, a narrowly scoped Windows Firewall rule, and an
+  automated host preflight for valid and invalid admin-token behavior
 
 Open roadmap work:
 
-- LAN verification from a second physical device
-- Broader end-to-end coverage for first-run configuration workflows
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, LAN startup, packaged folder and playback workflows, and the `v0.1.0` portable release are repeatable; current work focuses on LAN-device and first-run configuration end-to-end coverage.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
 
 ### 1. Project Foundation
 
@@ -834,7 +838,8 @@ Last.fm integration.
 - Before LAN settings access is enabled, add a shared administrative token or restrict settings operations to localhost. (Complete)
 - Add explicit `start.ps1 -Lan` address selection, proxy-aware client IP
   protection, runtime status, and restricted Windows Firewall guidance.
-  (Complete)
+  (Complete, including a repeatable LAN preflight and physical-device browsing,
+  playback, and anonymous-administration verification)
 
 ### 8. Testing and Packaging
 
@@ -844,10 +849,10 @@ Last.fm integration.
 - Use small MP3, FLAC, Ogg, and malformed-file fixtures. (Partially complete)
 - Add frontend store and component tests. (Store tests complete for catalog, roots, scans, preferences, player, favorites, and playlists)
 - Add end-to-end coverage for configuration, scanning, browsing, and playback.
-  (Packaged setup, scanning, folder browsing, large folder confirmation, and
-  subtree scan cancellation complete; packaged `v0.1.0` upgrade preservation
-  and real streaming, seeking, queue progression, track switching, and refresh
-  restoration are also covered; broader first-run configuration remains)
+  (Complete for packaged empty-install setup, optional metadata configuration,
+  scanning, folder browsing, large folder confirmation, subtree scan
+  cancellation, `v0.1.0` upgrade preservation, real streaming, seeking, queue
+  progression, track switching, and refresh restoration)
 - Keep the current developer runtime documented separately from the planned
   packaged runtime. (Development runtime complete; packaged runtime plan
   documented in `docs/setup-and-distribution.md`)
@@ -937,9 +942,10 @@ real fixture scanning and navigation, large-action confirmation, and scan
 cancellation. Filesystem mutations remain outside this phase.
 Last.fm delivery visibility is complete, while the browsable metadata-backup
 audit remains deferred. Packaged upgrade preservation from `v0.1.0` and real
-browser playback are now verified automatically. The next pass should focus on
-first-run configuration end-to-end coverage before selecting another
-user-facing roadmap feature.
+browser playback are now verified automatically. The packaged suite also starts
+from an empty installation, drives the resumable first-run configuration,
+creates and scans its mounted root, and supplies that state to the dependent
+folder and playback projects.
 
 The LAN authorization boundary, browser token workflow, trusted-host checks,
 CORS allowlist, explicit startup mode, proxy-aware client IP handling, Windows
@@ -947,9 +953,10 @@ Firewall guidance, packaged Compose runtime, startup scripts, resumable
 first-run setup, health checks, and checksummed manual backup and guarded
 restore for PostgreSQL and application storage are complete. The initial
 versioned Windows portable bundle, double-click launcher, host-folder picker,
-installation guide, and release checksum are also complete. Remaining release
-work is verifying LAN behavior from a second physical device on the local
-network and broadening first-run configuration coverage. Version `v0.1.0` has
+installation guide, and release checksum are also complete. LAN verification
+was completed from a second physical device on the local network,
+with browsing and playback available and protected administration denied
+without a token. Version `v0.1.0` has
 been published as the first live GitHub Release. Repeatable release builds and
 GitHub publication are automated by a tag-driven workflow that runs backend and
 frontend validation before building and auditing the Windows portable archive.

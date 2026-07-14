@@ -603,9 +603,29 @@ The rule deliberately permits only the Vite port, only on Private networks,
 only on the selected local address, and only from the local subnet. Do not add
 a public-profile rule or expose PostgreSQL port `5433` or Laravel port `8000`.
 
+Run the host-side LAN preflight after startup:
+
+```powershell
+.\scripts\verify-lan.ps1
+```
+
+It verifies the recorded LAN address, exact frontend listener, public catalog
+access, anonymous and invalid-token rejection, and valid-token acceptance. It
+also inspects the scoped firewall rule when run from an elevated PowerShell
+window. The token is read from `backend/.env` for the request but is never
+printed.
+
 Verify from a second device by opening the LAN URL shown by the startup script.
-Catalog browsing should work without a token. Settings operations should remain
-blocked until the same token is entered and verified in the Security tab.
+Browse albums, open artwork, and play and seek a track. Catalog and playback
+should work without a token, while protected Settings tabs remain disabled.
+Enter the same token in Settings > Security, verify that the protected tabs can
+load, then clear it and confirm they lock again.
+
+The development LAN workflow was physically verified on July 14, 2026 from a
+second device: catalog browsing and playback succeeded over the private network,
+and Settings and modification operations remained unavailable without the
+admin token. The host preflight also confirmed anonymous and invalid-token
+rejection plus valid-token acceptance.
 
 Use `scripts/status.ps1` to see the recorded runtime mode and active app URL.
 If DHCP assigns a different address later, stop the app and start LAN mode again.

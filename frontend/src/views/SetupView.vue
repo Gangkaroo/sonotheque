@@ -19,6 +19,7 @@ const libraryRoots = useLibraryRootsStore()
 const scanRuns = useScanRunsStore()
 const currentStep = ref(1)
 const rootDialog = ref(false)
+const initializing = ref(true)
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const steps = computed(() => [
@@ -30,9 +31,13 @@ const steps = computed(() => [
 ])
 
 onMounted(async () => {
-  await Promise.all([setup.load(), libraryRoots.load(), scanRuns.load()])
-  currentStep.value = setup.status?.step ?? 1
-  schedulePolling()
+  try {
+    await Promise.all([setup.load(), libraryRoots.load(), scanRuns.load()])
+    currentStep.value = setup.status?.step ?? 1
+    schedulePolling()
+  } finally {
+    initializing.value = false
+  }
 })
 
 onUnmounted(() => {
@@ -40,6 +45,8 @@ onUnmounted(() => {
 })
 
 async function selectStep(step: number) {
+  if (initializing.value) return
+
   currentStep.value = step
   await setup.update({ step })
 }
@@ -105,6 +112,7 @@ async function finish() {
           :key="step.value"
           class="setup-step flex-grow-1 pa-3"
           :class="{ 'setup-step--active': currentStep === step.value }"
+          :disabled="initializing"
           type="button"
           @click="selectStep(step.value)"
         >
@@ -195,13 +203,13 @@ async function finish() {
       </section>
 
       <div class="d-flex flex-wrap justify-space-between ga-3 mt-6">
-        <v-btn :disabled="currentStep === 1" prepend-icon="mdi-chevron-left" variant="text" @click="previous">
+        <v-btn :disabled="initializing || currentStep === 1" prepend-icon="mdi-chevron-left" variant="text" @click="previous">
           {{ t('setup.back') }}
         </v-btn>
         <v-btn
           v-if="currentStep < 5"
           color="primary"
-          :disabled="currentStep === 2 && !libraryRoots.hasRoots"
+          :disabled="initializing || (currentStep === 2 && !libraryRoots.hasRoots)"
           :loading="setup.saving"
           append-icon="mdi-chevron-right"
           variant="flat"
@@ -212,7 +220,7 @@ async function finish() {
         <v-btn
           v-else
           color="primary"
-          :disabled="!libraryRoots.hasRoots"
+          :disabled="initializing || !libraryRoots.hasRoots"
           :loading="setup.saving"
           append-icon="mdi-check"
           variant="flat"

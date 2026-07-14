@@ -171,6 +171,18 @@ window if another device cannot connect. LAN mode disables
 `SONOTHEQUE_LOCAL_PROXY_ENABLED`, so settings, scan, folder-browsing, and
 metadata-edit operations require the admin token from remote clients.
 
+After startup, maintainers can run the same non-destructive LAN preflight used
+for development mode:
+
+```powershell
+.\scripts\verify-lan.ps1 -Mode Packaged
+```
+
+It reads the packaged address, port, and token from `.env.packaged`, checks
+public and protected HTTP behavior without displaying the token, and prints the
+physical-device checklist. Run it from an elevated PowerShell window when the
+firewall-rule check should be included.
+
 ## Migrating From Development Mode
 
 The development runtime and packaged runtime use separate PostgreSQL volumes.
@@ -358,9 +370,12 @@ remain the explicit default.
 ## Packaged Browser Verification
 
 The packaged browser workflow has a Playwright suite that starts an isolated
-Compose project, creates two small generated music fixtures, scans them through
-the real queue worker, and exercises folder navigation, actions, streaming, and
-playback in Chromium.
+Compose project and an empty application database. Its prerequisite setup
+project configures a mounted library root and ordered cover paths through the
+first-run UI, persists optional metadata settings across a refresh, verifies
+that online connections remain opt-in, scans two generated music fixtures
+through the real queue worker, and completes setup. Dependent projects then
+exercise folder navigation, actions, streaming, and playback in Chromium.
 A separate upgrade suite populates the published `v0.1.0` package, retains its
 PostgreSQL and application-storage volumes, starts the current package over
 them, and verifies that migrations and user data survive.
@@ -381,10 +396,11 @@ npm run test:e2e:upgrade
 
 The tagged-release workflow fetches the repository tags, installs Chromium,
 and runs both suites after the normal frontend checks. The browser suite covers
-real packaged setup, scanning, folder navigation, large-folder confirmation,
-subtree-scan cancellation, range streaming, play/pause, seeking, switching
-after a seek, queue progression, previous/next controls, and playback restoration
-after refresh. The upgrade suite preserves library roots, catalog records,
+empty-install redirection, required-root enforcement, root and cover-path
+configuration, resumable setup settings, first scanning, folder navigation,
+large-folder confirmation, subtree-scan cancellation, range streaming,
+play/pause, seeking, switching after a seek, queue progression, previous/next
+controls, and playback restoration after refresh. The upgrade suite preserves library roots, catalog records,
 favorites, playlists, personal album metadata, settings, first-run state,
 application storage, and stable mounted paths while applying all current
 migrations.

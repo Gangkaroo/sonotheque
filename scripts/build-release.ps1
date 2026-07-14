@@ -47,7 +47,8 @@ $releaseSupportFiles = @(
     'VERSION',
     'scripts/build-release.ps1',
     'scripts/configure-packaged-roots.ps1',
-    'scripts/launch-packaged.ps1'
+    'scripts/launch-packaged.ps1',
+    'scripts/verify-lan.ps1'
 )
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null

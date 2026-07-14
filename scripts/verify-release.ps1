@@ -41,7 +41,8 @@ try {
         "${prefix}INSTALL.md",
         "${prefix}compose.packaged.yaml",
         "${prefix}backend/Dockerfile.packaged",
-        "${prefix}frontend/Dockerfile.packaged"
+        "${prefix}frontend/Dockerfile.packaged",
+        "${prefix}scripts/verify-lan.ps1"
     )
     $missing = @($required | Where-Object { $_ -notin $entries })
     $outsidePrefix = @($entries | Where-Object { -not $_.StartsWith($prefix) })
