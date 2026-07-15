@@ -98,6 +98,58 @@ describe('catalog store', () => {
     }))
   })
 
+  it('searches, links, and unlinks Discogs releases for an owned copy', async () => {
+    const candidate = {
+      releaseId: 456,
+      masterId: 78,
+      title: 'Artist - Album',
+      year: 2001,
+      country: 'Germany',
+      formats: ['CD'],
+      labels: ['Example Records'],
+      catalogNumber: 'EX-123',
+      thumbnailUrl: null,
+      webUrl: 'https://www.discogs.com/release/456',
+      inCollection: true,
+    }
+    const linked = {
+      hasPhysicalCopy: true,
+      ownedCopies: [{ id: 9, isPhysical: true, provider: 'discogs', externalReleaseId: 456 }],
+    }
+    const unlinked = {
+      hasPhysicalCopy: true,
+      ownedCopies: [{ id: 9, isPhysical: true, provider: null, externalReleaseId: null }],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [candidate] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(unlinked), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await expect(store.searchDiscogsReleases(5, {
+      artist: 'Artist',
+      title: 'Album',
+      year: 2001,
+      format: 'CD',
+    })).resolves.toEqual([candidate])
+    await expect(store.linkOwnedCopyToDiscogs(5, 9, 456)).resolves.toEqual(linked)
+    await expect(store.unlinkOwnedCopyFromDiscogs(5, 9)).resolves.toEqual(unlinked)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/albums/5/discogs/candidates?artist=Artist&title=Album&year=2001&format=CD',
+      expect.any(Object),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/albums/5/owned-copies/9/discogs', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ releaseId: 456 }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/albums/5/owned-copies/9/discogs', expect.objectContaining({
+      method: 'DELETE',
+    }))
+  })
+
   it('loads album details with playable tracks', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       id: 5,

@@ -29,6 +29,9 @@ x-backend-environment: &backend-environment
   SONOTHEQUE_ALLOWED_ORIGINS: ${SONOTHEQUE_ALLOWED_ORIGINS:-}
   LASTFM_API_URL: ${LASTFM_API_URL:-https://ws.audioscrobbler.com/2.0/}
   LASTFM_AUTH_URL: ${LASTFM_AUTH_URL:-https://www.last.fm/api/auth/}
+  DISCOGS_API_URL: ${DISCOGS_API_URL:-https://api.discogs.com}
+  DISCOGS_WEB_URL: ${DISCOGS_WEB_URL:-https://www.discogs.com}
+  DISCOGS_USER_AGENT: ${DISCOGS_USER_AGENT:-Sonotheque/0.1 (https://github.com/Gangkaroo/sonotheque)}
   LRCLIB_API_URL: ${LRCLIB_API_URL:-https://lrclib.net/api}
   MUSICBRAINZ_API_URL: ${MUSICBRAINZ_API_URL:-https://musicbrainz.org/ws/2}
   MUSICBRAINZ_WEB_URL: ${MUSICBRAINZ_WEB_URL:-https://musicbrainz.org}

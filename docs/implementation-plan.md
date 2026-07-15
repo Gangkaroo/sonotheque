@@ -73,6 +73,8 @@ The implemented release baseline and active roadmap include:
 - Custom playlists, playlist folders, ordered playlist items, and queue-to-playlist actions
 - Personal album information, including purchase source, purchase date,
   physical-copy state, physical format, and notes
+- Optional Discogs connection for matching albums to exact owned physical
+  releases and collection instances
 - Root-scoped folder browsing with file and folder playback, queue, playlist,
   and subtree-rescan actions
 - Database-backed listening history and statistics with optional MP3 tag
@@ -263,14 +265,49 @@ rescans and tag edits cannot overwrite it. Initially it is global to the local
 installation, like favorites and playlists. A future user-account migration can
 add an owner without changing the scanned catalog.
 
-- `album_personal_metadata`: one optional row per album with purchase source,
-  purchase date, physical-copy state, physical format, optional personal notes,
-  and timestamps.
+- `album_personal_metadata`: one optional row per album for album-wide personal
+  notes and timestamps.
+- Purchase and edition-specific information belongs to `owned_album_copies` so
+  an album can represent digital ownership, several physical editions, or more
+  than one copy without duplicating scanned catalog metadata.
 - Keep purchase source as free text initially; do not create duplicate scanned
   album or artist values for personal information.
 - Preserve personal information when a scan updates an album. Apply the same
   orphan/relinking policy used for favorites if an album temporarily disappears
   or is rediscovered.
+
+### Owned Album Copies And Discogs
+
+An album may correspond to more than one physical edition or owned copy. Exact
+release ownership therefore must not be represented by a single Discogs field
+on the scanned album or by overwriting scanned metadata.
+
+- `owned_album_copies`: one-to-many owned copies for an album, including format,
+  purchase source, purchase date, optional purchase price, media and sleeve
+  condition, personal notes, and timestamps.
+- Each copy may store a provider plus stable external identifiers. For Discogs,
+  retain the exact release ID and, when the copy is present in the connected
+  user's collection, its collection instance ID and folder ID. A master-release
+  ID alone is insufficient because it does not identify a particular pressing.
+- Keep album-wide personal notes separate from copy-specific ownership data.
+  Migrate existing physical-copy, format, and purchase values into one owned
+  copy without losing current personal information.
+- Store durable provider identifiers locally, but treat descriptive Discogs
+  payloads as provider data subject to its current caching, attribution, and
+  display terms. Do not make catalog browsing or playback depend on Discogs.
+
+The first integration is read-only. A locally configured Discogs personal
+access token identifies the collection owner; the provider boundary should
+permit a future OAuth connection without changing the ownership schema. Album
+matching searches the user's collection and the Discogs release database using
+artist, title, barcode, catalog number, year, country, and format. Candidate
+results show enough edition information for an explicit user decision. Never
+attach a release automatically from artist and title alone.
+
+Later write support may add a selected release to the connected Discogs
+collection and synchronize copy-specific folder, condition, rating, or notes.
+Those operations require separate confirmation and must not be part of the
+initial matching milestone.
 
 ### Editable Metadata
 
@@ -510,9 +547,15 @@ Completed:
 - Physical-device LAN verification for catalog browsing and playback, anonymous
   administration denial, a narrowly scoped Windows Firewall rule, and an
   automated host preflight for valid and invalid admin-token behavior
+- One-to-many owned album copies with lossless migration of existing purchase,
+  format, and physical-copy data while album-wide notes remain separate
+- Encrypted Discogs personal-token connection with immediate account identity
+  validation, disconnect support, LAN admin protection, and a Connections-tab UI
 
 Open roadmap work:
 
+- Read-only matching of Sonotheque albums to exact Discogs releases and owned
+  collection instances
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 
@@ -649,6 +692,48 @@ into a general-purpose file manager.
   an isolated packaged Playwright fixture)
 - Defer rename, move, delete, folder creation, and other write operations to a
   later filesystem-management phase with explicit conflict and rollback rules.
+
+### 4c. Owned Copies And Discogs Matching
+
+- Introduce one-to-many owned album copies and migrate existing physical-copy,
+  format, and purchase values without data loss while retaining album-wide
+  notes separately. (Complete)
+- Add a disabled-by-default Discogs connection under Settings > Connections,
+  with encrypted personal-access-token storage, connection testing, disconnect,
+  and clear privacy guidance. (Complete)
+- Add a provider client with an identifying user agent and explicit connection
+  error handling. (Complete for identity, release search/detail, and
+  per-release collection lookup)
+- Extend the provider client with collection/search requests, request
+  throttling, retry handling, and caching/attribution behavior that follows the
+  current Discogs API terms. (In progress: bounded search/detail/collection
+  requests have retry handling and short-lived payload caching; full collection
+  pagination and explicit rate-budget handling remain)
+- Read the connected user's collection, including collection folders, exact
+  release IDs, and collection instance IDs. Do not copy collection data into
+  scanned album metadata. (In progress: exact release lookups retain a single
+  unambiguous instance and folder; full collection/folder browsing remains)
+- Add a Match Discogs release workflow to album personal information. Search by
+  artist/title and refine with barcode, catalog number, format, country, and
+  release year where available. (Complete)
+- Present explicit release candidates with cover, label, catalog number,
+  format, country, year, and a link to Discogs. Distinguish master releases from
+  exact editions and require user confirmation. (Complete: search results are
+  restricted to exact releases and never link automatically)
+- Prefer an existing matching collection instance. Also allow linking an exact
+  Discogs release that is not yet in the user's collection. (Complete for zero
+  or one instance; selecting among duplicate collection instances remains)
+- Display linked edition and ownership information compactly in the album's
+  personal-data section, with edit, unlink, and refresh actions. (Complete for
+  link, change, external view, and unlink; provider refresh remains)
+- Keep provider failures isolated: cached local identifiers and personal data
+  remain usable, while playback, scanning, and ordinary catalog views never
+  wait for Discogs.
+- Add backend fake-provider tests, migration tests, frontend matching tests, and
+  an opt-in integration test that never runs in the default test suite. (In
+  progress: backend fake-provider and frontend store coverage are complete)
+- Defer Discogs collection writes, collection-condition synchronization, and
+  automatic matching until read-only matching is stable.
 
 ### 5. Audio Playback
 
@@ -877,6 +962,16 @@ Last.fm integration.
   APP_KEY preservation, safety backups, and Settings status)
 
 ## Recommended Next Step
+
+The owned-copy migration, secure Discogs connection, and first read-only exact
+release matcher are complete. An album's owned copy can now be searched using
+artist, title, year, format, country, catalog number, and barcode; only exact
+release editions are offered and the user must explicitly link one. Sonotheque
+retains an unambiguous collection instance when available and supports changing
+or unlinking the association without writing to Discogs. The next Discogs slice
+is full collection/folder pagination, duplicate-instance selection, and manual
+refresh. Writing changes back to a Discogs collection remains a later,
+separately confirmed milestone.
 
 The durable metadata backup policy is complete: it is disabled by default,
 uses a configurable location and retention period, preserves source-relative

@@ -161,15 +161,27 @@ async function verifyUpgradedState(fixture: Awaited<ReturnType<typeof seedBaseli
       hasPhysicalCopy: boolean
       physicalFormat: string
       notes: string
+      ownedCopies: Array<{
+        isPhysical: boolean
+        physicalFormat: string | null
+        purchaseSource: string | null
+        purchaseDate: string | null
+      }>
     }
   }>(upgradeBaseURL, `/api/catalog/albums/${fixture.track.album.id}`)
-  expect(album.personalMetadata).toEqual({
+  expect(album.personalMetadata).toEqual(expect.objectContaining({
     purchaseSource: 'Upgrade fixture shop',
     purchaseDate: '2024-05-17',
     hasPhysicalCopy: true,
     physicalFormat: 'cd',
     notes: 'Created before package upgrade',
-  })
+    ownedCopies: [expect.objectContaining({
+      isPhysical: true,
+      physicalFormat: 'cd',
+      purchaseSource: 'Upgrade fixture shop',
+      purchaseDate: '2024-05-17',
+    })],
+  }))
 
   const setup = await apiRequest<{ completed: boolean; step: number }>(upgradeBaseURL, '/api/settings/first-run')
   expect(setup).toEqual(expect.objectContaining({ completed: true, step: 5 }))

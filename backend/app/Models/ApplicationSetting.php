@@ -20,6 +20,10 @@ use Illuminate\Database\Eloquent\Model;
     'lastfm_username',
     'lastfm_auth_token',
     'lastfm_auth_token_expires_at',
+    'discogs_personal_access_token',
+    'discogs_username',
+    'discogs_user_id',
+    'discogs_connected_at',
     'online_information_enabled',
     'online_lyrics_enabled',
 ])]
@@ -61,6 +65,13 @@ class ApplicationSetting extends Model
         return $this->lastfm_scrobbling_enabled && $this->hasLastFmSession();
     }
 
+    public function hasDiscogsConnection(): bool
+    {
+        return filled($this->discogs_personal_access_token)
+            && filled($this->discogs_username)
+            && $this->discogs_user_id !== null;
+    }
+
     protected function casts(): array
     {
         return [
@@ -75,6 +86,9 @@ class ApplicationSetting extends Model
             'lastfm_session_key' => 'encrypted',
             'lastfm_auth_token' => 'encrypted',
             'lastfm_auth_token_expires_at' => 'immutable_datetime',
+            'discogs_personal_access_token' => 'encrypted',
+            'discogs_user_id' => 'integer',
+            'discogs_connected_at' => 'immutable_datetime',
             'online_information_enabled' => 'boolean',
             'online_lyrics_enabled' => 'boolean',
         ];

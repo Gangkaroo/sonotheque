@@ -3,9 +3,9 @@
 namespace App\Support;
 
 use App\Models\Album;
-use App\Models\AlbumPersonalMetadata;
 use App\Models\Artist;
 use App\Models\Genre;
+use App\Models\OwnedAlbumCopy;
 use App\Models\Track;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -37,7 +37,7 @@ class CatalogPayloads
             ] : null,
             'trackCount' => $trackCount,
             'artworkThumbnailUrl' => $album->artwork_id ? "/api/artwork/{$album->artwork_id}/thumbnail" : null,
-            'personalMetadata' => $this->albumPersonalMetadata($album->relationLoaded('personalMetadata') ? $album->personalMetadata : null),
+            'personalMetadata' => $this->albumPersonalMetadata($album),
         ];
     }
 
@@ -48,9 +48,10 @@ class CatalogPayloads
             'primaryArtist:id,name',
             'artwork:id,width,height',
             'personalMetadata',
+            'ownedCopies',
             'tracks' => fn ($query) => $query
                 ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'comment', 'album_id'])
-                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
                 ->orderBy('id'),
@@ -93,7 +94,7 @@ class CatalogPayloads
                 'title' => $track->album->title,
                 'originalReleaseYear' => $track->album->original_release_year,
                 'artworkThumbnailUrl' => $track->album->artwork_id ? "/api/artwork/{$track->album->artwork_id}/thumbnail" : null,
-                'personalMetadata' => $this->albumPersonalMetadata($track->album->relationLoaded('personalMetadata') ? $track->album->personalMetadata : null),
+                'personalMetadata' => $this->albumPersonalMetadata($track->album),
             ] : null,
             'artists' => $track->artists->map(fn (Artist $artist) => [
                 'id' => $artist->id,
@@ -109,6 +110,7 @@ class CatalogPayloads
         $track->load([
             'album:id,title,original_release_year,artwork_id',
             'album.personalMetadata',
+            'album.ownedCopies',
             'artists:id,name',
             'genres:id,name',
             'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',
@@ -153,15 +155,38 @@ class CatalogPayloads
         ];
     }
 
-    /** @return array{purchaseSource: ?string, purchaseDate: ?string, hasPhysicalCopy: bool, physicalFormat: ?string, notes: ?string} */
-    public function albumPersonalMetadata(?AlbumPersonalMetadata $metadata): array
+    /** @return array<string, mixed> */
+    public function albumPersonalMetadata(Album $album): array
     {
+        $metadata = $album->relationLoaded('personalMetadata') ? $album->personalMetadata : null;
+        $copies = $album->relationLoaded('ownedCopies') ? $album->ownedCopies : collect();
+        $firstCopy = $copies->first();
+        $physicalCopy = $copies->first(fn (OwnedAlbumCopy $copy): bool => $copy->is_physical);
+
         return [
-            'purchaseSource' => $metadata?->purchase_source,
-            'purchaseDate' => $metadata?->purchase_date?->toDateString(),
-            'hasPhysicalCopy' => $metadata?->has_physical_copy ?? false,
-            'physicalFormat' => $metadata?->physical_format,
+            'purchaseSource' => $firstCopy?->purchase_source,
+            'purchaseDate' => $firstCopy?->purchase_date?->toDateString(),
+            'hasPhysicalCopy' => $physicalCopy !== null,
+            'physicalFormat' => $physicalCopy?->physical_format,
             'notes' => $metadata?->notes,
+            'ownedCopies' => $copies->map(fn (OwnedAlbumCopy $copy): array => [
+                'id' => $copy->id,
+                'isPhysical' => $copy->is_physical,
+                'physicalFormat' => $copy->physical_format,
+                'purchaseSource' => $copy->purchase_source,
+                'purchaseDate' => $copy->purchase_date?->toDateString(),
+                'purchasePriceAmount' => $copy->purchase_price_amount,
+                'purchasePriceCurrency' => $copy->purchase_price_currency,
+                'mediaCondition' => $copy->media_condition,
+                'sleeveCondition' => $copy->sleeve_condition,
+                'notes' => $copy->notes,
+                'provider' => $copy->provider,
+                'externalReleaseId' => $copy->external_release_id,
+                'externalMasterId' => $copy->external_master_id,
+                'externalCollectionInstanceId' => $copy->external_collection_instance_id,
+                'externalFolderId' => $copy->external_folder_id,
+                'providerSyncedAt' => $copy->provider_synced_at?->toJSON(),
+            ])->values(),
         ];
     }
 

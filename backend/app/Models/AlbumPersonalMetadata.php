@@ -8,10 +8,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'album_id',
-    'purchase_source',
-    'purchase_date',
-    'has_physical_copy',
-    'physical_format',
     'notes',
 ])]
 class AlbumPersonalMetadata extends Model
@@ -22,13 +18,5 @@ class AlbumPersonalMetadata extends Model
     public function album(): BelongsTo
     {
         return $this->belongsTo(Album::class);
-    }
-
-    protected function casts(): array
-    {
-        return [
-            'purchase_date' => 'date',
-            'has_physical_copy' => 'boolean',
-        ];
     }
 }

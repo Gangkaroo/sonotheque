@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdminAccessController;
+use App\Http\Controllers\AlbumDiscogsController;
 use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumTrackMetadataController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
 use App\Http\Controllers\DashboardMetricsController;
+use App\Http\Controllers\DiscogsSettingsController;
 use App\Http\Controllers\FavoritesController;
 use App\Http\Controllers\FirstRunSetupController;
 use App\Http\Controllers\FolderBrowserController;
@@ -34,6 +36,9 @@ Route::get('/catalog/playback/tracks/random', [CatalogBrowseController::class, '
 Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::class, 'nextTrack']);
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
 Route::patch('/albums/{album}/personal-metadata', [AlbumPersonalMetadataController::class, 'update']);
+Route::get('/albums/{album}/discogs/candidates', [AlbumDiscogsController::class, 'candidates']);
+Route::put('/albums/{album}/owned-copies/{ownedAlbumCopy}/discogs', [AlbumDiscogsController::class, 'link']);
+Route::delete('/albums/{album}/owned-copies/{ownedAlbumCopy}/discogs', [AlbumDiscogsController::class, 'unlink']);
 Route::get('/albums/{album}/artwork/original', [ArtworkThumbnailController::class, 'albumOriginal']);
 Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
@@ -67,6 +72,9 @@ Route::post('/settings/lastfm/connect', [LastFmSettingsController::class, 'conne
 Route::post('/settings/lastfm/complete', [LastFmSettingsController::class, 'complete']);
 Route::patch('/settings/lastfm', [LastFmSettingsController::class, 'update']);
 Route::delete('/settings/lastfm', [LastFmSettingsController::class, 'disconnect']);
+Route::get('/settings/discogs', [DiscogsSettingsController::class, 'show']);
+Route::post('/settings/discogs/connect', [DiscogsSettingsController::class, 'connect']);
+Route::delete('/settings/discogs', [DiscogsSettingsController::class, 'disconnect']);
 Route::get('/settings/online-enrichment', [OnlineEnrichmentSettingsController::class, 'show']);
 Route::patch('/settings/online-enrichment', [OnlineEnrichmentSettingsController::class, 'update']);
 Route::delete('/settings/online-enrichment/cache', [OnlineEnrichmentSettingsController::class, 'clearCache']);

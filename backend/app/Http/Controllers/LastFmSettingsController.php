@@ -56,6 +56,7 @@ class LastFmSettingsController extends Controller
                 ->with([
                     'album:id,title,original_release_year,artwork_id',
                     'album.personalMetadata',
+                    'album.ownedCopies',
                     'artists:id,name',
                     'playStatistic:track_id,play_count,first_played_at,last_played_at',
                 ])])

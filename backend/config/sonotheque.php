@@ -33,6 +33,18 @@ return [
         'ca_bundle' => env('LASTFM_CA_BUNDLE') ?: $enrichmentCaBundle,
     ],
 
+    'discogs' => [
+        'api_url' => env('DISCOGS_API_URL', 'https://api.discogs.com'),
+        'web_url' => env('DISCOGS_WEB_URL', 'https://www.discogs.com'),
+        'user_agent' => env(
+            'DISCOGS_USER_AGENT',
+            'Sonotheque/0.1 (https://github.com/Gangkaroo/sonotheque)',
+        ),
+        'timeout_seconds' => (int) env('DISCOGS_TIMEOUT_SECONDS', 20),
+        'proxy' => env('DISCOGS_PROXY', ''),
+        'ca_bundle' => env('DISCOGS_CA_BUNDLE') ?: $enrichmentCaBundle,
+    ],
+
     'enrichment' => [
         'user_agent' => env('ENRICHMENT_USER_AGENT', 'Sonotheque/0.1 (local music library application)'),
         'ready_cache_days' => (int) env('ENRICHMENT_READY_CACHE_DAYS', 30),
@@ -113,6 +125,9 @@ return [
             'api/settings*',
             'api/tracks/*/metadata*',
             'api/albums/*/metadata*',
+            'api/albums/*/personal-metadata',
+            'api/albums/*/discogs*',
+            'api/albums/*/owned-copies*',
             'api/metadata-edits*',
         ],
     ],

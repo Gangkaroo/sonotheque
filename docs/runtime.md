@@ -129,6 +129,28 @@ Eligible tracks are longer than 30 seconds and have played for at least half
 their duration or four minutes, whichever comes first. The same rule controls
 the local play count and Last.fm submission.
 
+## Discogs Connection
+
+Create a personal access token in the Discogs developer settings, then open
+Settings > Connections and connect the account. Sonotheque validates the token
+against the Discogs identity endpoint before storing it. The token is encrypted
+with the application's `APP_KEY` and is never returned by the settings API.
+
+`DISCOGS_PROXY` and `DISCOGS_CA_BUNDLE` provide the same explicit proxy and TLS
+certificate overrides as the other external providers. Keep TLS verification
+enabled. Album-to-release matching is read-only initially; changing the Discogs
+collection remains a later, separately confirmed feature.
+
+To link an owned copy, first save it under an album's Personal information.
+The album then shows **Match Discogs release** below the ownership details. The
+matcher starts with the local artist, album title, release year, and physical
+format; country, catalog number, and barcode can narrow the search. Review the
+edition details and open its Discogs page when needed, then explicitly choose
+**Link**. Sonotheque records the exact release ID and, when Discogs reports one
+unambiguous collection copy, its collection instance and folder IDs. Changing
+or unlinking this association never removes the copy from the Discogs
+collection and does not alter the local music files.
+
 ## Online Information And Lyrics
 
 Settings > Connections contains separate opt-in switches for artist/album

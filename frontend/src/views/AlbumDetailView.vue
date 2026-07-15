@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
+import DiscogsReleaseMatcher from '@/components/DiscogsReleaseMatcher.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
@@ -246,6 +247,7 @@ const personalInfoRows = computed(() => [
   },
 ].filter((row) => row.value))
 const hasPersonalInformation = computed(() => personalInfoRows.value.length > 0 || Boolean(albumPersonalMetadata.value.notes))
+const primaryOwnedCopy = computed(() => albumPersonalMetadata.value.ownedCopies?.[0] ?? null)
 
 function formatDate(value?: string | null) {
   return formatDateTime(value, locale.value)
@@ -675,6 +677,14 @@ onUnmounted(() => {
               <div v-else class="text-body-2 text-medium-emphasis">
                 {{ t('albums.noPersonalInformation') }}
               </div>
+              <DiscogsReleaseMatcher
+                v-if="primaryOwnedCopy && album.primaryArtist"
+                :album-id="album.id"
+                :album-title="album.title"
+                :artist-name="album.primaryArtist.name"
+                :owned-copy="primaryOwnedCopy"
+                :release-year="album.originalReleaseYear"
+              />
             </div>
           </v-card-text>
           <v-card-actions class="album-actions">

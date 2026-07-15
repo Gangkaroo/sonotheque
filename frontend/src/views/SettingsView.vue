@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import DiscogsSettings from '@/components/DiscogsSettings.vue'
 import GeneralSettings from '@/components/GeneralSettings.vue'
 import LibraryRootDialog from '@/components/LibraryRootDialog.vue'
 import LanAccessSettings from '@/components/LanAccessSettings.vue'
@@ -412,6 +413,7 @@ async function removeRoot() {
 
   <template v-if="activeSettingsTab === 'connections' && canAccessProtectedSettings">
     <OnlineEnrichmentSettings :key="`enrichment-${adminAccess.revision}`" />
+    <DiscogsSettings :key="`discogs-${adminAccess.revision}`" />
     <LastFmSettings :key="`lastfm-${adminAccess.revision}`" />
     <LastFmDeliveryLog :key="`lastfm-deliveries-${adminAccess.revision}`" />
   </template>

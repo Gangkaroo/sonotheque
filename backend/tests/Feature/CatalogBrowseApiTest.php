@@ -11,6 +11,7 @@ use App\Models\Genre;
 use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
+use App\Models\OwnedAlbumCopy;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -191,11 +192,14 @@ class CatalogBrowseApiTest extends TestCase
 
         $this->assertDatabaseHas('album_personal_metadata', [
             'album_id' => $album->id,
+            'notes' => 'Gatefold edition',
+        ]);
+        $this->assertDatabaseHas('owned_album_copies', [
+            'album_id' => $album->id,
             'purchase_source' => 'Local store',
             'purchase_date' => '2024-05-17',
-            'has_physical_copy' => true,
+            'is_physical' => true,
             'physical_format' => 'vinyl',
-            'notes' => 'Gatefold edition',
         ]);
 
         $this->getJson("/api/catalog/albums/{$album->id}")
@@ -204,6 +208,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('personalMetadata.purchaseDate', '2024-05-17')
             ->assertJsonPath('personalMetadata.hasPhysicalCopy', true)
             ->assertJsonPath('personalMetadata.physicalFormat', 'vinyl')
+            ->assertJsonPath('personalMetadata.ownedCopies.0.isPhysical', true)
+            ->assertJsonPath('personalMetadata.ownedCopies.0.purchaseSource', 'Local store')
             ->assertJsonPath('tracks.0.album.personalMetadata.physicalFormat', 'vinyl');
 
         $this->getJson('/api/catalog/albums?physicalCopy=owned')
@@ -225,6 +231,18 @@ class CatalogBrowseApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('total', 1)
             ->assertJsonPath('items.0.id', $otherTrack->id);
+
+        OwnedAlbumCopy::create([
+            'album_id' => $album->id,
+            'is_physical' => true,
+            'physical_format' => 'cd',
+            'purchase_source' => 'Second-hand shop',
+        ]);
+
+        $this->getJson("/api/catalog/albums/{$album->id}")
+            ->assertOk()
+            ->assertJsonCount(2, 'personalMetadata.ownedCopies')
+            ->assertJsonPath('personalMetadata.ownedCopies.1.physicalFormat', 'cd');
     }
 
     public function test_album_and_track_browse_support_exact_artist_filters(): void

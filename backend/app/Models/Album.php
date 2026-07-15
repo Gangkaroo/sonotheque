@@ -142,6 +142,12 @@ class Album extends Model
         return $this->hasOne(AlbumPersonalMetadata::class);
     }
 
+    /** @return HasMany<OwnedAlbumCopy, $this> */
+    public function ownedCopies(): HasMany
+    {
+        return $this->hasMany(OwnedAlbumCopy::class)->orderBy('id');
+    }
+
     protected function casts(): array
     {
         return [

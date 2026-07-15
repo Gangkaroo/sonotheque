@@ -7,6 +7,7 @@ use App\Models\AlbumPersonalMetadata;
 use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AlbumPersonalMetadataController extends Controller
 {
@@ -24,18 +25,41 @@ class AlbumPersonalMetadataController extends Controller
             'notes' => ['present', 'nullable', 'string', 'max:10000'],
         ]);
 
-        $metadata = AlbumPersonalMetadata::query()->updateOrCreate(
-            ['album_id' => $album->id],
-            [
-                'purchase_source' => $this->nullableText($validated['purchaseSource']),
-                'purchase_date' => $validated['purchaseDate'],
-                'has_physical_copy' => $validated['hasPhysicalCopy'],
-                'physical_format' => $validated['hasPhysicalCopy'] ? $validated['physicalFormat'] : null,
-                'notes' => $this->nullableText($validated['notes']),
-            ],
-        );
+        DB::transaction(function () use ($album, $validated): void {
+            AlbumPersonalMetadata::query()->updateOrCreate(
+                ['album_id' => $album->id],
+                ['notes' => $this->nullableText($validated['notes'])],
+            );
 
-        return response()->json($this->payloads->albumPersonalMetadata($metadata));
+            $purchaseSource = $this->nullableText($validated['purchaseSource']);
+            $hasOwnedCopy = $validated['hasPhysicalCopy']
+                || $purchaseSource !== null
+                || $validated['purchaseDate'] !== null;
+            $ownedCopy = $album->ownedCopies()->first();
+
+            if (! $hasOwnedCopy) {
+                $ownedCopy?->delete();
+
+                return;
+            }
+
+            $values = [
+                'is_physical' => $validated['hasPhysicalCopy'],
+                'physical_format' => $validated['hasPhysicalCopy'] ? $validated['physicalFormat'] : null,
+                'purchase_source' => $purchaseSource,
+                'purchase_date' => $validated['purchaseDate'],
+            ];
+
+            if ($ownedCopy) {
+                $ownedCopy->update($values);
+            } else {
+                $album->ownedCopies()->create($values);
+            }
+        });
+
+        $album->load(['personalMetadata', 'ownedCopies']);
+
+        return response()->json($this->payloads->albumPersonalMetadata($album));
     }
 
     private function nullableText(?string $value): ?string

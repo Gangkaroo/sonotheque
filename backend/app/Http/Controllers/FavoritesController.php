@@ -43,7 +43,7 @@ class FavoritesController extends Controller
         $libraryRootId = $this->libraryRootScope->id($request);
         $favorites = FavoriteTrack::query()
             ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
-            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.artists:id,name'])
+            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.album.ownedCopies', 'track.artists:id,name'])
             ->orderByDesc('created_at')
             ->paginate(50);
 
@@ -56,7 +56,7 @@ class FavoritesController extends Controller
         $favorites = FavoriteAlbum::query()
             ->whereHas('album', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
             ->with(['album' => fn ($query) => $query
-                ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata'])
+                ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata', 'ownedCopies'])
                 ->withCount('tracks')])
             ->orderByDesc('created_at')
             ->paginate(24);

@@ -168,6 +168,7 @@ class PlaylistsController extends Controller
                 ->with([
                     'track.album:id,title,original_release_year,artwork_id',
                     'track.album.personalMetadata',
+                    'track.album.ownedCopies',
                     'track.artists:id,name',
                 ]),
         ])->loadCount(['items' => fn (Builder $items) => $items->whereHas(
@@ -427,7 +428,7 @@ class PlaylistsController extends Controller
 
         return PlaylistItem::query()
             ->whereIn('id', $items->pluck('id'))
-            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.artists:id,name'])
+            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.album.ownedCopies', 'track.artists:id,name'])
             ->orderBy('position')
             ->get();
     }

@@ -118,6 +118,7 @@ class LibraryFolderBrowser
         $tracks = $query->with([
                 'track.album:id,title,original_release_year,artwork_id',
                 'track.album.personalMetadata',
+                'track.album.ownedCopies',
                 'track.artists:id,name',
                 'track.playStatistic:track_id,play_count,first_played_at,last_played_at',
             ])
@@ -155,6 +156,7 @@ class LibraryFolderBrowser
             ->with([
                 'track.album:id,title,original_release_year,artwork_id',
                 'track.album.personalMetadata',
+                'track.album.ownedCopies',
                 'track.artists:id,name',
                 'track.playStatistic:track_id,play_count,first_played_at,last_played_at',
             ])

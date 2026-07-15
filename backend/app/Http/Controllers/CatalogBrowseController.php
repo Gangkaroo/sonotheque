@@ -88,20 +88,16 @@ class CatalogBrowseController extends Controller
                 'albums.primary_artist_id',
                 'albums.artwork_id',
             ])
-            ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata'])
+            ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata', 'ownedCopies'])
             ->withCount('tracks')
             ->has('tracks')
             ->when($artistFilter, fn (Builder $query, int $artist) => $query->where('albums.primary_artist_id', $artist))
             ->when($filters['year'] ?? null, fn (Builder $query, int $year) => $query->where('albums.original_release_year', $year))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('tracks.genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
-            ->when(($filters['physicalCopy'] ?? null) === 'owned', fn (Builder $query) => $query->whereHas(
-                'personalMetadata',
-                fn (Builder $metadata) => $metadata->where('has_physical_copy', true),
-            ))
-            ->when(($filters['physicalCopy'] ?? null) === 'not_owned', fn (Builder $query) => $query->where(function (Builder $query): void {
-                $query->whereDoesntHave('personalMetadata')
-                    ->orWhereHas('personalMetadata', fn (Builder $metadata) => $metadata->where('has_physical_copy', false));
-            }))
+            ->when(($filters['physicalCopy'] ?? null) === 'owned', fn (Builder $query) => $query
+                ->whereHas('ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true)))
+            ->when(($filters['physicalCopy'] ?? null) === 'not_owned', fn (Builder $query) => $query
+                ->whereDoesntHave('ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 foreach ($this->searchTerms($search) as $term) {
                     $pattern = '%'.$this->escapeLike($term).'%';
@@ -214,18 +210,14 @@ class CatalogBrowseController extends Controller
                 'tracks.disc_number',
                 'tracks.album_id',
             ])
-            ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+            ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->when($filters['artist'] ?? null, fn (Builder $query, int $artist) => $query->whereHas('artists', fn (Builder $artistQuery) => $artistQuery->whereKey($artist)))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
-            ->when(($filters['physicalCopy'] ?? null) === 'owned', fn (Builder $query) => $query->whereHas(
-                'album.personalMetadata',
-                fn (Builder $metadata) => $metadata->where('has_physical_copy', true),
-            ))
-            ->when(($filters['physicalCopy'] ?? null) === 'not_owned', fn (Builder $query) => $query->whereHas('album', fn (Builder $album) => $album
-                ->where(function (Builder $album): void {
-                    $album->whereDoesntHave('personalMetadata')
-                        ->orWhereHas('personalMetadata', fn (Builder $metadata) => $metadata->where('has_physical_copy', false));
-                })))
+            ->when(($filters['physicalCopy'] ?? null) === 'owned', fn (Builder $query) => $query
+                ->whereHas('album.ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true)))
+            ->when(($filters['physicalCopy'] ?? null) === 'not_owned', fn (Builder $query) => $query
+                ->whereHas('album', fn (Builder $album) => $album
+                    ->whereDoesntHave('ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true))))
             ->when(($filters['playStatus'] ?? null) === 'never', function (Builder $query): void {
                 $query->where(function (Builder $query): void {
                     $query->whereDoesntHave('playStatistic')
@@ -284,7 +276,7 @@ class CatalogBrowseController extends Controller
 
     private function loadPlayableTrack(Track $track): Track
     {
-        return $track->load(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
+        return $track->load(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
     }
 
     private function artistCatalogQuery(?int $libraryRootId): Builder
