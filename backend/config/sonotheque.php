@@ -126,6 +126,7 @@ return [
             'api/tracks/*/metadata*',
             'api/albums/*/metadata*',
             'api/albums/*/personal-metadata',
+            'api/albums/*/personal-notes',
             'api/albums/*/discogs*',
             'api/albums/*/owned-copies*',
             'api/metadata-edits*',

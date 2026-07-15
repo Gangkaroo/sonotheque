@@ -62,6 +62,21 @@ class AlbumPersonalMetadataController extends Controller
         return response()->json($this->payloads->albumPersonalMetadata($album));
     }
 
+    public function updateNotes(Request $request, Album $album): JsonResponse
+    {
+        $validated = $request->validate([
+            'notes' => ['present', 'nullable', 'string', 'max:10000'],
+        ]);
+
+        AlbumPersonalMetadata::query()->updateOrCreate(
+            ['album_id' => $album->id],
+            ['notes' => $this->nullableText($validated['notes'])],
+        );
+        $album->load(['personalMetadata', 'ownedCopies']);
+
+        return response()->json($this->payloads->albumPersonalMetadata($album));
+    }
+
     private function nullableText(?string $value): ?string
     {
         $value = trim((string) $value);

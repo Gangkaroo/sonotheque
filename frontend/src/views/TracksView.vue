@@ -450,15 +450,11 @@ onUnmounted(() => {
             variant="text"
             @click="queueTrack(track)"
           />
-          <TooltipIconButton
-            :text="t('playlists.addTrackToPlaylist')"
-            :aria-label="t('playlists.addTrackToPlaylist')"
-            density="comfortable"
-            icon="mdi-playlist-music"
-            variant="text"
-            @click="openAddToPlaylist(track)"
+          <TrackPlaylistMembershipMenu
+            icon-only
+            :track-id="track.id"
+            @add-to-playlist="openAddToPlaylist(track)"
           />
-          <TrackPlaylistMembershipMenu icon-only :track-id="track.id" />
           <TooltipIconButton
             :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
             :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"

@@ -551,11 +551,12 @@ Completed:
   format, and physical-copy data while album-wide notes remain separate
 - Encrypted Discogs personal-token connection with immediate account identity
   validation, disconnect support, LAN admin protection, and a Connections-tab UI
+- Read-only matching of owned album copies to exact Discogs releases and
+  collection instances, including duplicate-instance selection, cached release
+  details and thumbnails, refresh, change, and unlink actions
 
 Open roadmap work:
 
-- Read-only matching of Sonotheque albums to exact Discogs releases and owned
-  collection instances
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 
@@ -697,7 +698,8 @@ into a general-purpose file manager.
 
 - Introduce one-to-many owned album copies and migrate existing physical-copy,
   format, and purchase values without data loss while retaining album-wide
-  notes separately. (Complete)
+  notes separately. (Complete, including independent create/edit/delete UI,
+  copy-specific purchase/condition/notes fields, and album-wide note editing)
 - Add a disabled-by-default Discogs connection under Settings > Connections,
   with encrypted personal-access-token storage, connection testing, disconnect,
   and clear privacy guidance. (Complete)
@@ -706,13 +708,14 @@ into a general-purpose file manager.
   per-release collection lookup)
 - Extend the provider client with collection/search requests, request
   throttling, retry handling, and caching/attribution behavior that follows the
-  current Discogs API terms. (In progress: bounded search/detail/collection
-  requests have retry handling and short-lived payload caching; full collection
-  pagination and explicit rate-budget handling remain)
+  current Discogs API terms. (Complete for the bounded matching workflow with
+  retries, explicit rate-limit feedback, and short-lived search/release/folder/
+  instance caching. Discogs thumbnails use a host-restricted, size-validated
+  local proxy cache; full collection browsing remains a separate expansion)
 - Read the connected user's collection, including collection folders, exact
   release IDs, and collection instance IDs. Do not copy collection data into
-  scanned album metadata. (In progress: exact release lookups retain a single
-  unambiguous instance and folder; full collection/folder browsing remains)
+  scanned album metadata. (Complete for per-release ownership: exact instances
+  and collection folders are read on demand; full collection browsing remains)
 - Add a Match Discogs release workflow to album personal information. Search by
   artist/title and refine with barcode, catalog number, format, country, and
   release year where available. (Complete)
@@ -721,17 +724,18 @@ into a general-purpose file manager.
   exact editions and require user confirmation. (Complete: search results are
   restricted to exact releases and never link automatically)
 - Prefer an existing matching collection instance. Also allow linking an exact
-  Discogs release that is not yet in the user's collection. (Complete for zero
-  or one instance; selecting among duplicate collection instances remains)
+  Discogs release that is not yet in the user's collection. (Complete,
+  including explicit selection among duplicate collection instances)
 - Display linked edition and ownership information compactly in the album's
-  personal-data section, with edit, unlink, and refresh actions. (Complete for
-  link, change, external view, and unlink; provider refresh remains)
+  personal-data section, with edit, unlink, and refresh actions. (Complete with
+  asynchronously loaded edition details and per-copy actions)
 - Keep provider failures isolated: cached local identifiers and personal data
   remain usable, while playback, scanning, and ordinary catalog views never
-  wait for Discogs.
+  wait for Discogs. (Complete)
 - Add backend fake-provider tests, migration tests, frontend matching tests, and
-  an opt-in integration test that never runs in the default test suite. (In
-  progress: backend fake-provider and frontend store coverage are complete)
+  an opt-in integration test that never runs in the default test suite.
+  (Complete for backend fake-provider, migration, frontend store, and component
+  coverage; a live-provider test remains opt-in future hardening)
 - Defer Discogs collection writes, collection-condition synchronization, and
   automatic matching until read-only matching is stable.
 
@@ -963,15 +967,14 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The owned-copy migration, secure Discogs connection, and first read-only exact
-release matcher are complete. An album's owned copy can now be searched using
-artist, title, year, format, country, catalog number, and barcode; only exact
-release editions are offered and the user must explicitly link one. Sonotheque
-retains an unambiguous collection instance when available and supports changing
-or unlinking the association without writing to Discogs. The next Discogs slice
-is full collection/folder pagination, duplicate-instance selection, and manual
-refresh. Writing changes back to a Discogs collection remains a later,
-separately confirmed milestone.
+The owned-copy and read-only Discogs matching workflow is complete. Albums may
+contain multiple independently editable physical or digital copies, and every
+copy can link to its own exact Discogs edition. Matching supports explicit
+selection among duplicate collection instances, compact cached edition details,
+locally cached and validated thumbnails, and manual refresh without making
+album browsing depend on Discogs. Full
+collection browsing, writes to a Discogs collection, condition synchronization,
+and automatic matching remain later, separately confirmed features.
 
 The durable metadata backup policy is complete: it is disabled by default,
 uses a configurable location and retention period, preserves source-relative

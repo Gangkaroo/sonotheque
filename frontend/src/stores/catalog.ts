@@ -54,6 +54,18 @@ export interface OwnedAlbumCopy {
   providerSyncedAt?: string | null
 }
 
+export interface OwnedAlbumCopyValues {
+  isPhysical: boolean
+  physicalFormat?: string | null
+  purchaseSource?: string | null
+  purchaseDate?: string | null
+  purchasePriceAmount?: string | number | null
+  purchasePriceCurrency?: string | null
+  mediaCondition?: string | null
+  sleeveCondition?: string | null
+  notes?: string | null
+}
+
 export interface DiscogsReleaseCandidate {
   releaseId: number
   masterId?: number | null
@@ -76,6 +88,32 @@ export interface DiscogsReleaseSearch {
   country?: string | null
   barcode?: string | null
   catalogNumber?: string | null
+}
+
+export interface DiscogsCollectionInstance {
+  instanceId: number
+  folderId: number
+  folderName?: string | null
+  dateAdded?: string | null
+  rating?: number | null
+}
+
+export interface DiscogsLinkedReleaseDetails {
+  release: {
+    id: number
+    masterId?: number | null
+    title: string
+    artist: string
+    year?: number | null
+    country?: string | null
+    formats: string[]
+    labels: string[]
+    catalogNumber?: string | null
+    thumbnailUrl?: string | null
+    webUrl: string
+  }
+  collectionInstance?: DiscogsCollectionInstance | null
+  syncedAt?: string | null
 }
 
 export interface Album {
@@ -387,6 +425,49 @@ export const useCatalogStore = defineStore('catalog', () => {
     return personalMetadata
   }
 
+  async function updateAlbumPersonalNotes(albumId: number, notes: string | null) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(`/albums/${albumId}/personal-notes`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes }),
+    })
+    applyAlbumPersonalMetadata(albumId, personalMetadata)
+
+    return personalMetadata
+  }
+
+  async function createOwnedAlbumCopy(albumId: number, values: OwnedAlbumCopyValues) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(`/albums/${albumId}/owned-copies`, {
+      method: 'POST',
+      body: JSON.stringify(values),
+    })
+    applyAlbumPersonalMetadata(albumId, personalMetadata)
+
+    return personalMetadata
+  }
+
+  async function updateOwnedAlbumCopy(albumId: number, ownedCopyId: number, values: OwnedAlbumCopyValues) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(
+      `/albums/${albumId}/owned-copies/${ownedCopyId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(values),
+      },
+    )
+    applyAlbumPersonalMetadata(albumId, personalMetadata)
+
+    return personalMetadata
+  }
+
+  async function deleteOwnedAlbumCopy(albumId: number, ownedCopyId: number) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(
+      `/albums/${albumId}/owned-copies/${ownedCopyId}`,
+      { method: 'DELETE' },
+    )
+    applyAlbumPersonalMetadata(albumId, personalMetadata)
+
+    return personalMetadata
+  }
+
   async function searchDiscogsReleases(albumId: number, search: DiscogsReleaseSearch) {
     const parameters = new URLSearchParams()
     Object.entries(search).forEach(([key, value]) => {
@@ -401,12 +482,49 @@ export const useCatalogStore = defineStore('catalog', () => {
     return result.items
   }
 
-  async function linkOwnedCopyToDiscogs(albumId: number, ownedCopyId: number, releaseId: number) {
+  async function loadDiscogsCollectionInstances(albumId: number, releaseId: number, refresh = false) {
+    const suffix = refresh ? '?refresh=1' : ''
+    const result = await apiRequest<{ items: DiscogsCollectionInstance[] }>(
+      `/albums/${albumId}/discogs/releases/${releaseId}/collection-instances${suffix}`,
+    )
+
+    return result.items
+  }
+
+  async function loadOwnedCopyDiscogsDetails(albumId: number, ownedCopyId: number) {
+    return apiRequest<DiscogsLinkedReleaseDetails>(
+      `/albums/${albumId}/owned-copies/${ownedCopyId}/discogs`,
+    )
+  }
+
+  async function linkOwnedCopyToDiscogs(
+    albumId: number,
+    ownedCopyId: number,
+    releaseId: number,
+    collectionInstanceId?: number | null,
+  ) {
     const personalMetadata = await apiRequest<AlbumPersonalMetadata>(
       `/albums/${albumId}/owned-copies/${ownedCopyId}/discogs`,
       {
         method: 'PUT',
-        body: JSON.stringify({ releaseId }),
+        body: JSON.stringify({ releaseId, collectionInstanceId: collectionInstanceId ?? null }),
+      },
+    )
+    applyAlbumPersonalMetadata(albumId, personalMetadata)
+
+    return personalMetadata
+  }
+
+  async function refreshOwnedCopyDiscogsLink(
+    albumId: number,
+    ownedCopyId: number,
+    collectionInstanceId?: number | null,
+  ) {
+    const personalMetadata = await apiRequest<AlbumPersonalMetadata>(
+      `/albums/${albumId}/owned-copies/${ownedCopyId}/discogs/refresh`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ collectionInstanceId: collectionInstanceId ?? null }),
       },
     )
     applyAlbumPersonalMetadata(albumId, personalMetadata)
@@ -519,8 +637,15 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadTracks,
     loadTrack,
     updateAlbumPersonalMetadata,
+    updateAlbumPersonalNotes,
+    createOwnedAlbumCopy,
+    updateOwnedAlbumCopy,
+    deleteOwnedAlbumCopy,
     searchDiscogsReleases,
+    loadDiscogsCollectionInstances,
+    loadOwnedCopyDiscogsDetails,
     linkOwnedCopyToDiscogs,
+    refreshOwnedCopyDiscogsLink,
     unlinkOwnedCopyFromDiscogs,
     loadGenres,
     updateTrackPlayStatistics,

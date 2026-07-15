@@ -98,6 +98,52 @@ describe('catalog store', () => {
     }))
   })
 
+  it('manages album notes and independent owned copies', async () => {
+    const notes = { hasPhysicalCopy: false, notes: 'Signed insert', ownedCopies: [] }
+    const created = {
+      ...notes,
+      hasPhysicalCopy: true,
+      ownedCopies: [{ id: 9, isPhysical: true, physicalFormat: 'vinyl' }],
+    }
+    const updated = {
+      ...created,
+      ownedCopies: [{ id: 9, isPhysical: true, physicalFormat: 'cd' }],
+    }
+    const deleted = { ...notes, ownedCopies: [] }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(notes), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(created), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(updated), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(deleted), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await expect(store.updateAlbumPersonalNotes(5, 'Signed insert')).resolves.toEqual(notes)
+    await expect(store.createOwnedAlbumCopy(5, {
+      isPhysical: true,
+      physicalFormat: 'vinyl',
+    })).resolves.toEqual(created)
+    await expect(store.updateOwnedAlbumCopy(5, 9, {
+      isPhysical: true,
+      physicalFormat: 'cd',
+    })).resolves.toEqual(updated)
+    await expect(store.deleteOwnedAlbumCopy(5, 9)).resolves.toEqual(deleted)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/albums/5/personal-notes', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ notes: 'Signed insert' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/albums/5/owned-copies', expect.objectContaining({
+      method: 'POST',
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/albums/5/owned-copies/9', expect.objectContaining({
+      method: 'PATCH',
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/albums/5/owned-copies/9', expect.objectContaining({
+      method: 'DELETE',
+    }))
+  })
+
   it('searches, links, and unlinks Discogs releases for an owned copy', async () => {
     const candidate = {
       releaseId: 456,
@@ -120,8 +166,24 @@ describe('catalog store', () => {
       hasPhysicalCopy: true,
       ownedCopies: [{ id: 9, isPhysical: true, provider: null, externalReleaseId: null }],
     }
+    const instances = [{ instanceId: 991, folderId: 2, folderName: 'CDs' }]
+    const details = {
+      release: {
+        id: 456,
+        title: 'Album',
+        artist: 'Artist',
+        formats: ['CD (Album)'],
+        labels: ['Example Records'],
+        webUrl: 'https://www.discogs.com/release/456',
+      },
+      collectionInstance: instances[0],
+      syncedAt: '2026-07-15T12:00:00Z',
+    }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [candidate] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: instances }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(details), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(linked), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(unlinked), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -133,7 +195,10 @@ describe('catalog store', () => {
       year: 2001,
       format: 'CD',
     })).resolves.toEqual([candidate])
-    await expect(store.linkOwnedCopyToDiscogs(5, 9, 456)).resolves.toEqual(linked)
+    await expect(store.loadDiscogsCollectionInstances(5, 456, true)).resolves.toEqual(instances)
+    await expect(store.linkOwnedCopyToDiscogs(5, 9, 456, 991)).resolves.toEqual(linked)
+    await expect(store.loadOwnedCopyDiscogsDetails(5, 9)).resolves.toEqual(details)
+    await expect(store.refreshOwnedCopyDiscogsLink(5, 9, 991)).resolves.toEqual(linked)
     await expect(store.unlinkOwnedCopyFromDiscogs(5, 9)).resolves.toEqual(unlinked)
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -141,11 +206,17 @@ describe('catalog store', () => {
       '/api/albums/5/discogs/candidates?artist=Artist&title=Album&year=2001&format=CD',
       expect.any(Object),
     )
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/albums/5/owned-copies/9/discogs', expect.objectContaining({
-      method: 'PUT',
-      body: JSON.stringify({ releaseId: 456 }),
-    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/albums/5/discogs/releases/456/collection-instances?refresh=1', expect.any(Object))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/albums/5/owned-copies/9/discogs', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ releaseId: 456, collectionInstanceId: 991 }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/albums/5/owned-copies/9/discogs', expect.any(Object))
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/albums/5/owned-copies/9/discogs/refresh', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ collectionInstanceId: 991 }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/albums/5/owned-copies/9/discogs', expect.objectContaining({
       method: 'DELETE',
     }))
   })

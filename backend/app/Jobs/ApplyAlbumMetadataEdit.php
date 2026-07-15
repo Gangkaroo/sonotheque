@@ -144,12 +144,20 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         }
         if (isset($changedFields['albumArtist'])) {
             $previousArtistId = $edit->album->primary_artist_id;
-            $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$values['albumArtist']])->first()
-                ?? Artist::create([
+            $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$values['albumArtist']])->first();
+            if ($artist === null) {
+                $artist = Artist::create([
                     'name' => $values['albumArtist'],
                     'sort_name' => $values['albumArtist'],
                     'browse_initial' => $artistName->browseInitial($values['albumArtist']),
                 ]);
+            } elseif ($artist->name !== $values['albumArtist']) {
+                $artist->update([
+                    'name' => $values['albumArtist'],
+                    'sort_name' => $values['albumArtist'],
+                    'browse_initial' => $artistName->browseInitial($values['albumArtist']),
+                ]);
+            }
             $attributes['primary_artist_id'] = $artist->id;
         }
         if (isset($changedFields['releaseYear'])) {

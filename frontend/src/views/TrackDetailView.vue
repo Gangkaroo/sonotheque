@@ -422,15 +422,10 @@ onUnmounted(() => {
         >
           {{ t('tracks.queueTrack') }}
         </v-btn>
-        <v-btn
-          color="primary"
-          prepend-icon="mdi-playlist-music"
-          variant="tonal"
-          @click="addToPlaylistDialog = true"
-        >
-          {{ t('playlists.addTrackToPlaylist') }}
-        </v-btn>
-        <TrackPlaylistMembershipMenu :track-id="track.id" />
+        <TrackPlaylistMembershipMenu
+          :track-id="track.id"
+          @add-to-playlist="addToPlaylistDialog = true"
+        />
         <v-btn
           color="primary"
           prepend-icon="mdi-tag-edit-outline"

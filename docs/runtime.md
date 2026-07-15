@@ -142,7 +142,10 @@ enabled. Album-to-release matching is read-only initially; changing the Discogs
 collection remains a later, separately confirmed feature.
 
 To link an owned copy, first save it under an album's Personal information.
-The album then shows **Match Discogs release** below the ownership details. The
+An album may contain several independently editable physical or digital copies,
+each with its own format, purchase details, condition, notes, and provider
+association. The album then shows **Match Discogs release** below each copy's
+ownership details. The
 matcher starts with the local artist, album title, release year, and physical
 format; country, catalog number, and barcode can narrow the search. Review the
 edition details and open its Discogs page when needed, then explicitly choose
@@ -150,6 +153,18 @@ edition details and open its Discogs page when needed, then explicitly choose
 unambiguous collection copy, its collection instance and folder IDs. Changing
 or unlinking this association never removes the copy from the Discogs
 collection and does not alter the local music files.
+
+If the exact release occurs more than once in the connected collection, the
+matcher asks which instance to use and shows its collection folder, date added,
+and instance ID. Linked copies load cached edition details asynchronously so an
+unavailable Discogs service never delays the album itself. The refresh action
+rechecks the release, collection membership, and folder association; it asks
+again if the previously linked instance became ambiguous.
+
+Release thumbnails are not loaded directly by the browser. Sonotheque accepts
+only registered HTTPS images from the Discogs image host, validates their media
+type, size, and dimensions, and serves subsequent requests from private local
+storage.
 
 ## Online Information And Lyrics
 

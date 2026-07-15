@@ -12,6 +12,9 @@ const props = withDefaults(defineProps<{
 }>(), {
   iconOnly: false,
 })
+const emit = defineEmits<{
+  addToPlaylist: []
+}>()
 
 const { t } = useI18n()
 const playlists = usePlaylistsStore()
@@ -64,6 +67,30 @@ function membershipSubtitle(membership: TrackPlaylistMembership) {
           query: { playlistItem: membership.firstItemId },
         }"
       />
+      <v-divider />
+      <v-list-item
+        prepend-icon="mdi-playlist-music"
+        :title="t('playlists.addTrackToPlaylist')"
+        @click="emit('addToPlaylist')"
+      />
     </v-list>
   </v-menu>
+  <TooltipIconButton
+    v-else-if="iconOnly"
+    :text="t('playlists.addTrackToPlaylist')"
+    :aria-label="t('playlists.addTrackToPlaylist')"
+    density="comfortable"
+    icon="mdi-playlist-music"
+    variant="text"
+    @click="emit('addToPlaylist')"
+  />
+  <v-btn
+    v-else
+    color="primary"
+    prepend-icon="mdi-playlist-music"
+    variant="tonal"
+    @click="emit('addToPlaylist')"
+  >
+    {{ t('playlists.addTrackToPlaylist') }}
+  </v-btn>
 </template>

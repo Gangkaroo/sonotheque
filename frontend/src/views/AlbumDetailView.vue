@@ -5,8 +5,8 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
-import DiscogsReleaseMatcher from '@/components/DiscogsReleaseMatcher.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import OwnedAlbumCopies from '@/components/OwnedAlbumCopies.vue'
 import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -17,7 +17,6 @@ import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import {
-  formatDateOnly as formatLocalizedDate,
   formatDateTime,
   formatDuration as duration,
   formatTotalDuration,
@@ -62,10 +61,6 @@ const personalLoading = ref(false)
 const personalError = ref<string | null>(null)
 const personalSuccess = ref(false)
 const personalForm = reactive({
-  purchaseSource: '',
-  purchaseDate: '',
-  hasPhysicalCopy: false,
-  physicalFormat: null as string | null,
   notes: '',
 })
 
@@ -208,46 +203,6 @@ const albumPersonalMetadata = computed<AlbumPersonalMetadata>(() => album.value?
   physicalFormat: null,
   notes: null,
 })
-const physicalFormatOptions = computed(() => [
-  { title: t('albums.physicalFormats.vinyl'), value: 'vinyl' },
-  { title: t('albums.physicalFormats.cd'), value: 'cd' },
-  { title: t('albums.physicalFormats.blu_ray'), value: 'blu_ray' },
-  { title: t('albums.physicalFormats.dvd'), value: 'dvd' },
-  { title: t('albums.physicalFormats.cassette'), value: 'cassette' },
-])
-const physicalFormatLabel = computed(() => {
-  const format = albumPersonalMetadata.value.physicalFormat
-
-  return format ? t(`albums.physicalFormats.${format}`) : null
-})
-const personalInfoRows = computed(() => [
-  {
-    key: 'physicalCopy',
-    icon: 'mdi-disc',
-    label: t('albums.physicalCopy'),
-    value: albumPersonalMetadata.value.hasPhysicalCopy ? t('albums.hasPhysicalCopy') : null,
-  },
-  {
-    key: 'physicalFormat',
-    icon: 'mdi-disc-player',
-    label: t('albums.physicalFormat'),
-    value: physicalFormatLabel.value,
-  },
-  {
-    key: 'purchaseSource',
-    icon: 'mdi-storefront-outline',
-    label: t('albums.purchaseSource'),
-    value: albumPersonalMetadata.value.purchaseSource,
-  },
-  {
-    key: 'purchaseDate',
-    icon: 'mdi-calendar-check-outline',
-    label: t('albums.purchaseDate'),
-    value: formatDateOnly(albumPersonalMetadata.value.purchaseDate),
-  },
-].filter((row) => row.value))
-const hasPersonalInformation = computed(() => personalInfoRows.value.length > 0 || Boolean(albumPersonalMetadata.value.notes))
-const primaryOwnedCopy = computed(() => albumPersonalMetadata.value.ownedCopies?.[0] ?? null)
 
 function formatDate(value?: string | null) {
   return formatDateTime(value, locale.value)
@@ -291,10 +246,6 @@ function addAlbumToPlaylist() {
 function addTrackToPlaylist(track: Track) {
   playlistTracks.value = [track]
   addToPlaylistDialog.value = true
-}
-
-function formatDateOnly(value?: string | null) {
-  return formatLocalizedDate(value, locale.value, null)
 }
 
 function enterSelectionMode() {
@@ -353,15 +304,7 @@ function openBatchMetadataEditor() {
 }
 
 function openPersonalEditor() {
-  const metadata = albumPersonalMetadata.value
-
-  Object.assign(personalForm, {
-    purchaseSource: metadata.purchaseSource ?? '',
-    purchaseDate: metadata.purchaseDate ?? '',
-    hasPhysicalCopy: metadata.hasPhysicalCopy,
-    physicalFormat: metadata.physicalFormat ?? null,
-    notes: metadata.notes ?? '',
-  })
+  personalForm.notes = albumPersonalMetadata.value.notes ?? ''
   personalError.value = null
   personalDialog.value = true
 }
@@ -372,17 +315,11 @@ async function savePersonalMetadata() {
   personalLoading.value = true
   personalError.value = null
   try {
-    await catalog.updateAlbumPersonalMetadata(album.value.id, {
-      purchaseSource: personalForm.purchaseSource.trim() || null,
-      purchaseDate: personalForm.purchaseDate || null,
-      hasPhysicalCopy: personalForm.hasPhysicalCopy,
-      physicalFormat: personalForm.hasPhysicalCopy ? personalForm.physicalFormat : null,
-      notes: personalForm.notes.trim() || null,
-    })
+    await catalog.updateAlbumPersonalNotes(album.value.id, personalForm.notes.trim() || null)
     personalDialog.value = false
     personalSuccess.value = true
   } catch (cause) {
-    personalError.value = cause instanceof Error ? cause.message : t('albums.personalInformationFailed')
+    personalError.value = cause instanceof Error ? cause.message : t('albums.personalNotesFailed')
   } finally {
     personalLoading.value = false
   }
@@ -649,8 +586,8 @@ onUnmounted(() => {
               <div class="d-flex align-center justify-space-between ga-2 mb-2">
                 <div class="text-subtitle-2 text-high-emphasis">{{ t('albums.personalInformation') }}</div>
                 <TooltipIconButton
-                  :text="t('albums.editPersonalInformation')"
-                  :aria-label="t('albums.editPersonalInformation')"
+                  :text="t('albums.editPersonalNotes')"
+                  :aria-label="t('albums.editPersonalNotes')"
                   density="comfortable"
                   icon="mdi-pencil-outline"
                   size="small"
@@ -658,31 +595,19 @@ onUnmounted(() => {
                   @click="openPersonalEditor"
                 />
               </div>
-              <div v-if="hasPersonalInformation" class="personal-information-grid">
-                <div v-for="row in personalInfoRows" :key="row.key" class="personal-information-tile">
-                  <v-icon color="primary" :icon="row.icon" size="small" />
-                  <div>
-                    <div class="text-caption text-medium-emphasis">{{ row.label }}</div>
-                    <div class="text-body-2 font-weight-medium">{{ row.value }}</div>
-                  </div>
-                </div>
-                <div v-if="albumPersonalMetadata.notes" class="personal-information-tile personal-notes">
-                  <v-icon color="primary" icon="mdi-note-text-outline" size="small" />
-                  <div>
-                    <div class="text-caption text-medium-emphasis">{{ t('albums.personalNotes') }}</div>
-                    <div class="text-body-2">{{ albumPersonalMetadata.notes }}</div>
-                  </div>
+              <div v-if="albumPersonalMetadata.notes" class="personal-information-tile personal-notes mb-3">
+                <v-icon color="primary" icon="mdi-note-text-outline" size="small" />
+                <div>
+                  <div class="text-caption text-medium-emphasis">{{ t('albums.personalNotes') }}</div>
+                  <div class="text-body-2">{{ albumPersonalMetadata.notes }}</div>
                 </div>
               </div>
-              <div v-else class="text-body-2 text-medium-emphasis">
-                {{ t('albums.noPersonalInformation') }}
-              </div>
-              <DiscogsReleaseMatcher
-                v-if="primaryOwnedCopy && album.primaryArtist"
+              <OwnedAlbumCopies
+                v-if="album.primaryArtist"
                 :album-id="album.id"
                 :album-title="album.title"
                 :artist-name="album.primaryArtist.name"
-                :owned-copy="primaryOwnedCopy"
+                :copies="albumPersonalMetadata.ownedCopies ?? []"
                 :release-year="album.originalReleaseYear"
               />
             </div>
@@ -700,8 +625,8 @@ onUnmounted(() => {
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-tag-edit-outline" :disabled="!tracks.length" @click="openMetadataEditor">
               {{ t('albums.editMetadata') }}
             </v-btn>
-            <v-btn color="primary" variant="tonal" prepend-icon="mdi-card-account-details-outline" @click="openPersonalEditor">
-              {{ t('albums.editPersonalInformation') }}
+            <v-btn color="primary" variant="tonal" prepend-icon="mdi-note-edit-outline" @click="openPersonalEditor">
+              {{ t('albums.editPersonalNotes') }}
             </v-btn>
             <v-btn
               color="primary"
@@ -863,15 +788,11 @@ onUnmounted(() => {
               variant="text"
               @click="toggleTrack(track)"
             />
-            <TooltipIconButton
-              :text="t('playlists.addTrackToPlaylist')"
-              :aria-label="t('playlists.addTrackToPlaylist')"
-              density="comfortable"
-              icon="mdi-playlist-music"
-              variant="text"
-              @click="addTrackToPlaylist(track)"
+            <TrackPlaylistMembershipMenu
+              icon-only
+              :track-id="track.id"
+              @add-to-playlist="addTrackToPlaylist(track)"
             />
-            <TrackPlaylistMembershipMenu icon-only :track-id="track.id" />
             <TooltipIconButton
               :text="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
               :aria-label="favorites.isTrackFavorite(track.id) ? t('favorites.removeTrack') : t('favorites.addTrack')"
@@ -904,40 +825,11 @@ onUnmounted(() => {
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 
   <v-dialog v-model="personalDialog" max-width="620">
-    <v-card prepend-icon="mdi-card-account-details-outline" :title="t('albums.editPersonalInformation')">
+    <v-card prepend-icon="mdi-note-edit-outline" :title="t('albums.editPersonalNotes')">
       <v-card-text>
         <v-alert v-if="personalError" class="mb-4" type="error" variant="tonal">
           {{ personalError }}
         </v-alert>
-        <v-switch
-          v-model="personalForm.hasPhysicalCopy"
-          color="primary"
-          hide-details
-          :label="t('albums.hasPhysicalCopy')"
-        />
-        <v-select
-          v-model="personalForm.physicalFormat"
-          class="mt-3"
-          clearable
-          :disabled="!personalForm.hasPhysicalCopy"
-          :items="physicalFormatOptions"
-          :label="t('albums.physicalFormat')"
-          prepend-inner-icon="mdi-disc-player"
-        />
-        <v-text-field
-          v-model="personalForm.purchaseSource"
-          clearable
-          maxlength="255"
-          :label="t('albums.purchaseSource')"
-          prepend-inner-icon="mdi-storefront-outline"
-        />
-        <v-text-field
-          v-model="personalForm.purchaseDate"
-          clearable
-          :label="t('albums.purchaseDate')"
-          prepend-inner-icon="mdi-calendar-check-outline"
-          type="date"
-        />
         <v-textarea
           v-model="personalForm.notes"
           auto-grow
@@ -954,7 +846,7 @@ onUnmounted(() => {
           {{ t('settings.cancel') }}
         </v-btn>
         <v-btn color="primary" :loading="personalLoading" variant="flat" @click="savePersonalMetadata">
-          {{ t('albums.savePersonalInformation') }}
+          {{ t('albums.savePersonalNotes') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -1116,7 +1008,7 @@ onUnmounted(() => {
     {{ t('albums.metadataCompleted') }}
   </v-snackbar>
   <v-snackbar v-model="personalSuccess" color="success" timeout="3000">
-    {{ t('albums.personalInformationSaved') }}
+    {{ t('albums.personalNotesSaved') }}
   </v-snackbar>
   <v-snackbar v-model="selectionMessageVisible" :color="selectionMessageColor" timeout="3000">
     {{ selectionMessage }}

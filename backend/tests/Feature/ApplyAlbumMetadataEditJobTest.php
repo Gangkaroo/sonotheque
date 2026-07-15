@@ -13,6 +13,7 @@ use App\Models\MetadataBackup;
 use App\Models\Track;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
+use App\Music\Scanning\AudioMetadata;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\Fakes\FailingAlbumTrackMetadataWriter;
@@ -126,6 +127,63 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
             'status' => 'failed',
             'error' => 'Simulated write failure.',
         ]);
+    }
+
+    public function test_a_case_only_album_artist_edit_updates_the_catalog_display_name(): void
+    {
+        Queue::fake();
+        $this->app->instance(TrackMetadataWriter::class, new class () implements TrackMetadataWriter {
+            public function supports(string $path): bool
+            {
+                return true;
+            }
+
+            public function write(string $path, array $values): AudioMetadata
+            {
+                file_put_contents($path, 'written');
+
+                return new AudioMetadata(
+                    album: 'Album',
+                    albumArtist: $values['albumArtist'],
+                    genres: ['Old genre'],
+                    year: 2000,
+                    originalReleaseYear: 2000,
+                    comment: 'Remove me',
+                    rawMetadata: ['verified' => true],
+                );
+            }
+        });
+        $album = $this->createAlbum();
+        $artist = $album->primaryArtist;
+        $artist->update(['name' => 'AMEN', 'sort_name' => 'AMEN']);
+        $album->unsetRelation('primaryArtist');
+        $editing = $this->app->make(AlbumMetadataEditing::class);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Amen',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => ['Old genre'],
+        ];
+        $preview = $editing->preview($album, $values);
+
+        $this->assertSame(['albumArtist'], array_column($preview['changes'], 'field'));
+
+        $edit = $editing->queue($album, $values, $preview['fingerprint']);
+        $this->app->call([new ApplyAlbumMetadataEdit($edit->id), 'handle']);
+
+        $this->assertSame('completed', $edit->fresh()->status);
+        $this->assertSame($artist->id, $album->fresh()->primary_artist_id);
+        $this->assertDatabaseHas(Artist::class, [
+            'id' => $artist->id,
+            'name' => 'Amen',
+            'sort_name' => 'Amen',
+            'browse_initial' => 'A',
+        ]);
+        $this->assertSame(
+            ['Amen'],
+            $album->tracks->first()->artists()->pluck('name')->all(),
+        );
     }
 
     private function createAlbum(): Album
