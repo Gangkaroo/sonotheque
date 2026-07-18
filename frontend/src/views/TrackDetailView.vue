@@ -150,6 +150,7 @@ const technicalRows = computed(() => {
   if (!mediaFile) return []
 
   return [
+    { label: t('tracks.libraryRoot'), value: mediaFile.libraryRoot?.name },
     { label: t('tracks.filePath'), value: mediaFile.relativePath },
     { label: t('tracks.fileSize'), value: formatFileSize(mediaFile.fileSize) },
     { label: t('tracks.modifiedAt'), value: formatDate(mediaFile.modifiedAt) },

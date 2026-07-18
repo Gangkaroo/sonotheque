@@ -132,10 +132,19 @@ const backArtistId = computed(() => {
   const parsed = typeof route.query.backArtist === 'string' ? Number(route.query.backArtist) : NaN
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
-const backRoute = computed(() => backArtistId.value
-  ? { name: 'artist-detail', params: { id: backArtistId.value } }
-  : { name: 'albums' })
-const backLabel = computed(() => backArtistId.value ? t('albums.backToArtist') : t('albums.back'))
+const backToTracks = computed(() => route.query.backTo === 'tracks')
+const backRoute = computed(() => {
+  if (backArtistId.value) return { name: 'artist-detail', params: { id: backArtistId.value } }
+  if (backToTracks.value) return { name: 'tracks' }
+
+  return { name: 'albums' }
+})
+const backLabel = computed(() => {
+  if (backArtistId.value) return t('albums.backToArtist')
+  if (backToTracks.value) return t('albums.backToTracks')
+
+  return t('albums.back')
+})
 const album = computed(() => catalog.albumDetail)
 const tracks = computed(() => album.value?.tracks ?? [])
 const albumPlayingTime = computed(() => {
@@ -502,7 +511,7 @@ watch(() => tracks.value.map((track) => track.id), (trackIds) => {
 watch(() => player.currentTrack?.album?.id, (id) => {
   if (!id || player.playbackContext !== 'album' || route.name !== 'album-detail' || id === albumId.value) return
 
-  void router.replace({ name: 'album-detail', params: { id } })
+  void router.replace({ name: 'album-detail', params: { id }, query: route.query })
 })
 
 onUnmounted(() => {

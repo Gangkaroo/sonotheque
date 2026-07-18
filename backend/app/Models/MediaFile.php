@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'scan_error',
     'raw_metadata',
     'metadata_parser_version',
+    'content_fingerprint',
+    'content_fingerprint_version',
 ])]
 class MediaFile extends Model
 {
@@ -56,6 +58,7 @@ class MediaFile extends Model
             'last_seen_at' => 'immutable_datetime',
             'raw_metadata' => 'array',
             'metadata_parser_version' => 'integer',
+            'content_fingerprint_version' => 'integer',
         ];
     }
 }

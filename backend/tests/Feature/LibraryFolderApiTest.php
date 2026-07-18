@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Enums\MediaFileStatus;
+use App\Enums\ScanStatus;
+use App\Enums\ScanTrigger;
 use App\Models\Album;
 use App\Models\Artist;
+use App\Models\FavoriteTrack;
 use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
+use App\Models\Playlist;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -123,6 +127,97 @@ class LibraryFolderApiTest extends TestCase
         )
             ->assertUnprocessable()
             ->assertJsonPath('message', fn (string $message): bool => str_contains($message, 'excluded'));
+    }
+
+    public function test_it_renames_an_audio_file_without_replacing_its_catalog_identity(): void
+    {
+        $track = Track::query()->firstOrFail();
+        $mediaFile = $track->mediaFile;
+        $playlist = Playlist::create(['name' => 'Keep me']);
+        $playlistItem = $playlist->items()->create(['track_id' => $track->id, 'position' => 0]);
+        FavoriteTrack::create(['track_id' => $track->id]);
+
+        $this->patchJson("/api/library_roots/{$this->root->id}/entries/rename", [
+            'path' => 'Artist/Album/01.mp3',
+            'name' => '01 - Renamed.mp3',
+        ])
+            ->assertOk()
+            ->assertJsonPath('kind', 'file')
+            ->assertJsonPath('oldPath', 'Artist/Album/01.mp3')
+            ->assertJsonPath('newPath', 'Artist/Album/01 - Renamed.mp3')
+            ->assertJsonPath('affectedFiles', 1)
+            ->assertJsonPath('affectedTracks', 1);
+
+        $this->assertFileDoesNotExist($this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'01.mp3');
+        $this->assertFileExists($this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'01 - Renamed.mp3');
+        $this->assertSame($mediaFile->id, $track->refresh()->media_file_id);
+        $this->assertSame('Artist/Album/01 - Renamed.mp3', $mediaFile->refresh()->relative_path);
+        $this->assertDatabaseHas('playlist_items', ['id' => $playlistItem->id, 'track_id' => $track->id]);
+        $this->assertDatabaseHas('favorite_tracks', ['track_id' => $track->id]);
+
+        $this->getJson("/api/catalog/library-roots/{$this->root->id}/folders?path=Artist%2FAlbum")
+            ->assertOk()
+            ->assertJsonPath('files.0.path', 'Artist/Album/01 - Renamed.mp3')
+            ->assertJsonPath('files.0.track.id', $track->id);
+    }
+
+    public function test_it_renames_a_folder_and_updates_descendant_catalog_paths(): void
+    {
+        $track = Track::query()->firstOrFail();
+        $mediaFileId = $track->media_file_id;
+        $album = $track->album;
+        $playlist = Playlist::create(['name' => 'Folder move']);
+        $playlist->items()->create(['track_id' => $track->id, 'position' => 0]);
+
+        $this->patchJson("/api/library_roots/{$this->root->id}/entries/rename", [
+            'path' => 'Artist',
+            'name' => 'Renamed Artist Folder',
+        ])
+            ->assertOk()
+            ->assertJsonPath('kind', 'directory')
+            ->assertJsonPath('newPath', 'Renamed Artist Folder')
+            ->assertJsonPath('affectedFiles', 1)
+            ->assertJsonPath('affectedTracks', 1);
+
+        $this->assertDirectoryDoesNotExist($this->musicPath.DIRECTORY_SEPARATOR.'Artist');
+        $this->assertDirectoryExists($this->musicPath.DIRECTORY_SEPARATOR.'Renamed Artist Folder');
+        $this->assertSame($mediaFileId, $track->refresh()->media_file_id);
+        $this->assertSame('Renamed Artist Folder/Album/01.mp3', $track->mediaFile->relative_path);
+        $this->assertSame($album->id, $track->album_id);
+        $this->assertSame('Renamed Artist Folder/Album', $album->refresh()->relative_path);
+        $this->assertDatabaseHas('playlist_items', ['playlist_id' => $playlist->id, 'track_id' => $track->id]);
+    }
+
+    public function test_it_rejects_unsafe_or_conflicting_renames_and_renames_during_scans(): void
+    {
+        file_put_contents(
+            $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'Existing.mp3',
+            'audio',
+        );
+
+        $this->patchJson("/api/library_roots/{$this->root->id}/entries/rename", [
+            'path' => 'Artist/Album/01.mp3',
+            'name' => 'Existing.mp3',
+        ])->assertConflict();
+
+        $this->patchJson("/api/library_roots/{$this->root->id}/entries/rename", [
+            'path' => 'Artist/Album/01.mp3',
+            'name' => 'Renamed.flac',
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', fn (string $message): bool => str_contains($message, 'extension'));
+
+        $this->root->scanRuns()->create([
+            'status' => ScanStatus::Pending,
+            'trigger' => ScanTrigger::Manual,
+        ]);
+
+        $this->patchJson("/api/library_roots/{$this->root->id}/entries/rename", [
+            'path' => 'Artist/Album/01.mp3',
+            'name' => 'Renamed.mp3',
+        ])
+            ->assertConflict()
+            ->assertJsonPath('message', fn (string $message): bool => str_contains($message, 'scanned'));
     }
 
     private function createIndexedTrack(string $relativePath): void

@@ -12,15 +12,19 @@ use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Artwork;
 use App\Models\Genre;
+use App\Models\FavoriteTrack;
 use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
+use App\Models\Playlist;
+use App\Models\PlaylistItem;
 use App\Models\ScanRun;
 use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Music\Artwork\EmbeddedArtwork;
 use App\Music\Scanning\AudioFileDiscoverer;
+use App\Music\Scanning\AudioContentFingerprinter;
 use App\Music\Scanning\AudioMetadata;
 use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\DiscoveryDiagnostics;
@@ -35,6 +39,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
 use Tests\Fakes\FakeAudioMetadataReader;
+use Tests\Fakes\FakeAudioContentFingerprinter;
 use Tests\TestCase;
 
 class LibraryScannerTest extends TestCase
@@ -79,6 +84,7 @@ class LibraryScannerTest extends TestCase
         ));
 
         $this->app->instance(AudioMetadataReader::class, $this->metadataReader);
+        $this->app->instance(AudioContentFingerprinter::class, new FakeAudioContentFingerprinter());
     }
 
     protected function tearDown(): void
@@ -124,7 +130,16 @@ class LibraryScannerTest extends TestCase
         $cachedFile = array_values($cache)[0];
         $this->assertIsArray($cachedFile);
         $this->assertSame(
-            ['id', 'album_id', 'status', 'file_size', 'modified_at', 'metadata_parser_version'],
+            [
+                'id',
+                'album_id',
+                'status',
+                'file_size',
+                'modified_at',
+                'metadata_parser_version',
+                'content_fingerprint',
+                'content_fingerprint_version',
+            ],
             array_keys($cachedFile),
         );
 
@@ -314,27 +329,69 @@ class LibraryScannerTest extends TestCase
         $this->assertSame('files_removed', $scan->fresh()->summary['issues'][0]['code']);
     }
 
-    public function test_scanner_replaces_catalog_records_when_a_file_moves(): void
+    public function test_scanner_preserves_catalog_identity_when_a_file_moves_and_its_id3_tags_change(): void
     {
         $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
         $oldPath = $albumPath.DIRECTORY_SEPARATOR.'01.mp3';
         $newPath = $albumPath.DIRECTORY_SEPARATOR.'03.mp3';
-        file_put_contents($oldPath, 'fake audio data');
+        file_put_contents($oldPath, 'ID3:title=Old|AUDIO|fake audio data');
         $root = $this->createRoot();
         $scanner = $this->app->make(LibraryScanner::class);
         $scanner->scan($this->createScan($root));
+        $mediaFile = MediaFile::firstOrFail();
+        $track = Track::firstOrFail();
+        $playlist = Playlist::create(['name' => 'Preserved playlist']);
+        PlaylistItem::create(['playlist_id' => $playlist->id, 'track_id' => $track->id, 'position' => 1]);
+        FavoriteTrack::create(['track_id' => $track->id]);
+        $originalModifiedAt = filemtime($oldPath);
+        $this->assertIsInt($originalModifiedAt);
 
         rename($oldPath, $newPath);
+        file_put_contents($newPath, 'ID3:title=New|AUDIO|fake audio data');
+        touch($newPath, $originalModifiedAt);
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
         $scan = $this->createScan($root);
         $scanner->scan($scan);
 
-        $this->assertSame(1, $scan->fresh()->files_added);
-        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertSame(0, $scan->fresh()->files_added);
+        $this->assertSame(1, $scan->fresh()->files_updated);
+        $this->assertSame(0, $scan->fresh()->files_removed);
+        $this->assertSame(2, $this->metadataReader->calls);
         $this->assertDatabaseMissing(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/01.mp3']);
-        $this->assertDatabaseHas(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/03.mp3']);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'id' => $mediaFile->id,
+            'relative_path' => 'Bjoerk/Debut/03.mp3',
+        ]);
         $this->assertDatabaseCount(MediaFile::class, 1);
         $this->assertDatabaseCount(Track::class, 1);
+        $this->assertDatabaseHas(Track::class, ['id' => $track->id, 'media_file_id' => $mediaFile->id]);
+        $this->assertDatabaseHas(PlaylistItem::class, ['playlist_id' => $playlist->id, 'track_id' => $track->id]);
+        $this->assertDatabaseHas(FavoriteTrack::class, ['track_id' => $track->id]);
+    }
+
+    public function test_scanner_does_not_reconcile_ambiguous_duplicate_audio_files(): void
+    {
+        $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $oldPath = $albumPath.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($oldPath, 'ID3:title=Old|AUDIO|duplicate audio');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        $oldMediaFileId = MediaFile::firstOrFail()->id;
+
+        rename($oldPath, $albumPath.DIRECTORY_SEPARATOR.'02.mp3');
+        copy(
+            $albumPath.DIRECTORY_SEPARATOR.'02.mp3',
+            $albumPath.DIRECTORY_SEPARATOR.'03.mp3',
+        );
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $scan = $this->createScan($root);
+        $scanner->scan($scan);
+
+        $this->assertSame(2, $scan->fresh()->files_added);
+        $this->assertSame(1, $scan->fresh()->files_removed);
+        $this->assertDatabaseMissing(MediaFile::class, ['id' => $oldMediaFileId]);
+        $this->assertDatabaseCount(MediaFile::class, 2);
     }
 
     public function test_subtree_scan_removes_only_stale_files_inside_its_scope(): void

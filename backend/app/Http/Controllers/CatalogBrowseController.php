@@ -208,6 +208,7 @@ class CatalogBrowseController extends Controller
                 'tracks.duration_ms',
                 'tracks.track_number',
                 'tracks.disc_number',
+                'tracks.year',
                 'tracks.album_id',
             ])
             ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
@@ -226,10 +227,23 @@ class CatalogBrowseController extends Controller
             })
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 foreach ($this->searchTerms($search) as $term) {
-                    $pattern = '%'.$this->escapeLike($term).'%';
-                    $query->where(function (Builder $query) use ($pattern): void {
-                        $query->where('tracks.title', 'ilike', $pattern)
-                            ->orWhereHas('artists', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
+                    $query->whereIn('tracks.id', function ($matches) use ($term): void {
+                        $matches
+                            ->select('searchable_tracks.id')
+                            ->from('tracks as searchable_tracks')
+                            ->whereRaw(
+                                "to_tsvector('simple', coalesce(searchable_tracks.title, '')) @@ to_tsquery('simple', quote_literal(?) || ':*')",
+                                [$term],
+                            )
+                            ->unionAll(
+                                DB::table('artist_track as searchable_artist_tracks')
+                                    ->select('searchable_artist_tracks.track_id')
+                                    ->join('artists as searchable_artists', 'searchable_artists.id', '=', 'searchable_artist_tracks.artist_id')
+                                    ->whereRaw(
+                                        "to_tsvector('simple', coalesce(searchable_artists.name, '')) @@ to_tsquery('simple', quote_literal(?) || ':*')",
+                                        [$term],
+                                    ),
+                            );
                     });
                 }
             });

@@ -395,6 +395,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
               >
                 {{ item.track.album.title }}
               </RouterLink>
+              <span v-if="item.track.year !== undefined && item.track.year !== null"> · {{ item.track.year }}</span>
             </template>
             <span v-else>{{ t('catalog.unknownAlbum') }}</span>
           </v-list-item-subtitle>

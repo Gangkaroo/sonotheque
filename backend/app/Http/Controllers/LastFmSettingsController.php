@@ -52,7 +52,7 @@ class LastFmSettingsController extends Controller
                 fn ($query) => $query->where('lastfm_status', $validated['status']),
             )
             ->with(['track' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'album_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'album_id'])
                 ->with([
                     'album:id,title,original_release_year,artwork_id',
                     'album.personalMetadata',

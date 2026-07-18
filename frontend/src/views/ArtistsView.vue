@@ -9,6 +9,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { formatDateTime } from '@/utils/formatters'
+import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface ArtistFilters {
   search: string
@@ -28,6 +29,7 @@ const page = ref(1)
 const resultsTop = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
+const routeQuerySyncGuard = createRouteQuerySyncGuard()
 
 function load() {
   void catalog.loadArtists({ page: page.value, search: querySearch(search.value), initial: initial.value })
@@ -109,7 +111,11 @@ function syncFiltersToRoute() {
 
   if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
 
-  void router.replace({ name: 'artists', query })
+  const pendingSync = routeQuerySyncGuard.mark(query)
+
+  void router.replace({ name: 'artists', query }).finally(() => {
+    routeQuerySyncGuard.release(pendingSync)
+  })
 }
 
 function applyFilters(filters: ArtistFilters) {
@@ -170,6 +176,9 @@ saveFilters()
 watch(() => route.query, () => {
   if (route.name !== 'artists') return
 
+  const normalizedQuery = normalizedFilterQuery(route.query)
+  if (routeQuerySyncGuard.consume(normalizedQuery)) return
+
   const routeFilters = filtersFromQuery()
   if (routeFilters) {
     applyFilters(routeFilters)
@@ -193,14 +202,16 @@ watch(search, () => {
   if (!applyingRouteFilters) {
     page.value = 1
     saveFilters()
-    syncFiltersToRoute()
   } else if (wasNotFirstPage) {
     page.value = 1
   }
 
   if (wasNotFirstPage) return
 
-  searchTimer = setTimeout(load, 300)
+  searchTimer = setTimeout(() => {
+    syncFiltersToRoute()
+    load()
+  }, 300)
 })
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)

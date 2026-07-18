@@ -46,4 +46,23 @@ describe('library folders store', () => {
       expect.any(Object),
     )
   })
+
+  it('renames a root-relative entry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      kind: 'file',
+      oldPath: 'Artist/Album/01.mp3',
+      newPath: 'Artist/Album/01 - Renamed.mp3',
+      affectedFiles: 1,
+      affectedTracks: 1,
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await useLibraryFoldersStore().renameEntry(3, 'Artist/Album/01.mp3', '01 - Renamed.mp3')
+
+    expect(result.newPath).toBe('Artist/Album/01 - Renamed.mp3')
+    expect(fetchMock).toHaveBeenCalledWith('/api/library_roots/3/entries/rename', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ path: 'Artist/Album/01.mp3', name: '01 - Renamed.mp3' }),
+    }))
+  })
 })

@@ -6,6 +6,7 @@ use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
+use App\Http\Controllers\AudioIntelligenceSettingsController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
 use App\Http\Controllers\DashboardMetricsController;
@@ -58,6 +59,7 @@ Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track'])
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
 Route::get('/catalog/library-roots/{libraryRoot}/folders', [LibraryFolderController::class, 'show']);
 Route::get('/catalog/library-roots/{libraryRoot}/folder-tracks', [LibraryFolderController::class, 'tracks']);
+Route::patch('/library_roots/{libraryRoot}/entries/rename', [LibraryFolderController::class, 'rename']);
 Route::get('/artwork/{artwork}/thumbnail', ArtworkThumbnailController::class);
 Route::get('/tracks/{track}/stream', AudioStreamController::class);
 Route::post('/tracks/{track}/plays', [TrackPlayStatisticsController::class, 'store']);
@@ -69,6 +71,22 @@ Route::get('/statistics/most-played-tracks', [PlaybackStatisticsController::clas
 Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::class, 'mostPlayedAlbums']);
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
+Route::get('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'show']);
+Route::patch('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'update']);
+Route::post('/settings/audio-intelligence/pilots', [AudioIntelligenceSettingsController::class, 'preparePilot']);
+Route::post('/settings/audio-intelligence/analyzer/test', [AudioIntelligenceSettingsController::class, 'testAnalyzer']);
+Route::post(
+    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/start',
+    [AudioIntelligenceSettingsController::class, 'startPilot'],
+);
+Route::post(
+    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/cancel',
+    [AudioIntelligenceSettingsController::class, 'cancelPilot'],
+);
+Route::post(
+    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/resume',
+    [AudioIntelligenceSettingsController::class, 'resumePilot'],
+);
 Route::get('/settings/first-run', [FirstRunSetupController::class, 'show']);
 Route::patch('/settings/first-run', [FirstRunSetupController::class, 'update']);
 Route::get('/settings/access', AdminAccessController::class);

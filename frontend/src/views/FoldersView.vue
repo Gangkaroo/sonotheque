@@ -24,6 +24,12 @@ interface PendingFolderAction {
   total: number
 }
 
+interface RenameEntry {
+  kind: 'directory' | 'file'
+  name: string
+  path: string
+}
+
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
@@ -38,6 +44,11 @@ const playlistTracks = ref<Track[]>([])
 const largeActionDialog = ref(false)
 const largeActionLoading = ref(false)
 const pendingFolderAction = ref<PendingFolderAction | null>(null)
+const renameDialog = ref(false)
+const renameEntry = ref<RenameEntry | null>(null)
+const renameName = ref('')
+const renameLoading = ref(false)
+const renameError = ref('')
 const actionLoading = ref('')
 const notice = ref('')
 const noticeVisible = ref(false)
@@ -214,6 +225,39 @@ function largeActionMessage(action: FolderAction) {
     count: pendingFolderAction.value?.total ?? 0,
     folder: pendingFolderAction.value?.folder ?? '',
   })
+}
+
+function openRename(entry: RenameEntry) {
+  renameEntry.value = entry
+  renameName.value = entry.name
+  renameError.value = ''
+  renameDialog.value = true
+}
+
+function closeRenameDialog() {
+  if (renameLoading.value) return
+
+  renameDialog.value = false
+}
+
+async function confirmRename() {
+  const rootId = selectedRootId.value
+  const entry = renameEntry.value
+  const name = renameName.value.trim()
+  if (rootId === null || !entry || !name) return
+
+  renameLoading.value = true
+  renameError.value = ''
+  try {
+    const result = await folders.renameEntry(rootId, entry.path, name)
+    renameDialog.value = false
+    await folders.load(rootId, currentPath.value)
+    showNotice(t('folders.renameSucceeded', { name, count: result.affectedTracks }))
+  } catch (cause) {
+    renameError.value = cause instanceof Error ? cause.message : t('folders.renameFailed')
+  } finally {
+    renameLoading.value = false
+  }
 }
 
 async function rescan(path: string | null) {
@@ -507,6 +551,15 @@ function showNotice(message: string) {
                   variant="text"
                   @click="void rescan(item.path)"
                 />
+                <TooltipIconButton
+                  :text="t('folders.renameFolder')"
+                  :aria-label="t('folders.renameFolder')"
+                  :disabled="Boolean(activeRootScan)"
+                  density="comfortable"
+                  icon="mdi-rename-outline"
+                  variant="text"
+                  @click="openRename(item)"
+                />
               </div>
             </template>
           </v-list-item>
@@ -549,6 +602,15 @@ function showNotice(message: string) {
                   variant="text"
                   @click="item.track && addTrackToPlaylist(item.track)"
                 />
+                <TooltipIconButton
+                  :text="t('folders.renameFile')"
+                  :aria-label="t('folders.renameFile')"
+                  :disabled="Boolean(activeRootScan)"
+                  density="comfortable"
+                  icon="mdi-rename-outline"
+                  variant="text"
+                  @click="openRename(item)"
+                />
               </div>
             </template>
           </v-list-item>
@@ -586,6 +648,50 @@ function showNotice(message: string) {
         </v-btn>
         <v-btn color="primary" :loading="largeActionLoading" variant="flat" @click="void confirmLargeFolderAction()">
           {{ t('folders.continueAction') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+  <v-dialog
+    v-model="renameDialog"
+    max-width="520"
+    :persistent="renameLoading"
+    @after-leave="renameEntry = null"
+  >
+    <v-card rounded="xl">
+      <v-card-title class="d-flex align-center ga-2 pa-5 pb-2">
+        <v-icon color="primary" :icon="renameEntry?.kind === 'directory' ? 'mdi-folder-edit-outline' : 'mdi-file-edit-outline'" />
+        {{ renameEntry?.kind === 'directory' ? t('folders.renameFolderTitle') : t('folders.renameFileTitle') }}
+      </v-card-title>
+      <v-card-text class="px-5">
+        <v-alert v-if="renameError" class="mb-4" type="error" variant="tonal">{{ renameError }}</v-alert>
+        <p class="text-medium-emphasis mb-4">{{ t('folders.renameDescription') }}</p>
+        <v-text-field
+          v-model="renameName"
+          autofocus
+          counter="255"
+          :disabled="renameLoading"
+          :label="t('folders.newName')"
+          maxlength="255"
+          @keydown.enter.prevent="void confirmRename()"
+        />
+        <p v-if="renameEntry?.kind === 'file'" class="text-caption text-medium-emphasis">
+          {{ t('folders.fileExtensionHint') }}
+        </p>
+      </v-card-text>
+      <v-card-actions class="px-5 pb-5">
+        <v-spacer />
+        <v-btn :disabled="renameLoading" variant="text" @click="closeRenameDialog">
+          {{ t('folders.cancel') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :disabled="!renameName.trim() || renameName.trim() === renameEntry?.name"
+          :loading="renameLoading"
+          variant="flat"
+          @click="void confirmRename()"
+        >
+          {{ t('folders.rename') }}
         </v-btn>
       </v-card-actions>
     </v-card>

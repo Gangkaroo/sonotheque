@@ -50,7 +50,7 @@ class CatalogPayloads
             'personalMetadata',
             'ownedCopies',
             'tracks' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'comment', 'album_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'comment', 'album_id'])
                 ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
@@ -89,6 +89,7 @@ class CatalogPayloads
             'durationMs' => $track->duration_ms,
             'trackNumber' => $track->track_number,
             'discNumber' => $track->disc_number,
+            'year' => $track->year,
             'album' => $track->album ? [
                 'id' => $track->album->id,
                 'title' => $track->album->title,
@@ -113,7 +114,8 @@ class CatalogPayloads
             'album.ownedCopies',
             'artists:id,name',
             'genres:id,name',
-            'mediaFile:id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',
+            'mediaFile:id,library_root_id,relative_path,file_size,modified_at,mime_type,container,codec,bitrate,sample_rate,channels,status,scan_error,raw_metadata',
+            'mediaFile.libraryRoot:id,name',
             'playStatistic:track_id,play_count,first_played_at,last_played_at',
         ]);
 
@@ -127,7 +129,6 @@ class CatalogPayloads
 
         return [
             ...$this->trackSummary($track),
-            'year' => $track->year,
             'comment' => $track->comment,
             'composers' => $track->composers ?? [],
             'performers' => $track->performers ?? [],
@@ -137,6 +138,10 @@ class CatalogPayloads
             ])->values(),
             'mediaFile' => $mediaFile ? [
                 'id' => $mediaFile->id,
+                'libraryRoot' => $mediaFile->libraryRoot ? [
+                    'id' => $mediaFile->libraryRoot->id,
+                    'name' => $mediaFile->libraryRoot->name,
+                ] : null,
                 'relativePath' => $mediaFile->relative_path,
                 'fileSize' => $mediaFile->file_size,
                 'modifiedAt' => $mediaFile->modified_at?->toIso8601String(),

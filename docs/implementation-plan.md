@@ -48,8 +48,10 @@ The implemented release baseline and active roadmap include:
 
 - Configuration of one or more local music folders
 - Manual and incremental library scans
-- Removal of stale catalog records after scans, including deleted, moved, and
-  newly excluded files, while preserving records beneath unreadable paths
+- Removal of stale catalog records after scans, including deleted and newly
+  excluded files, while preserving records beneath unreadable paths
+- Identity-preserving reconciliation of unambiguous externally moved files by
+  tag-independent audio-content fingerprints
 - Scan status, progress, warnings, and errors
 - Browsing by artist, album, track, and genre
 - Search, filtering, sorting, and pagination
@@ -76,13 +78,19 @@ The implemented release baseline and active roadmap include:
 - Optional Discogs connection for matching albums to exact owned physical
   releases and collection instances
 - Root-scoped folder browsing with file and folder playback, queue, playlist,
-  and subtree-rescan actions
+  subtree-rescan, and guarded same-parent rename actions
 - Database-backed listening history and statistics with optional MP3 tag
   synchronization
 - Optional Last.fm scrobbling with asynchronous retries and a filterable
   delivery log
 - Optional cached artist, album, identity, portrait, and lyrics enrichment
   through Last.fm, MusicBrainz, Wikidata, Wikimedia Commons, and LRCLIB
+- Disabled-by-default local audio analysis and semantic similarity
+  recommendations using versioned pretrained models, background jobs, and
+  PostgreSQL vector search
+- Independently disabled-by-default local collection assistant that answers
+  questions and prepares searches or queue previews through validated,
+  read-only Sonotheque tools
 - English and German translations
 - Localhost access by default and optional LAN access
 
@@ -157,9 +165,13 @@ in the root must never be marked stale. A full-root and subtree scan may not
 overlap for the same root initially. Subtree rescans remain administrative
 operations protected by the existing localhost/LAN admin-token boundary.
 
-The first folder view is read-oriented. Rename, move, delete, folder creation,
-and other filesystem mutations are deferred until conflict handling,
-permissions, rollback, and catalog reconciliation have explicit designs.
+The folder view permits guarded same-parent renames. It rejects overwrites,
+symbolic links, excluded paths, extension changes, unsafe names, read-only
+parents, and operations during an active scan. A successful rename updates the
+existing catalog paths without replacing media-file or track identities. Move,
+delete, folder creation, and other filesystem mutations remain deferred until
+their conflict handling, permissions, rollback, and catalog reconciliation have
+explicit designs.
 
 ## Data Model
 
@@ -200,6 +212,7 @@ Physical file information:
 - File size and modification time
 - MIME type, container, codec, bitrate, and sample rate
 - Scan state and last-seen timestamp
+- Versioned SHA-256 audio-content fingerprint used for unambiguous move detection
 - Raw metadata in JSONB
 
 ### Library entities
@@ -444,6 +457,71 @@ listening information. Settings should provide separate controls for music
 information and lyrics, provider credentials where required, and cache
 clearing. Every displayed result must identify and link to its source.
 
+### Local Audio Intelligence And Collection Assistant
+
+Local AI capabilities are divided into two independently optional features.
+Neither feature may run on the playback, seeking, queue-progression, or ordinary
+scan critical path.
+
+Both features are disabled by default. A normal Sonotheque installation must not
+download models, install or enable pgvector, start AI workers, reserve GPU
+memory, run background analysis, or start an LLM runtime. Enabling audio
+analysis does not enable the collection assistant, and enabling the assistant
+does not implicitly start full-library audio analysis.
+
+The local audio-intelligence feature analyzes audio asynchronously and stores
+versioned results independently from scanned tags. A dedicated Python worker is
+preferred over embedding the machine-learning runtime in PHP. Candidate
+analyzers include Essentia for BPM, beat, key, loudness, energy, danceability,
+vocal/instrumental, and mood estimates, plus a pretrained music/audio-text
+embedding model such as CLAP for semantic and track-to-track similarity. The
+exact model remains replaceable and must be recorded with its version,
+dimensions, checksum, and license.
+
+Analysis is keyed by the existing tag-independent audio-content fingerprint.
+Renames, moves, and ID3/APEv2 edits therefore reuse results, while changed audio
+queues a new analysis. PostgreSQL remains the source of truth; pgvector is the
+preferred optional extension for cosine similarity and HNSW indexing. Keep
+model registrations, scalar audio features, embeddings, job state, confidence,
+and errors outside the core `tracks` table so models can be upgraded or compared
+without destructive schema changes.
+
+Similarity starts as a deterministic backend service rather than an LLM task.
+It retrieves audio neighbors and reranks them using configurable BPM, key,
+energy, mood, library-root scope, availability, artist repetition, and duplicate
+penalties. The UI should offer a queue preview and explanation before applying
+recommendations. Initial controls belong in track actions, track details, and
+the existing playback-information area rather than adding another permanent
+player icon.
+
+The local collection assistant is a later consumer of trusted Sonotheque APIs.
+A local runtime such as Ollama may choose from narrowly defined tools for catalog
+search, collection aggregates, listening statistics, similarity search, and
+queue-preview generation. Laravel validates every structured request, applies
+normal authorization and library-root scope, limits result sizes, and returns
+linked evidence. The model never receives database credentials, arbitrary SQL,
+filesystem access, or permission to mutate playlists or playback without an
+explicit user confirmation.
+
+No model should be trained from scratch for the initial release. The first-run
+cost is analysis and indexing with pretrained models. Optional personalization
+can later learn a lightweight reranking profile from explicit feedback, skips,
+completed plays, favorites, and playlists without replacing the base embedding
+model. Feedback collection must be opt-in and inspectable.
+
+Settings should expose separate enablement for audio analysis and the assistant,
+worker and model health, download size and license information, analysis
+progress, pause/resume controls, resource limits, and removal/rebuild actions.
+Model downloads and all analysis remain local by default. A packaged optional
+AI profile must degrade cleanly when no supported GPU, sufficient memory, model,
+or pgvector extension is available.
+
+Disabling a feature stops its workers and scheduled jobs without deleting
+previously calculated results unless the user explicitly requests cleanup.
+Analysis should support configurable concurrency, CPU/GPU limits, idle-only
+operation, and automatic pausing during scans or when resource pressure would
+affect playback.
+
 ## Implementation Phases
 
 ### Current Status
@@ -535,6 +613,9 @@ Completed:
 - Root-scoped folder browsing with guarded relative paths, virtualized large
   listings, indexed-file and recursive folder actions, and subtree scan runs
   whose stale cleanup cannot affect records outside the selected directory
+- Guarded file and folder renaming inside a library root, with filesystem
+  rollback on catalog failure and preservation of track, playlist, favorite,
+  queue, and listening-statistics identity
 - Isolated packaged Playwright coverage for setup, scanning, folder navigation,
   large folder confirmation, subtree scan cancellation, range streaming,
   seeking, queue progression, track switching, and playback restoration
@@ -554,11 +635,17 @@ Completed:
 - Read-only matching of owned album copies to exact Discogs releases and
   collection instances, including duplicate-instance selection, cached release
   details and thumbnails, refresh, change, and unlink actions
+- Disabled-by-default Audio intelligence settings with durable representative
+  pilot samples selected across enabled roots and genres by tag-independent
+  audio fingerprints, a versioned analyzer contract, and manually provisioned
+  pilot execution; no analyzer or model download is started automatically
 
 Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
+- Local audio intelligence and semantic similarity recommendations
+- Local collection assistant over guarded Sonotheque tools
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
 
@@ -687,12 +774,22 @@ into a general-purpose file manager.
   history consistently from both the folder view and Settings. (Complete)
 - Protect subtree rescans with the existing scan-management admin-token rules.
   (Complete)
+- Add same-parent rename actions for visible files and folders. Reject unsafe
+  names, extension changes, overwrites, symbolic links, excluded paths, and
+  active scans; update descendant media-file and album paths transactionally
+  while preserving track IDs. (Complete)
+- Detect files moved outside Sonotheque by a stable content fingerprint and
+  reconcile unambiguous old/new paths without replacing track IDs. Do not infer
+  identity from file size, timestamps, or tags alone because duplicate releases
+  are common. Fingerprint encoded audio payloads rather than mutable ID3/APEv2
+  data, and decline ambiguous duplicate matches. (Complete)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
   (Complete with PostgreSQL-backed API coverage, frontend store coverage, and
   an isolated packaged Playwright fixture)
-- Defer rename, move, delete, folder creation, and other write operations to a
-  later filesystem-management phase with explicit conflict and rollback rules.
+- Defer moving entries to another parent, delete, folder creation, and other
+  write operations to a later filesystem-management phase with explicit
+  conflict and rollback rules.
 
 ### 4c. Owned Copies And Discogs Matching
 
@@ -903,6 +1000,78 @@ Last.fm integration.
   is stable. (Complete for album details with separate album/artist tabs and
   for dedicated artist details; multiple-provider fallback remains later.)
 
+### 5e. Local Audio Intelligence And Similarity
+
+- Add an independently protected Audio intelligence settings area and durable
+  pilot runs that select 50-to-500 fingerprinted tracks across enabled roots
+  and genres without provisioning a model or dispatching analysis.
+  (Complete)
+- Add an optional Python analysis worker that shares read-only access to mounted
+  library roots and receives versioned jobs from Laravel. Keep the service
+  stopped and unprovisioned until the user opts in. (Initial CLI pilot worker
+  complete; packaged optional service remains pending.)
+- Add an optional pgvector extension and separate model, feature, embedding,
+  status, confidence, and error records keyed by track and audio-content
+  fingerprint. (Versioned model, reusable content-addressed feature and pilot
+  embedding artifacts, status, runtime, hardware, and error records complete;
+  pgvector and full-library scheduling remain pending.)
+- Pilot Essentia audio features and a replaceable pretrained music embedding
+  model on a representative 200-to-500-track sample before full-library
+  analysis. Record model checksum, dimensions, license, runtime, and quality
+  observations. (Initial 50-track CPU pilot complete with 50 successes, no
+  failures, and 831.7 seconds of recorded analysis time; collection-wide
+  qualitative comparison remains pending.)
+- Analyze multiple representative windows or a model-supported variable-length
+  input so long introductions and stylistically changing tracks are not reduced
+  to an arbitrary opening excerpt. (Complete for the pilot worker, including
+  bounded decoding of only the selected windows and separate stage timings.)
+- Invalidate analysis only when the audio-content fingerprint or analyzer model
+  version changes; tag-only edits, moves, and renames must reuse it. (Complete
+  for pilot artifacts, including reuse across runs and duplicate fingerprints.)
+- Add exact cosine search first, then an HNSW index only after measuring query
+  latency and recall on the real collection. (Pending)
+- Add a deterministic similarity service with optional BPM, key, energy, mood,
+  library-root, artist-diversity, and duplicate controls. (Pending)
+- Add Similar Tracks and Continue This Mood actions with a reviewable queue
+  preview; never modify playback or playlists without confirmation. (Pending)
+- Add Settings controls for opt-in model downloads, worker health, analysis
+  progress, pause/resume, CPU/GPU limits, model replacement, and result rebuild.
+  (Worker health, bounded CPU/memory settings, durable chunk progress,
+  cancellation, and guarded resume are complete; downloads remain deliberately
+  manual. A GTX 1070 is available for an optional CUDA image; pause, GPU-image
+  packaging and benchmarking, model replacement, and rebuild remain pending.)
+- Verify that a default installation performs no model downloads, starts no AI
+  services, schedules no analysis jobs, and has no additional steady-state CPU,
+  GPU, or memory usage. (Pending)
+- Add fixtures and quality tests for analysis invalidation, model upgrades,
+  duplicate handling, unavailable workers, and playback independence.
+  (Fingerprint/profile reuse and guarded resume coverage complete; model
+  upgrade, unavailable-worker, and playback-independence coverage remain.)
+
+### 5f. Local Collection Assistant
+
+- Add an optional local-LLM adapter with Ollama as the first candidate and keep
+  the provider interface replaceable. Keep it independently disabled by default
+  and never start or download a model implicitly. (Pending)
+- Expose a small allowlist of structured Laravel tools for catalog searches,
+  aggregates, listening history, similar tracks, and queue previews. Never expose
+  raw SQL, filesystem paths, provider secrets, or unrestricted APIs. (Pending)
+- Validate tool schemas, result limits, library-root scope, timeouts, and the
+  maximum number of tool iterations server-side. (Pending)
+- Require linked catalog evidence for factual collection answers and distinguish
+  database facts, model interpretations, and uncertain audio-analysis labels.
+  (Pending)
+- Add a dedicated Collection Assistant view with conversational history kept
+  locally and explicit confirmation for any generated queue, playlist, or
+  playback action. (Pending)
+- Support English and German questions while normalizing semantic audio prompts
+  to the language expected by the configured embedding model. (Pending)
+- Add disabled/unavailable/model-error states that leave normal browsing and
+  playback fully functional. (Pending)
+- Consider opt-in lightweight personalization only after explicit recommendation
+  feedback and evaluation controls exist. Do not train a foundation model from
+  the private collection. (Pending)
+
 ### 6. Settings and Scan Management
 
 - Add and remove library roots. (Complete)
@@ -966,6 +1135,19 @@ Last.fm integration.
   APP_KEY preservation, safety backups, and Settings status)
 
 ## Recommended Next Step
+
+The representative sample and manually provisioned execution foundation for
+Phase 5e are complete. A CPU-only Essentia and Discogs multi-similarity EffNet
+pilot analyzed 50 fingerprinted tracks successfully in 14 minutes 14 seconds,
+with 831.7 seconds of summed per-track analysis time and no failures. Future
+runs use five-track chunks with durable progress and cancellation between
+chunks. The next experimental step is to inspect feature distributions and
+qualitative nearest neighbours, then measure exact cosine latency against these
+stored embeddings. Similarity quality and latency must be reviewed before
+Sonotheque provisions a full-library worker or commits to pgvector. The
+collection assistant in Phase 5f should follow only after the underlying search,
+aggregate, and similarity tools produce trustworthy, explainable results
+without an LLM.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every
@@ -1037,7 +1219,14 @@ playlist workflows, large actions use a count-only confirmation preflight, and
 subtree scans expose progress and cancellation while keeping cleanup constrained
 by PostgreSQL-backed tests. An isolated packaged Playwright suite verifies setup,
 real fixture scanning and navigation, large-action confirmation, and scan
-cancellation. Filesystem mutations remain outside this phase.
+cancellation. Same-parent file and folder renames are now the first guarded
+filesystem write: they preserve catalog identity and reject collisions, unsafe
+names, extension changes, excluded paths, and active scans. Full-root scans now
+reconcile unique external moves by a versioned audio-payload fingerprint while
+ignoring mutable ID3/APEv2 data; ambiguous duplicate matches remain conservative.
+The first post-migration scan establishes fingerprints for existing files, and
+subtree scans can only reconcile moves wholly inside their scope. Moving between
+parents inside the UI, deletion, and folder creation remain deferred.
 Last.fm delivery visibility is complete, while the browsable metadata-backup
 audit remains deferred. Packaged upgrade preservation from `v0.1.0` and real
 browser playback are now verified automatically. The packaged suite also starts

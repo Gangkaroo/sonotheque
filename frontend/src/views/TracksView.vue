@@ -16,8 +16,10 @@ import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { formatDateTime, formatDuration } from '@/utils/formatters'
+import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface TrackFilters {
+  page: number
   search: string
   genre: number | null
   genreName: string
@@ -45,12 +47,13 @@ const genreName = ref(restoredFilters.genreName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const sort = ref<TrackSort>(restoredFilters.sort)
-const page = ref(1)
+const page = ref(restoredFilters.page)
 const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
+const routeQuerySyncGuard = createRouteQuerySyncGuard()
 const physicalCopyOptions = computed(() => [
   { title: t('albums.physicalCopyAll'), value: 'all' },
   { title: t('albums.physicalCopyOwned'), value: 'owned' },
@@ -68,6 +71,7 @@ const sortOptions = computed(() => [
 
 function currentFilters(): TrackFilters {
   return {
+    page: page.value,
     search: querySearch(search.value),
     genre: genre.value,
     genreName: genreName.value,
@@ -79,6 +83,7 @@ function currentFilters(): TrackFilters {
 
 function defaultFilters(): TrackFilters {
   return {
+    page: 1,
     search: '',
     genre: null,
     genreName: '',
@@ -100,6 +105,7 @@ function filtersFromQuery(): TrackFilters | null {
   if (!hasFilterQuery()) return null
 
   return {
+    page: queryPage(route.query.page),
     search: querySearch(route.query.search),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
@@ -110,7 +116,7 @@ function filtersFromQuery(): TrackFilters | null {
 }
 
 function hasFilterQuery() {
-  return ['search', 'genre', 'genreName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
+  return ['page', 'search', 'genre', 'genreName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): TrackFilters | null {
@@ -121,6 +127,7 @@ function filtersFromStorage(): TrackFilters | null {
     const parsed = JSON.parse(stored) as Partial<TrackFilters>
 
     return {
+      page: queryPage(parsed.page),
       search: typeof parsed.search === 'string' ? parsed.search : '',
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
@@ -144,18 +151,22 @@ function syncFiltersToRoute() {
 
   if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
 
-  void router.replace({ name: 'tracks', query })
+  const pendingSync = routeQuerySyncGuard.mark(query)
+
+  void router.replace({ name: 'tracks', query }).finally(() => {
+    routeQuerySyncGuard.release(pendingSync)
+  })
 }
 
 function applyFilters(filters: TrackFilters) {
   applyingRouteFilters = true
+  page.value = filters.page
   search.value = filters.search
   genre.value = filters.genre
   genreName.value = filters.genreName
   playStatus.value = filters.playStatus
   physicalCopy.value = filters.physicalCopy
   sort.value = filters.sort
-  page.value = 1
   applyingRouteFilters = false
   saveFilters()
 }
@@ -163,6 +174,7 @@ function applyFilters(filters: TrackFilters) {
 function filterQuery(filters: TrackFilters) {
   const query: Record<string, string> = {}
 
+  if (filters.page > 1) query.page = String(filters.page)
   if (filters.search.trim()) query.search = filters.search.trim()
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
@@ -175,6 +187,7 @@ function filterQuery(filters: TrackFilters) {
 
 function normalizedFilterQuery(query: typeof route.query) {
   return filterQuery({
+    page: queryPage(query.page),
     search: querySearch(query.search),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
@@ -186,6 +199,12 @@ function normalizedFilterQuery(query: typeof route.query) {
 
 function querySearch(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+function queryPage(value: unknown) {
+  const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
 }
 
 function queryNumber(value: unknown) {
@@ -218,6 +237,8 @@ function changePage(value: number) {
   if (value === page.value) return
 
   page.value = value
+  saveFilters()
+  syncFiltersToRoute()
   void nextTick(() => {
     resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
   })
@@ -277,6 +298,9 @@ saveFilters()
 watch(() => route.query, () => {
   if (route.name !== 'tracks') return
 
+  const normalizedQuery = normalizedFilterQuery(route.query)
+  if (routeQuerySyncGuard.consume(normalizedQuery)) return
+
   const routeFilters = filtersFromQuery()
   if (routeFilters) {
     applyFilters(routeFilters)
@@ -306,14 +330,16 @@ watch(search, () => {
   if (!applyingRouteFilters) {
     page.value = 1
     saveFilters()
-    syncFiltersToRoute()
   } else if (wasNotFirstPage) {
     page.value = 1
   }
 
   if (wasNotFirstPage) return
 
-  searchTimer = setTimeout(load, 300)
+  searchTimer = setTimeout(() => {
+    syncFiltersToRoute()
+    load()
+  }, 300)
 })
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -400,13 +426,15 @@ onUnmounted(() => {
         <span v-else>{{ t('catalog.unknownArtist') }}</span>
       </v-list-item-subtitle>
       <v-list-item-subtitle>
-        <RouterLink
-          v-if="track.album"
-          class="track-meta-link"
-          :to="{ name: 'album-detail', params: { id: track.album.id } }"
-        >
-          {{ track.album.title }}
-        </RouterLink>
+        <template v-if="track.album">
+          <RouterLink
+            class="track-meta-link"
+            :to="{ name: 'album-detail', params: { id: track.album.id }, query: { backTo: 'tracks' } }"
+          >
+            {{ track.album.title }}
+          </RouterLink>
+          <span v-if="track.year !== undefined && track.year !== null"> · {{ track.year }}</span>
+        </template>
         <span v-else>{{ t('catalog.unknownAlbum') }}</span>
         <v-chip
           v-if="track.album?.personalMetadata?.hasPhysicalCopy"

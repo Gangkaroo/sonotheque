@@ -72,9 +72,93 @@ ffprobe -version
 ```
 
 The packaged image installs FFmpeg automatically. `FFPROBE_BINARY` and
-`FFPROBE_TIMEOUT_SECONDS` can override the local executable and its per-file
-timeout when necessary. FFprobe only runs after getID3 reports an error, so
-normal scans retain their existing fast path.
+`FFPROBE_TIMEOUT_SECONDS` can override the local metadata fallback.
+`FFMPEG_BINARY` and `AUDIO_FINGERPRINT_TIMEOUT_SECONDS` configure the fallback
+used when getID3 cannot expose a safe audio-only byte range. Both external tools
+remain fallbacks, so normal scans retain their in-process fast path.
+
+## Optional Audio-Intelligence Pilot
+
+Audio intelligence is disabled by default. The standard Sonotheque runtime does
+not install Python packages, download a model, start an analyzer, or inspect
+audio for this feature.
+
+The experimental pilot adapter targets Essentia and the Discogs
+multi-similarity EffNet embedding model. Essentia's Python bindings are not
+available for native Windows Python, so the development setup uses an isolated
+Linux container. Build it explicitly:
+
+```powershell
+docker build --tag sonotheque-audio-intelligence:pilot .\audio-intelligence
+```
+
+Download and review the model separately, keep it beneath the ignored
+`audio-intelligence/models` directory, then configure the backend environment:
+
+```dotenv
+AUDIO_INTELLIGENCE_DRIVER=essentia_docker
+AUDIO_INTELLIGENCE_MODEL_PATH=C:/absolute/path/to/discogs-effnet.pb
+AUDIO_INTELLIGENCE_DOCKER_IMAGE=sonotheque-audio-intelligence:pilot
+AUDIO_INTELLIGENCE_CPU_LIMIT=2
+AUDIO_INTELLIGENCE_MEMORY_LIMIT=4g
+```
+
+The two-CPU default is conservative. On a machine with at least eight logical
+processors, a four-CPU limit is a reasonable first measured adjustment. CPU and
+memory limits do not affect artifact identity, so changing them never causes
+completed tracks to be analyzed again.
+
+On the development machine, bounded decoding plus a four-CPU limit reduced one
+6:16 MP3 from 29.3 seconds to 19.6 seconds (about 33%). The optimized run spent
+7.6 seconds decoding, 2.3 seconds extracting conventional features, and 9.2
+seconds generating the embedding. These per-stage timings are stored for newly
+created artifacts; existing reusable artifacts remain valid and are not
+recomputed merely to populate timing data.
+
+Restart the backend and queue worker after changing these values. In Settings,
+enable the Audio intelligence workspace, use **Check analyzer**, prepare a
+fingerprinted sample, and explicitly start the pilot. The worker analyzes at
+most three representative 30-second windows per long track. Each window is
+decoded directly rather than loading the entire track. The worker stores the
+exact analyzer/model versions, model checksum, licenses, features, pilot
+embedding, total runtime, decode/feature/embedding timings, hardware
+description, and per-file result.
+
+Laravel submits five tracks per analyzer container by default. Each completed
+chunk persists results and updates the Settings progress display. Cancellation
+is durable and takes effect between chunks, so completed results are retained
+while unstarted items are marked cancelled. Override
+`AUDIO_INTELLIGENCE_CHUNK_SIZE` only after measuring the tradeoff between model
+startup overhead and cancellation responsiveness.
+
+Analysis output is stored as a reusable artifact identified by the exact
+analyzer/model profile, audio-content fingerprint, and fingerprint version.
+Starting or resuming a pilot first links every matching artifact and sends only
+the remaining audio to the analyzer. Tag-only edits, file renames, and moves
+retain the audio fingerprint and therefore reuse the existing work. Changed
+audio, a changed fingerprint algorithm, or a different model profile creates
+new work instead of silently reusing an incompatible result.
+
+Failed, partial, and cancelled pilots can be resumed from Settings. A queued or
+running pilot becomes resumable only after its heartbeat is older than
+`AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES` (10 minutes by default), which avoids
+starting the same job twice while a worker is healthy. Completed and reused
+items are never submitted again. If a worker is forcibly stopped while an
+analyzer chunk is active, that one uncommitted chunk may run again; reducing the
+chunk size narrows that boundary but increases model startup overhead.
+
+The adapter uses `--pull=never`, disables container networking during health and
+analysis runs, applies the configured CPU and memory limits, and mounts the
+model plus sampled audio files read-only. It never downloads or modifies the
+configured model. The model path should point to a manually reviewed, read-only
+file. Do not enable this experimental adapter before reviewing the analyzer and
+model licenses for the intended use.
+
+The CPU image does not include CUDA runtime libraries. Docker can expose a
+compatible NVIDIA GPU through `--gpus all`, but GPU execution requires a
+separate optional image with matching CUDA and cuDNN libraries. Keep that image
+disabled by default and benchmark it against the CPU image before adopting it;
+only the embedding portion is expected to move to the GPU.
 
 ## First-Time Setup
 
@@ -199,6 +283,25 @@ Set `ENRICHMENT_CA_BUNDLE` when PHP needs an explicit certificate authority
 bundle for outbound HTTPS. `LASTFM_CA_BUNDLE`, `MUSICBRAINZ_CA_BUNDLE`, and
 `LRCLIB_CA_BUNDLE` can override it per provider; LRCLIB also reuses an existing
 Last.fm bundle for compatibility.
+
+## Audio Intelligence Pilot
+
+Settings > Audio intelligence contains the disabled-by-default foundation for
+local audio analysis. Enabling the workspace does not download a model, start
+an analysis service, dispatch background work, read audio files, or reserve CPU,
+GPU, or memory. It only permits preparation of a representative pilot sample.
+
+The sample size accepts 50 through 500 tracks and defaults to 200. Only
+available tracks with a current tag-independent audio-content fingerprint are
+eligible. Selection is proportional across enabled library roots and rotates
+through genres within each root. The resulting run stores track IDs, the
+fingerprints that were current at selection time, and compact coverage totals.
+No feature vectors or embeddings are generated at this stage.
+
+Preparing a newer sample preserves earlier runs for comparison. A rescan may be
+needed before sampling if tracks were indexed before audio-content fingerprints
+were introduced. Future analyzer jobs must compare each stored fingerprint with
+the current media file before using or updating a result.
 
 To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:
@@ -337,6 +440,36 @@ catalog together with empty albums and unreferenced artists or genres. Records
 beneath an unreadable path are preserved, while unrelated stale or explicitly
 excluded paths can still be cleaned. A completely unavailable root preserves
 the existing catalog.
+
+The Folders view can rename a visible audio file or folder within its current
+parent. Sonotheque performs the filesystem rename and then updates all affected
+media-file and album paths while retaining the existing track IDs. Playlist
+items, favorites, listening statistics, and queued track references therefore
+remain attached. Renames reject overwrites, symbolic links, unsafe or reserved
+names, audio-extension changes, read-only locations, and roots with an active
+scan. On a catalog-update failure, Sonotheque attempts to roll the filesystem
+rename back immediately.
+
+A file moved or renamed outside Sonotheque requires a rescan. During a full-root
+scan, Sonotheque compares newly discovered paths with missing old paths by a
+stored SHA-256 fingerprint of the audio payload. getID3 byte boundaries exclude
+leading and trailing tags where available; FFmpeg's stream-copy hash is the
+fallback for containers without a safe byte range. ID3 and APEv2 edits therefore
+do not alter an MP3 fingerprint.
+
+An old path is reused only when exactly one missing record and one new path have
+the fingerprint. The existing media-file and track IDs then survive, preserving
+playlist membership, favorites, statistics, and other references. Ambiguous
+duplicate copies are handled conservatively as removed and added files rather
+than risking the wrong association. A reconciled file is reparsed even when its
+size and modification time were preserved, so simultaneous tag edits are still
+imported. A subtree scan can only reconcile a move
+when both its old and new paths are inside that subtree; use a full-root scan for
+moves across subtree boundaries.
+
+The first successful scan after installing the fingerprint migration builds the
+baseline for existing files. A file moved before its old record has a baseline
+fingerprint cannot be reconciled retroactively.
 
 ## Playback Statistics Synchronization
 

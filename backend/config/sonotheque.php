@@ -19,6 +19,30 @@ return [
         'timeout_seconds' => (int) env('FFPROBE_TIMEOUT_SECONDS', 15),
     ],
 
+    'audio_fingerprint' => [
+        'ffmpeg_binary' => env('FFMPEG_BINARY', 'ffmpeg'),
+        'timeout_seconds' => (int) env('AUDIO_FINGERPRINT_TIMEOUT_SECONDS', 60),
+    ],
+
+    'audio_intelligence' => [
+        'driver' => env('AUDIO_INTELLIGENCE_DRIVER', 'none'),
+        'python_binary' => env('AUDIO_INTELLIGENCE_PYTHON_BINARY', 'python'),
+        'worker_script' => env(
+            'AUDIO_INTELLIGENCE_WORKER_SCRIPT',
+            base_path('../audio-intelligence/worker.py'),
+        ),
+        'model_path' => env('AUDIO_INTELLIGENCE_MODEL_PATH', ''),
+        'timeout_seconds' => (int) env('AUDIO_INTELLIGENCE_TIMEOUT_SECONDS', 14400),
+        'docker_image' => env(
+            'AUDIO_INTELLIGENCE_DOCKER_IMAGE',
+            'sonotheque-audio-intelligence:pilot',
+        ),
+        'cpu_limit' => (float) env('AUDIO_INTELLIGENCE_CPU_LIMIT', 2),
+        'memory_limit' => env('AUDIO_INTELLIGENCE_MEMORY_LIMIT', '4g'),
+        'chunk_size' => (int) env('AUDIO_INTELLIGENCE_CHUNK_SIZE', 5),
+        'resume_stale_minutes' => (int) env('AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES', 10),
+    ],
+
     'system_health' => [
         'backup_status_path' => storage_path('app/system-backups/latest.json'),
         'scheduler_heartbeat_key' => 'sonotheque:system-health:scheduler-heartbeat',

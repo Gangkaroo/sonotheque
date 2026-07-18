@@ -12,8 +12,10 @@ import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
+import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface AlbumFilters {
+  page: number
   search: string
   initial: string | null
   year: number | null
@@ -42,10 +44,11 @@ const genreName = ref(restoredFilters.genreName)
 const year = ref<number | null>(restoredFilters.year)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const sort = ref<AlbumSort>(restoredFilters.sort)
-const page = ref(1)
+const page = ref(restoredFilters.page)
 const resultsTop = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
+const routeQuerySyncGuard = createRouteQuerySyncGuard()
 const releaseYears = computed(() => {
   const currentYear = new Date().getFullYear()
 
@@ -85,6 +88,7 @@ function selectInitial(value: string | null) {
 
 function currentFilters(): AlbumFilters {
   return {
+    page: page.value,
     search: querySearch(search.value),
     initial: initial.value,
     year: year.value,
@@ -97,6 +101,7 @@ function currentFilters(): AlbumFilters {
 
 function defaultFilters(): AlbumFilters {
   return {
+    page: 1,
     search: '',
     initial: null,
     year: null,
@@ -119,6 +124,7 @@ function filtersFromQuery(): AlbumFilters | null {
   if (!hasFilterQuery()) return null
 
   return {
+    page: queryPage(route.query.page),
     search: querySearch(route.query.search),
     initial: queryInitial(route.query.initial),
     year: queryNumber(route.query.year),
@@ -130,7 +136,7 @@ function filtersFromQuery(): AlbumFilters | null {
 }
 
 function hasFilterQuery() {
-  return ['search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
+  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -141,6 +147,7 @@ function filtersFromStorage(): AlbumFilters | null {
     const parsed = JSON.parse(stored) as Partial<AlbumFilters>
 
     return {
+      page: queryPage(parsed.page),
       search: typeof parsed.search === 'string' ? parsed.search : '',
       initial: queryInitial(parsed.initial),
       year: typeof parsed.year === 'number' ? parsed.year : null,
@@ -165,11 +172,16 @@ function syncFiltersToRoute() {
 
   if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
 
-  void router.replace({ name: 'albums', query })
+  const pendingSync = routeQuerySyncGuard.mark(query)
+
+  void router.replace({ name: 'albums', query }).finally(() => {
+    routeQuerySyncGuard.release(pendingSync)
+  })
 }
 
 function applyFilters(filters: AlbumFilters) {
   applyingRouteFilters = true
+  page.value = filters.page
   search.value = filters.search
   initial.value = filters.initial
   year.value = filters.year
@@ -177,7 +189,6 @@ function applyFilters(filters: AlbumFilters) {
   genreName.value = filters.genreName
   physicalCopy.value = filters.physicalCopy
   sort.value = filters.sort
-  page.value = 1
   applyingRouteFilters = false
   saveFilters()
 }
@@ -185,6 +196,7 @@ function applyFilters(filters: AlbumFilters) {
 function filterQuery(filters: AlbumFilters) {
   const query: Record<string, string> = {}
 
+  if (filters.page > 1) query.page = String(filters.page)
   if (filters.search.trim()) query.search = filters.search.trim()
   if (filters.initial) query.initial = filters.initial
   if (filters.year) query.year = String(filters.year)
@@ -198,6 +210,7 @@ function filterQuery(filters: AlbumFilters) {
 
 function normalizedFilterQuery(query: typeof route.query) {
   return filterQuery({
+    page: queryPage(query.page),
     search: querySearch(query.search),
     initial: queryInitial(query.initial),
     year: queryNumber(query.year),
@@ -210,6 +223,12 @@ function normalizedFilterQuery(query: typeof route.query) {
 
 function querySearch(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+function queryPage(value: unknown) {
+  const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
 }
 
 function queryInitial(value: unknown) {
@@ -247,6 +266,8 @@ function changePage(value: number) {
   if (value === page.value) return
 
   page.value = value
+  saveFilters()
+  syncFiltersToRoute()
   void nextTick(() => {
     resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
   })
@@ -264,6 +285,9 @@ saveFilters()
 
 watch(() => route.query, () => {
   if (route.name !== 'albums') return
+
+  const normalizedQuery = normalizedFilterQuery(route.query)
+  if (routeQuerySyncGuard.consume(normalizedQuery)) return
 
   const routeFilters = filtersFromQuery()
   if (routeFilters) {
@@ -288,14 +312,16 @@ watch(search, () => {
   if (!applyingRouteFilters) {
     page.value = 1
     saveFilters()
-    syncFiltersToRoute()
   } else if (wasNotFirstPage) {
     page.value = 1
   }
 
   if (wasNotFirstPage) return
 
-  searchTimer = setTimeout(load, 300)
+  searchTimer = setTimeout(() => {
+    syncFiltersToRoute()
+    load()
+  }, 300)
 })
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)

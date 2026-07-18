@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Model;
     'discogs_connected_at',
     'online_information_enabled',
     'online_lyrics_enabled',
+    'audio_intelligence_enabled',
+    'audio_intelligence_sample_size',
 ])]
 class ApplicationSetting extends Model
 {
@@ -42,6 +44,8 @@ class ApplicationSetting extends Model
             'lastfm_scrobbling_enabled' => false,
             'online_information_enabled' => false,
             'online_lyrics_enabled' => false,
+            'audio_intelligence_enabled' => false,
+            'audio_intelligence_sample_size' => 200,
         ]);
     }
 
@@ -91,6 +95,8 @@ class ApplicationSetting extends Model
             'discogs_connected_at' => 'immutable_datetime',
             'online_information_enabled' => 'boolean',
             'online_lyrics_enabled' => 'boolean',
+            'audio_intelligence_enabled' => 'boolean',
+            'audio_intelligence_sample_size' => 'integer',
         ];
     }
 }

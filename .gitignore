@@ -7,4 +7,6 @@
 /compose.packaged.override.yaml
 /packaged-roots.json
 /packaged/
+/audio-intelligence/models/
+/audio-intelligence/__pycache__/
 backend/storage/PsySH/

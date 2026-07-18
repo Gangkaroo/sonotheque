@@ -161,6 +161,7 @@ export interface TrackDetail extends Track {
   genres: NamedCatalogItem[]
   mediaFile: {
     id: number
+    libraryRoot: NamedCatalogItem | null
     relativePath: string
     fileSize: number
     modifiedAt?: string | null

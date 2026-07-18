@@ -95,6 +95,7 @@ class CatalogBrowseApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('items.0.streamUrl', "/api/tracks/{$track->id}/stream")
+            ->assertJsonPath('items.0.year', 2001)
             ->assertJsonPath('items.0.album.title', 'Album')
             ->assertJsonPath('items.0.artists.0.name', 'Artist')
             ->assertJsonPath('items.0.playStatistics.playCount', 3);
@@ -108,6 +109,19 @@ class CatalogBrowseApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.id', $track->id)
             ->assertJsonPath('total', 1);
+
+        $this->getJson('/api/catalog/tracks?search=Art%20Tra')
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $track->id)
+            ->assertJsonPath('total', 1);
+
+        $this->getJson('/api/catalog/tracks?search=rack')
+            ->assertOk()
+            ->assertJsonPath('total', 0);
+
+        $this->getJson('/api/catalog/tracks?search=tist')
+            ->assertOk()
+            ->assertJsonPath('total', 0);
 
         $this->getJson("/api/catalog/tracks?genre={$genre->id}")
             ->assertOk()
@@ -310,6 +324,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('artists.0.name', 'Artist')
             ->assertJsonPath('genres.0.id', $genre->id)
             ->assertJsonPath('genres.0.name', 'Rock')
+            ->assertJsonPath('mediaFile.libraryRoot.id', $album->library_root_id)
+            ->assertJsonPath('mediaFile.libraryRoot.name', 'Music')
             ->assertJsonPath('mediaFile.relativePath', 'Artist/Album/track.mp3')
             ->assertJsonPath('mediaFile.status', MediaFileStatus::Available->value)
             ->assertJsonPath('mediaFile.mimeType', 'audio/mpeg')
@@ -649,6 +665,7 @@ class CatalogBrowseApiTest extends TestCase
             'duration_ms' => 123000,
             'disc_number' => 1,
             'track_number' => 1,
+            'year' => 2001,
         ]);
         $track->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
         $genre = Genre::create(['name' => 'Rock']);

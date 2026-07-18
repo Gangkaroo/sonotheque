@@ -38,6 +38,14 @@ export interface FolderTracks {
   tracks: Track[]
 }
 
+export interface RenamedLibraryEntry {
+  kind: 'directory' | 'file'
+  oldPath: string
+  newPath: string
+  affectedFiles: number
+  affectedTracks: number
+}
+
 function pathQuery(path: string | null) {
   if (!path) return ''
 
@@ -92,6 +100,13 @@ export const useLibraryFoldersStore = defineStore('libraryFolders', () => {
     )
   }
 
+  async function renameEntry(libraryRootId: number, path: string, name: string) {
+    return apiRequest<RenamedLibraryEntry>(`/library_roots/${libraryRootId}/entries/rename`, {
+      method: 'PATCH',
+      body: JSON.stringify({ path, name }),
+    })
+  }
+
   function clear() {
     request++
     listing.value = null
@@ -99,5 +114,5 @@ export const useLibraryFoldersStore = defineStore('libraryFolders', () => {
     error.value = null
   }
 
-  return { listing, loading, error, load, loadTracks, clear }
+  return { listing, loading, error, load, loadTracks, renameEntry, clear }
 })

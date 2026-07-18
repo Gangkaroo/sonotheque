@@ -49,8 +49,26 @@ class LibraryScanner
     /** @var array<string, Artist> */
     private array $artistCache = [];
 
-    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
+    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
     private array $existingFiles = [];
+
+    /** @var array<string, ?string> */
+    private array $fingerprintsByPath = [];
+
+    /** @var array<string, true> */
+    private array $fingerprintFailures = [];
+
+    /** @var array<string, int> */
+    private array $newFingerprintCounts = [];
+
+    /** @var list<DiscoveredAudioFile> */
+    private array $newFiles = [];
+
+    /** @var array<string, list<array{path_hash: string, state: array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics>}>> */
+    private array $staleFilesByFingerprint = [];
+
+    /** @var array<string, true> */
+    private array $discoveredPathHashes = [];
 
     /** @var array<string, Genre> */
     private array $genreCache = [];
@@ -63,6 +81,8 @@ class LibraryScanner
     private int $playStatisticsImported = 0;
 
     private int $issueRecordCount = 0;
+
+    private bool $storedFingerprintsAvailable = false;
 
     /** @var list<array{scan_run_id: int, code: string, severity: string, message: string, path: ?string, occurrence_count: int, created_at: mixed, updated_at: mixed}> */
     private array $pendingScanIssues = [];
@@ -77,6 +97,7 @@ class LibraryScanner
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
         private readonly AudioMetadataReader $metadataReader,
+        private readonly AudioContentFingerprinter $contentFingerprinter,
         private readonly ArtistName $artistName,
         private readonly AlbumArtworkManager $artworkManager,
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
@@ -119,8 +140,14 @@ class LibraryScanner
         try {
             $countDiagnostics = new DiscoveryDiagnostics();
 
-            foreach ($this->discover($scanRun, $countDiagnostics) as $_file) {
+            foreach ($this->discover($scanRun, $countDiagnostics) as $file) {
                 $progress['files_discovered']++;
+                $pathHash = $this->pathHash($file->relativePath);
+                $this->discoveredPathHashes[$pathHash] = true;
+
+                if (! isset($this->existingFiles[$pathHash]) && $this->hasStoredFingerprints()) {
+                    $this->newFiles[] = $file;
+                }
 
                 if ($progress['files_discovered'] % self::DISCOVERY_UPDATE_INTERVAL === 0
                     && $this->cancellationRequested($scanRun)) {
@@ -139,6 +166,12 @@ class LibraryScanner
             $scanRun->update(array_merge($progress, [
                 'summary' => $this->summary('scanning', $issues),
             ]));
+            $this->prepareMoveCandidates();
+            if (! $this->fingerprintNewFilesForMoveDetection($scanRun)) {
+                $this->cancelScan($scanRun, $progress, $issues);
+
+                return;
+            }
             $diagnostics = new DiscoveryDiagnostics();
 
             foreach ($this->discover($scanRun, $diagnostics) as $file) {
@@ -213,6 +246,19 @@ class LibraryScanner
 
             if ($diagnostics->warningCount() > 0) {
                 $progress['warning_count'] += $diagnostics->warningCount();
+            }
+
+            if ($this->fingerprintFailures !== []) {
+                $failureCount = count($this->fingerprintFailures);
+                $this->addIssue(
+                    $issues,
+                    'audio_fingerprint_failed',
+                    'warning',
+                    'Audio-content fingerprints could not be calculated for some files. Move detection was skipped for those files.',
+                    array_key_first($this->fingerprintFailures),
+                    $failureCount,
+                );
+                $progress['warning_count'] += $failureCount;
             }
 
             $canRemoveStaleFiles = $this->canRemoveStaleFiles($diagnostics);
@@ -303,7 +349,12 @@ class LibraryScanner
         $pathHash = $this->pathHash($file->relativePath);
         $existing = $this->existingFiles[$pathHash] ?? null;
 
+        if ($existing === null) {
+            $existing = $this->reconcileMovedFile($scanRun, $file, $pathHash);
+        }
+
         if ($existing !== null
+            && ! ($existing['moved'] ?? false)
             && $existing['status'] === MediaFileStatus::Available
             && $existing['file_size'] === $file->fileSize
             && $existing['modified_at'] === $file->modifiedAt
@@ -311,6 +362,14 @@ class LibraryScanner
             $album = $this->findAlbumById($existing['album_id']);
 
             if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
+                if ($existing['content_fingerprint'] === null
+                    || $existing['content_fingerprint_version'] !== AudioContentFingerprinter::VERSION) {
+                    MediaFile::query()->whereKey($existing['id'])->update([
+                        'content_fingerprint' => $this->fingerprint($file),
+                        'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
+                    ]);
+                }
+
                 $this->unchangedFileIds[] = $existing['id'];
                 $warnings = $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
                 $trackId = $existing['track_id'] ?? null;
@@ -323,10 +382,11 @@ class LibraryScanner
             }
         }
 
+        $contentFingerprint = $this->fingerprint($file);
         $metadata = $this->metadataReader->read($file->absolutePath);
 
         try {
-            $processed = DB::transaction(function () use ($scanRun, $file, $seenAt, $pathHash, $existing, $metadata): array {
+            $processed = DB::transaction(function () use ($scanRun, $file, $seenAt, $pathHash, $existing, $metadata, $contentFingerprint): array {
                 $artistName = $metadata->albumArtist ?? $metadata->artists[0] ?? $file->artistFolder;
                 $artist = $this->findOrCreateArtist($artistName);
                 $albumHash = $this->pathHash($file->albumRelativePath);
@@ -371,6 +431,8 @@ class LibraryScanner
                         'scan_error' => null,
                         'raw_metadata' => $metadata->rawMetadata,
                         'metadata_parser_version' => self::METADATA_PARSER_VERSION,
+                        'content_fingerprint' => $contentFingerprint,
+                        'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
                     ],
                 );
 
@@ -481,6 +543,8 @@ class LibraryScanner
                     'status' => MediaFileStatus::Error,
                     'last_seen_at' => $seenAt,
                     'scan_error' => mb_substr($message, 0, 65535),
+                    'content_fingerprint' => $this->fingerprint($file),
+                    'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
                 ],
             );
 
@@ -641,6 +705,13 @@ class LibraryScanner
         $this->artistCache = [];
         $this->genreCache = [];
         $this->unchangedFileIds = [];
+        $this->discoveredPathHashes = [];
+        $this->fingerprintsByPath = [];
+        $this->fingerprintFailures = [];
+        $this->newFingerprintCounts = [];
+        $this->newFiles = [];
+        $this->staleFilesByFingerprint = [];
+        $this->storedFingerprintsAvailable = false;
         $this->issueRecordCount = 0;
         $this->pendingScanIssues = [];
         $this->pendingScanRunId = $scanRun->id;
@@ -659,6 +730,8 @@ class LibraryScanner
                 'media_files.file_size',
                 'media_files.modified_at',
                 'media_files.metadata_parser_version',
+                'media_files.content_fingerprint',
+                'media_files.content_fingerprint_version',
             ]);
         $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
 
@@ -674,11 +747,16 @@ class LibraryScanner
                 $state['play_statistics'] = $this->playStatisticsTagReader->read($mediaFile->raw_metadata ?? []);
             }
 
+            if ($state['content_fingerprint'] !== null
+                && $state['content_fingerprint_version'] === AudioContentFingerprinter::VERSION) {
+                $this->storedFingerprintsAvailable = true;
+            }
+
             $this->existingFiles[$mediaFile->relative_path_hash] = $state;
         }
     }
 
-    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int} */
+    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int} */
     private function compactFileState(MediaFile $mediaFile): array
     {
         return [
@@ -688,7 +766,118 @@ class LibraryScanner
             'file_size' => $mediaFile->file_size,
             'modified_at' => $mediaFile->modified_at->getTimestamp(),
             'metadata_parser_version' => $mediaFile->metadata_parser_version,
+            'content_fingerprint' => $mediaFile->content_fingerprint,
+            'content_fingerprint_version' => $mediaFile->content_fingerprint_version,
         ];
+    }
+
+    private function fingerprint(DiscoveredAudioFile $file): ?string
+    {
+        $pathHash = $this->pathHash($file->relativePath);
+        if (array_key_exists($pathHash, $this->fingerprintsByPath)) {
+            return $this->fingerprintsByPath[$pathHash];
+        }
+
+        try {
+            return $this->fingerprintsByPath[$pathHash] = $this->contentFingerprinter->fingerprint($file->absolutePath);
+        } catch (Throwable) {
+            $this->fingerprintFailures[$file->relativePath] = true;
+
+            return $this->fingerprintsByPath[$pathHash] = null;
+        }
+    }
+
+    private function prepareMoveCandidates(): void
+    {
+        foreach ($this->existingFiles as $pathHash => $state) {
+            $fingerprint = $state['content_fingerprint'];
+            if (isset($this->discoveredPathHashes[$pathHash])
+                || $fingerprint === null
+                || $state['content_fingerprint_version'] !== AudioContentFingerprinter::VERSION) {
+                continue;
+            }
+
+            $this->staleFilesByFingerprint[$fingerprint][] = [
+                'path_hash' => $pathHash,
+                'state' => $state,
+            ];
+        }
+    }
+
+    private function fingerprintNewFilesForMoveDetection(ScanRun $scanRun): bool
+    {
+        if ($this->staleFilesByFingerprint === []) {
+            $this->newFiles = [];
+
+            return true;
+        }
+
+        foreach ($this->newFiles as $index => $file) {
+            if ($index % self::CANCELLATION_CHECK_INTERVAL === 0
+                && $this->cancellationRequested($scanRun)) {
+                $this->newFiles = [];
+
+                return false;
+            }
+
+            $fingerprint = $this->fingerprint($file);
+            if ($fingerprint !== null) {
+                $this->newFingerprintCounts[$fingerprint] = ($this->newFingerprintCounts[$fingerprint] ?? 0) + 1;
+            }
+        }
+
+        $this->newFiles = [];
+
+        return true;
+    }
+
+    private function hasStoredFingerprints(): bool
+    {
+        return $this->storedFingerprintsAvailable;
+    }
+
+    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics}|null */
+    private function reconcileMovedFile(
+        ScanRun $scanRun,
+        DiscoveredAudioFile $file,
+        string $pathHash,
+    ): ?array {
+        $fingerprint = $this->fingerprint($file);
+        if ($fingerprint === null
+            || ($this->newFingerprintCounts[$fingerprint] ?? 0) !== 1
+            || count($this->staleFilesByFingerprint[$fingerprint] ?? []) !== 1) {
+            return null;
+        }
+
+        $candidate = $this->staleFilesByFingerprint[$fingerprint][0];
+        $updated = MediaFile::query()
+            ->whereKey($candidate['state']['id'])
+            ->where('library_root_id', $scanRun->library_root_id)
+            ->where('relative_path_hash', $candidate['path_hash'])
+            ->update([
+                'relative_path' => $file->relativePath,
+                'relative_path_hash' => $pathHash,
+                'file_size' => $file->fileSize,
+                'modified_at' => CarbonImmutable::createFromTimestamp($file->modifiedAt),
+                'content_fingerprint' => $fingerprint,
+                'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
+            ]);
+
+        if ($updated !== 1) {
+            return null;
+        }
+
+        $state = $candidate['state'];
+        $state['content_fingerprint'] = $fingerprint;
+        $state['content_fingerprint_version'] = AudioContentFingerprinter::VERSION;
+        $state['moved'] = true;
+        unset(
+            $this->existingFiles[$candidate['path_hash']],
+            $this->staleFilesByFingerprint[$fingerprint],
+        );
+        $this->existingFiles[$pathHash] = $state;
+
+        return $state;
     }
 
     /** @return list<string> */
