@@ -40,6 +40,7 @@ return [
         'cpu_limit' => (float) env('AUDIO_INTELLIGENCE_CPU_LIMIT', 2),
         'memory_limit' => env('AUDIO_INTELLIGENCE_MEMORY_LIMIT', '4g'),
         'chunk_size' => (int) env('AUDIO_INTELLIGENCE_CHUNK_SIZE', 5),
+        'preparation_chunk_size' => (int) env('AUDIO_INTELLIGENCE_PREPARATION_CHUNK_SIZE', 10),
         'resume_stale_minutes' => (int) env('AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES', 10),
     ],
 

@@ -32,6 +32,9 @@ class RunAudioIntelligencePilot implements ShouldQueue
             'profile',
         ])->findOrFail($this->audioAnalysisRunId);
 
+        if ($run->phase !== 'analysis') {
+            return;
+        }
         if (in_array($run->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
             return;
         }

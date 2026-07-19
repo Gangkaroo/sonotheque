@@ -77,8 +77,10 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
 
             $extension = pathinfo($sourcePath, PATHINFO_EXTENSION);
             $containerPath = '/audio/'.($index + 1).($extension === '' ? '' : '.'.$extension);
-            $mounts[] = '--mount';
-            $mounts[] = $this->bindMount($sourcePath, $containerPath);
+            $mounts = [
+                ...$mounts,
+                ...$this->bindMount($sourcePath, $containerPath),
+            ];
             $containerRequests[] = [
                 ...$request,
                 'path' => $containerPath,
@@ -145,16 +147,13 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
     /** @return list<string> */
     private function modelMount(): array
     {
-        return ['--mount', $this->bindMount($this->modelPath, '/model/model.pb')];
+        return $this->bindMount($this->modelPath, '/model/model.pb');
     }
 
-    private function bindMount(string $source, string $target): string
+    /** @return list<string> */
+    private function bindMount(string $source, string $target): array
     {
-        if (str_contains($source, ',')) {
-            throw new RuntimeException('Docker analyzer mount paths must not contain commas.');
-        }
-
-        return "type=bind,source={$source},target={$target},readonly";
+        return ['--volume', "{$source}:{$target}:ro"];
     }
 
     /** @return array<string, mixed> */

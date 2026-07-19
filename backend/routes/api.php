@@ -7,6 +7,7 @@ use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioIntelligenceSettingsController;
+use App\Http\Controllers\AudioSimilarityEvaluationController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
 use App\Http\Controllers\DashboardMetricsController;
@@ -86,6 +87,22 @@ Route::post(
 Route::post(
     '/settings/audio-intelligence/pilots/{audioAnalysisRun}/resume',
     [AudioIntelligenceSettingsController::class, 'resumePilot'],
+);
+Route::get(
+    '/settings/audio-intelligence/evaluation',
+    [AudioSimilarityEvaluationController::class, 'index'],
+);
+Route::get(
+    '/settings/audio-intelligence/evaluation/{track}',
+    [AudioSimilarityEvaluationController::class, 'show'],
+);
+Route::put(
+    '/settings/audio-intelligence/evaluation/{track}/matches/{candidate}/feedback',
+    [AudioSimilarityEvaluationController::class, 'storeFeedback'],
+);
+Route::delete(
+    '/settings/audio-intelligence/evaluation/{track}/matches/{candidate}/feedback',
+    [AudioSimilarityEvaluationController::class, 'destroyFeedback'],
 );
 Route::get('/settings/first-run', [FirstRunSetupController::class, 'show']);
 Route::patch('/settings/first-run', [FirstRunSetupController::class, 'update']);

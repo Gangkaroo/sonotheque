@@ -636,9 +636,10 @@ Completed:
   collection instances, including duplicate-instance selection, cached release
   details and thumbnails, refresh, change, and unlink actions
 - Disabled-by-default Audio intelligence settings with durable representative
-  pilot samples selected across enabled roots and genres by tag-independent
-  audio fingerprints, a versioned analyzer contract, and manually provisioned
-  pilot execution; no analyzer or model download is started automatically
+  pilot samples selected across enabled roots, artists, and genres; bounded,
+  resumable fingerprint preparation; a versioned analyzer contract; and
+  manually provisioned pilot execution. No analyzer or model download is
+  started automatically
 
 Open roadmap work:
 
@@ -1003,9 +1004,11 @@ Last.fm integration.
 ### 5e. Local Audio Intelligence And Similarity
 
 - Add an independently protected Audio intelligence settings area and durable
-  pilot runs that select 50-to-500 fingerprinted tracks across enabled roots
-  and genres without provisioning a model or dispatching analysis.
-  (Complete)
+  pilot runs that select 50-to-500 catalog tracks across enabled roots, artists,
+  and genres without provisioning a model or dispatching analysis. Fingerprint
+  only the selected bounded sample plus a small reserve, reuse existing
+  fingerprints, and support cancellation and restart without repeating
+  completed work. (Complete)
 - Add an optional Python analysis worker that shares read-only access to mounted
   library roots and receives versioned jobs from Laravel. Keep the service
   stopped and unprovisioned until the user opts in. (Initial CLI pilot worker
@@ -1029,11 +1032,20 @@ Last.fm integration.
   version changes; tag-only edits, moves, and renames must reuse it. (Complete
   for pilot artifacts, including reuse across runs and duplicate fingerprints.)
 - Add exact cosine search first, then an HNSW index only after measuring query
-  latency and recall on the real collection. (Pending)
+  latency and recall on the real collection. (Exact cosine evaluation is
+  complete for reusable pilot artifacts: the initial 50-track set compares 49
+  candidates in about 120 ms. HNSW remains pending until a larger,
+  cross-collection sample demonstrates useful neighbours and a need for it.)
 - Add a deterministic similarity service with optional BPM, key, energy, mood,
   library-root, artist-diversity, and duplicate controls. (Pending)
 - Add Similar Tracks and Continue This Mood actions with a reviewable queue
   preview; never modify playback or playlists without confirmation. (Pending)
+- Add a read-only evaluation workspace that selects an analyzed track, ranks
+  exact cosine neighbours, exposes scores and feature context, and links back
+  to catalog details without changing playback. Add compact feature
+  distributions, same-album and same-artist exclusions, and profile-scoped
+  relevant/not-relevant feedback so baseline quality can be measured before
+  introducing heuristic weighting. (Complete)
 - Add Settings controls for opt-in model downloads, worker health, analysis
   progress, pause/resume, CPU/GPU limits, model replacement, and result rebuild.
   (Worker health, bounded CPU/memory settings, durable chunk progress,
@@ -1136,18 +1148,17 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The representative sample and manually provisioned execution foundation for
-Phase 5e are complete. A CPU-only Essentia and Discogs multi-similarity EffNet
-pilot analyzed 50 fingerprinted tracks successfully in 14 minutes 14 seconds,
-with 831.7 seconds of summed per-track analysis time and no failures. Future
-runs use five-track chunks with durable progress and cancellation between
-chunks. The next experimental step is to inspect feature distributions and
-qualitative nearest neighbours, then measure exact cosine latency against these
-stored embeddings. Similarity quality and latency must be reviewed before
-Sonotheque provisions a full-library worker or commits to pgvector. The
-collection assistant in Phase 5f should follow only after the underlying search,
-aggregate, and similarity tools produce trustworthy, explainable results
-without an LLM.
+The cross-root pilot completed 200 of 200 tracks without analysis failures. Its
+sample covers all three enabled roots, 197 artists, and 167 genres; together
+with the initial pilot, 250 reusable artifacts are available for evaluation.
+The next experiment is qualitative review in the read-only evaluator: inspect
+feature distributions, compare exact-cosine neighbours with and without
+same-artist/album exclusions, and record relevant/not-relevant feedback. Do not
+increase to 500 tracks, add heuristic BPM/key weighting, provision a
+full-library worker, build an optional GPU image, or commit to pgvector until
+the feedback demonstrates useful baseline neighbours. The collection assistant
+in Phase 5f should follow only after the underlying search, aggregate, and
+similarity tools produce trustworthy, explainable results without an LLM.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\PrepareAudioIntelligencePilot;
 use App\Jobs\RunAudioIntelligencePilot;
 use App\Models\Album;
 use App\Models\ApplicationSetting;
@@ -29,6 +30,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('enabled', false)
             ->assertJsonPath('sampleSize', 200)
             ->assertJsonPath('eligibleTrackCount', 0)
+            ->assertJsonPath('fingerprintedTrackCount', 0)
             ->assertJsonPath('analyzerStatus', 'not_configured')
             ->assertJsonPath('analyzer.status', 'not_configured')
             ->assertJsonPath('latestPilot', null);
@@ -63,7 +65,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('analyzerStatus', 'not_configured');
     }
 
-    public function test_pilot_preparation_requires_opt_in_and_dispatches_no_analysis_job(): void
+    public function test_pilot_preparation_requires_opt_in_and_dispatches_no_job(): void
     {
         Queue::fake();
 
@@ -74,7 +76,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertDatabaseCount('audio_analysis_runs', 0);
     }
 
-    public function test_it_prepares_a_fingerprinted_sample_across_roots_and_genres_without_analysis(): void
+    public function test_it_queues_a_diverse_catalog_sample_for_bounded_fingerprint_preparation(): void
     {
         Queue::fake();
         $library = Library::create(['name' => 'Pilot library']);
@@ -82,7 +84,13 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->map(fn (string $name): Genre => Genre::create(['name' => $name]));
         $firstRoot = $this->createCatalog($library, 'First', 30, $genres->all());
         $secondRoot = $this->createCatalog($library, 'Second', 30, $genres->all());
-        $this->createCatalog($library, 'No fingerprints', 4, $genres->all(), fingerprinted: false);
+        $thirdRoot = $this->createCatalog(
+            $library,
+            'No fingerprints',
+            4,
+            $genres->all(),
+            fingerprinted: false,
+        );
 
         $this->patchJson('/api/settings/audio-intelligence', [
             'enabled' => true,
@@ -90,23 +98,26 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         ])->assertOk();
 
         $response = $this->postJson('/api/settings/audio-intelligence/pilots')
-            ->assertCreated()
+            ->assertAccepted()
             ->assertJsonPath('enabled', true)
             ->assertJsonPath('sampleSize', 50)
-            ->assertJsonPath('eligibleTrackCount', 60)
+            ->assertJsonPath('eligibleTrackCount', 64)
+            ->assertJsonPath('fingerprintedTrackCount', 60)
             ->assertJsonPath('analyzerStatus', 'not_configured')
-            ->assertJsonPath('latestPilot.status', 'prepared')
+            ->assertJsonPath('latestPilot.phase', 'preparation')
+            ->assertJsonPath('latestPilot.status', 'fingerprinting')
             ->assertJsonPath('latestPilot.requestedTrackCount', 50)
-            ->assertJsonPath('latestPilot.selectedTrackCount', 50)
-            ->assertJsonPath('latestPilot.summary.eligibleRootCount', 2)
-            ->assertJsonPath('latestPilot.summary.selectedRootCount', 2)
-            ->assertJsonPath('latestPilot.summary.selectedGenreCount', 3);
+            ->assertJsonPath('latestPilot.selectedTrackCount', 0)
+            ->assertJsonPath('latestPilot.summary.eligibleRootCount', 3)
+            ->assertJsonPath('latestPilot.summary.candidateTrackCount', 60)
+            ->assertJsonPath('latestPilot.summary.candidateRootCount', 3)
+            ->assertJsonPath('latestPilot.summary.candidateGenreCount', 3);
 
         $runId = $response->json('latestPilot.id');
         $this->assertDatabaseCount('audio_analysis_runs', 1);
-        $this->assertDatabaseCount('audio_analysis_run_items', 50);
+        $this->assertDatabaseCount('audio_analysis_run_items', 60);
         $this->assertSame(
-            [$firstRoot->id, $secondRoot->id],
+            [$firstRoot->id, $secondRoot->id, $thirdRoot->id],
             DB::table('audio_analysis_run_items')
                 ->where('audio_analysis_run_id', $runId)
                 ->distinct()
@@ -115,15 +126,19 @@ class AudioIntelligenceSettingsApiTest extends TestCase
                 ->all(),
         );
         $this->assertSame(
-            50,
+            0,
             DB::table('audio_analysis_run_items')
                 ->where('audio_analysis_run_id', $runId)
                 ->whereNotNull('content_fingerprint')
                 ->where('content_fingerprint_version', 1)
                 ->count(),
         );
-        $this->assertSame('prepared', AudioAnalysisRun::findOrFail($runId)->status);
-        Queue::assertNothingPushed();
+        $this->assertSame('fingerprinting', AudioAnalysisRun::findOrFail($runId)->status);
+        Queue::assertPushed(
+            PrepareAudioIntelligencePilot::class,
+            fn (PrepareAudioIntelligencePilot $job): bool => $job->audioAnalysisRunId === $runId,
+        );
+        Queue::assertNotPushed(RunAudioIntelligencePilot::class);
     }
 
     public function test_prepared_pilot_starts_with_a_ready_analyzer(): void
@@ -137,6 +152,18 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             'audio_intelligence_sample_size' => 50,
         ]);
         $run = app(\App\Music\Intelligence\AudioIntelligencePilotSampler::class)->prepare(50);
+        $run->items()->each(function ($item): void {
+            $fingerprint = $item->track->mediaFile->content_fingerprint;
+            $item->update([
+                'content_fingerprint' => $fingerprint,
+                'content_fingerprint_version' => 1,
+                'status' => 'selected',
+            ]);
+        });
+        $run->update([
+            'status' => 'prepared',
+            'selected_track_count' => 50,
+        ]);
 
         $this->app->instance(AudioAnalyzer::class, FakeAudioAnalyzer::ready());
         $this->postJson("/api/settings/audio-intelligence/pilots/{$run->id}/start")
@@ -151,6 +178,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         ]);
         $this->assertDatabaseHas('audio_analysis_runs', [
             'id' => $run->id,
+            'phase' => 'analysis',
             'status' => 'queued',
         ]);
         $this->assertSame(

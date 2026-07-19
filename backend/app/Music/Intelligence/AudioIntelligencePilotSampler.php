@@ -4,7 +4,9 @@ namespace App\Music\Intelligence;
 
 use App\Enums\MediaFileStatus;
 use App\Models\AudioAnalysisRun;
+use App\Music\Scanning\AudioContentFingerprinter;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,7 +20,8 @@ class AudioIntelligencePilotSampler
      * @return Collection<int, object{
      *     id: int,
      *     name: string,
-     *     eligible_track_count: int
+     *     eligible_track_count: int,
+     *     fingerprinted_track_count: int
      * }>
      */
     public function eligibleRoots(): Collection
@@ -28,20 +31,52 @@ class AudioIntelligencePilotSampler
             ->join('tracks', 'tracks.media_file_id', '=', 'media_files.id')
             ->where('library_roots.enabled', true)
             ->where('media_files.status', MediaFileStatus::Available->value)
-            ->whereNotNull('media_files.content_fingerprint')
-            ->whereNotNull('media_files.content_fingerprint_version')
             ->groupBy(['library_roots.id', 'library_roots.name'])
             ->orderBy('library_roots.id')
             ->get([
                 'library_roots.id',
                 'library_roots.name',
                 DB::raw('COUNT(tracks.id)::int AS eligible_track_count'),
+                DB::raw(
+                    'COUNT(*) FILTER (WHERE media_files.content_fingerprint IS NOT NULL'
+                    .' AND media_files.content_fingerprint_version = '
+                    .AudioContentFingerprinter::VERSION.')::int AS fingerprinted_track_count',
+                ),
             ]);
     }
 
     public function eligibleTrackCount(): int
     {
-        return (int) $this->eligibleRoots()->sum('eligible_track_count');
+        return $this->coverage()['eligibleTrackCount'];
+    }
+
+    /**
+     * @return array{
+     *     eligibleTrackCount: int,
+     *     fingerprintedTrackCount: int,
+     *     eligibleRootCount: int
+     * }
+     */
+    public function coverage(): array
+    {
+        return Cache::remember(
+            'sonotheque:audio-intelligence:fingerprint-coverage:v1',
+            300,
+            function (): array {
+                $roots = $this->eligibleRoots();
+
+                return [
+                    'eligibleTrackCount' => (int) $roots->sum('eligible_track_count'),
+                    'fingerprintedTrackCount' => (int) $roots->sum('fingerprinted_track_count'),
+                    'eligibleRootCount' => $roots->count(),
+                ];
+            },
+        );
+    }
+
+    public function forgetCoverage(): void
+    {
+        Cache::forget('sonotheque:audio-intelligence:fingerprint-coverage:v1');
     }
 
     public function prepare(int $requestedTrackCount): AudioAnalysisRun
@@ -49,11 +84,15 @@ class AudioIntelligencePilotSampler
         $roots = $this->eligibleRoots();
         $eligibleTrackCount = (int) $roots->sum('eligible_track_count');
         $targetTrackCount = min($requestedTrackCount, $eligibleTrackCount);
+        $reserveTrackCount = min(
+            max(0, $eligibleTrackCount - $targetTrackCount),
+            max(10, (int) ceil($targetTrackCount * 0.1)),
+        );
         $seed = Str::uuid()->toString();
 
         $selected = $targetTrackCount === 0
             ? collect()
-            : $this->selectTracks($roots, $targetTrackCount, $seed);
+            : $this->selectTracks($roots, $targetTrackCount + $reserveTrackCount, $seed);
 
         return DB::transaction(function () use (
             $eligibleTrackCount,
@@ -63,16 +102,21 @@ class AudioIntelligencePilotSampler
             $selected,
         ): AudioAnalysisRun {
             $run = AudioAnalysisRun::create([
-                'status' => 'prepared',
+                'phase' => 'preparation',
+                'status' => 'fingerprinting',
                 'selection_seed' => $seed,
                 'requested_track_count' => $requestedTrackCount,
-                'selected_track_count' => $selected->count(),
+                'selected_track_count' => 0,
                 'summary' => [
                     'eligibleTrackCount' => $eligibleTrackCount,
                     'eligibleRootCount' => $roots->count(),
-                    'selectedRootCount' => $selected->pluck('library_root_id')->unique()->count(),
-                    'selectedGenreCount' => $selected->pluck('genre_id')->filter()->unique()->count(),
-                    'unclassifiedTrackCount' => $selected->whereNull('genre_id')->count(),
+                    'candidateTrackCount' => $selected->count(),
+                    'candidateRootCount' => $selected->pluck('library_root_id')->unique()->count(),
+                    'candidateGenreCount' => $selected->pluck('genre_id')->filter()->unique()->count(),
+                    'candidateArtistCount' => $selected->pluck('artist_id')->filter()->unique()->count(),
+                    'fingerprintedTrackCount' => 0,
+                    'fingerprintFailedTrackCount' => 0,
+                    'processedFingerprintTrackCount' => 0,
                 ],
             ]);
 
@@ -83,10 +127,10 @@ class AudioIntelligencePilotSampler
                     'track_id' => $track->track_id,
                     'library_root_id' => $track->library_root_id,
                     'genre_id' => $track->genre_id,
-                    'content_fingerprint' => $track->content_fingerprint,
-                    'content_fingerprint_version' => $track->content_fingerprint_version,
+                    'content_fingerprint' => null,
+                    'content_fingerprint_version' => null,
                     'position' => $position,
-                    'status' => 'selected',
+                    'status' => 'pending_fingerprint',
                     'created_at' => $now,
                     'updated_at' => $now,
                 ],
@@ -104,14 +148,14 @@ class AudioIntelligencePilotSampler
      * @param  Collection<int, object{
      *     id: int,
      *     name: string,
-     *     eligible_track_count: int
+     *     eligible_track_count: int,
+     *     fingerprinted_track_count: int
      * }>  $roots
      * @return Collection<int, object{
      *     track_id: int,
-     *     content_fingerprint: string,
-     *     content_fingerprint_version: int,
      *     library_root_id: int,
-     *     genre_id: ?int
+     *     genre_id: ?int,
+     *     artist_id: ?int
      * }>
      */
     private function selectTracks(Collection $roots, int $targetTrackCount, string $seed): Collection
@@ -131,11 +175,11 @@ class AudioIntelligencePilotSampler
                 );
                 $candidates = DB::table('tracks')
                     ->join('media_files', 'media_files.id', '=', 'tracks.media_file_id')
+                    ->join('albums', 'albums.id', '=', 'tracks.album_id')
                     ->select([
                         'tracks.id as track_id',
-                        'media_files.content_fingerprint',
-                        'media_files.content_fingerprint_version',
                         'media_files.library_root_id',
+                        'albums.primary_artist_id as album_artist_id',
                     ])
                     ->selectSub(
                         DB::table('genre_track')
@@ -143,18 +187,26 @@ class AudioIntelligencePilotSampler
                             ->whereColumn('genre_track.track_id', 'tracks.id'),
                         'genre_id',
                     )
+                    ->selectSub(
+                        DB::table('artist_track')
+                            ->selectRaw('MIN(artist_id)')
+                            ->whereColumn('artist_track.track_id', 'tracks.id'),
+                        'track_artist_id',
+                    )
                     ->where('media_files.library_root_id', $root->id)
                     ->where('media_files.status', MediaFileStatus::Available->value)
-                    ->whereNotNull('media_files.content_fingerprint')
-                    ->whereNotNull('media_files.content_fingerprint_version')
                     ->orderByRaw(
-                        "md5(media_files.content_fingerprint || ? || tracks.id::text)",
+                        "md5(media_files.relative_path_hash || ? || tracks.id::text)",
                         [$seed],
                     )
                     ->limit($candidateCount)
-                    ->get();
+                    ->get()
+                    ->each(function (object $candidate): void {
+                        $candidate->artist_id = $candidate->track_artist_id
+                            ?? $candidate->album_artist_id;
+                    });
 
-                return $this->takeGenreDiverse($candidates, $rootTarget, $seed);
+                return $this->takeDiverse($candidates, $rootTarget, $seed);
             })
             ->values();
     }
@@ -230,20 +282,18 @@ class AudioIntelligencePilotSampler
     /**
      * @param  Collection<int, object{
      *     track_id: int,
-     *     content_fingerprint: string,
-     *     content_fingerprint_version: int,
      *     library_root_id: int,
-     *     genre_id: ?int
+     *     genre_id: ?int,
+     *     artist_id: ?int
      * }>  $candidates
      * @return Collection<int, object{
      *     track_id: int,
-     *     content_fingerprint: string,
-     *     content_fingerprint_version: int,
      *     library_root_id: int,
-     *     genre_id: ?int
+     *     genre_id: ?int,
+     *     artist_id: ?int
      * }>
      */
-    private function takeGenreDiverse(Collection $candidates, int $limit, string $seed): Collection
+    private function takeDiverse(Collection $candidates, int $limit, string $seed): Collection
     {
         /** @var array<string, list<object>> $groups */
         $groups = [];
@@ -260,11 +310,26 @@ class AudioIntelligencePilotSampler
         );
 
         $selected = collect();
+        $selectedArtists = [];
         while ($selected->count() < $limit && $groups !== []) {
             foreach (array_keys($groups) as $key) {
-                $candidate = array_shift($groups[$key]);
+                $candidateIndex = null;
+                foreach ($groups[$key] as $index => $groupCandidate) {
+                    $artistKey = $groupCandidate->artist_id === null
+                        ? null
+                        : (string) $groupCandidate->artist_id;
+                    if ($artistKey === null || ! isset($selectedArtists[$artistKey])) {
+                        $candidateIndex = $index;
+                        break;
+                    }
+                }
+                $candidateIndex ??= 0;
+                $candidate = array_splice($groups[$key], $candidateIndex, 1)[0] ?? null;
                 if ($candidate !== null) {
                     $selected->push($candidate);
+                    if ($candidate->artist_id !== null) {
+                        $selectedArtists[(string) $candidate->artist_id] = true;
+                    }
                 }
                 if ($groups[$key] === []) {
                     unset($groups[$key]);

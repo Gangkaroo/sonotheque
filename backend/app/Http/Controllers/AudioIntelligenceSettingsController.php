@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\PrepareAudioIntelligencePilot;
 use App\Jobs\RunAudioIntelligencePilot;
 use App\Models\ApplicationSetting;
 use App\Models\AudioAnalysisRun;
@@ -53,8 +54,9 @@ class AudioIntelligenceSettingsController extends Controller
         abort_unless($settings->audio_intelligence_enabled, 409, 'Enable audio intelligence before preparing a pilot.');
 
         $run = $this->pilotSampler->prepare($settings->audio_intelligence_sample_size);
+        PrepareAudioIntelligencePilot::dispatch($run->id);
 
-        return response()->json($this->payload($settings, $run), 201);
+        return response()->json($this->payload($settings, $run), 202);
     }
 
     public function testAnalyzer(): JsonResponse
@@ -70,7 +72,9 @@ class AudioIntelligenceSettingsController extends Controller
         $settings = ApplicationSetting::current();
         abort_unless($settings->audio_intelligence_enabled, 409, 'Enable audio intelligence before running a pilot.');
         abort_unless(
-            $audioAnalysisRun->status === 'prepared' && $audioAnalysisRun->selected_track_count > 0,
+            $audioAnalysisRun->phase === 'preparation'
+                && $audioAnalysisRun->status === 'prepared'
+                && $audioAnalysisRun->selected_track_count > 0,
             409,
             'Only a prepared, non-empty pilot can be started.',
         );
@@ -85,7 +89,11 @@ class AudioIntelligenceSettingsController extends Controller
         $profile = $this->profileRegistry->resolve($health->profile);
         $audioAnalysisRun->update([
             'audio_analysis_profile_id' => $profile->id,
+            'phase' => 'analysis',
             'status' => 'queued',
+            'finished_at' => null,
+            'cancel_requested_at' => null,
+            'heartbeat_at' => null,
         ]);
         $audioAnalysisRun->items()->where('status', 'selected')->update(['status' => 'queued']);
         RunAudioIntelligencePilot::dispatch($audioAnalysisRun->id);
@@ -99,9 +107,9 @@ class AudioIntelligenceSettingsController extends Controller
     public function cancelPilot(AudioAnalysisRun $audioAnalysisRun): JsonResponse
     {
         abort_unless(
-            in_array($audioAnalysisRun->status, ['queued', 'running'], true),
+            in_array($audioAnalysisRun->status, ['fingerprinting', 'queued', 'running'], true),
             409,
-            'Only a queued or running pilot can be cancelled.',
+            'Only an active pilot can be cancelled.',
         );
 
         $audioAnalysisRun->update(['cancel_requested_at' => now()]);
@@ -122,22 +130,38 @@ class AudioIntelligenceSettingsController extends Controller
             'This pilot is either complete or still has an active worker.',
         );
 
-        $audioAnalysisRun->items()
-            ->whereIn('status', ['failed', 'cancelled', 'running'])
-            ->update([
-                'status' => 'queued',
-                'error' => null,
-            ]);
         $summary = $audioAnalysisRun->summary ?? [];
-        unset($summary['analysisError']);
+        if ($audioAnalysisRun->phase === 'preparation') {
+            unset($summary['fingerprintPreparationError']);
+            $audioAnalysisRun->items()
+                ->whereIn('status', ['fingerprint_failed', 'cancelled', 'fingerprinting'])
+                ->update([
+                    'status' => 'pending_fingerprint',
+                    'error' => null,
+                ]);
+            $status = 'fingerprinting';
+        } else {
+            unset($summary['analysisError']);
+            $audioAnalysisRun->items()
+                ->whereIn('status', ['failed', 'cancelled', 'running'])
+                ->update([
+                    'status' => 'queued',
+                    'error' => null,
+                ]);
+            $status = 'queued';
+        }
         $audioAnalysisRun->update([
-            'status' => 'queued',
+            'status' => $status,
             'summary' => $summary,
             'finished_at' => null,
             'cancel_requested_at' => null,
             'heartbeat_at' => null,
         ]);
-        RunAudioIntelligencePilot::dispatch($audioAnalysisRun->id);
+        if ($audioAnalysisRun->phase === 'preparation') {
+            PrepareAudioIntelligencePilot::dispatch($audioAnalysisRun->id);
+        } else {
+            RunAudioIntelligencePilot::dispatch($audioAnalysisRun->id);
+        }
 
         return response()->json($this->payload($settings, $audioAnalysisRun->fresh()), 202);
     }
@@ -147,6 +171,7 @@ class AudioIntelligenceSettingsController extends Controller
      *     enabled: bool,
      *     sampleSize: int,
      *     eligibleTrackCount: int,
+     *     fingerprintedTrackCount: int,
      *     analyzerStatus: string,
      *     analyzer: array<string, mixed>,
      *     latestPilot: ?array<string, mixed>
@@ -164,15 +189,18 @@ class AudioIntelligenceSettingsController extends Controller
         );
         $latestPilot = $run ?? AudioAnalysisRun::query()->latest('id')->first();
         $latestPilot?->loadMissing('profile');
+        $coverage = $this->pilotSampler->coverage();
 
         return [
             'enabled' => $settings->audio_intelligence_enabled,
             'sampleSize' => $settings->audio_intelligence_sample_size,
-            'eligibleTrackCount' => $this->pilotSampler->eligibleTrackCount(),
+            'eligibleTrackCount' => $coverage['eligibleTrackCount'],
+            'fingerprintedTrackCount' => $coverage['fingerprintedTrackCount'],
             'analyzerStatus' => $analyzer['status'],
             'analyzer' => $analyzer,
             'latestPilot' => $latestPilot === null ? null : [
                 'id' => $latestPilot->id,
+                'phase' => $latestPilot->phase,
                 'status' => $latestPilot->status,
                 'requestedTrackCount' => $latestPilot->requested_track_count,
                 'selectedTrackCount' => $latestPilot->selected_track_count,
@@ -201,7 +229,7 @@ class AudioIntelligenceSettingsController extends Controller
         if (in_array($run->status, ['failed', 'partial', 'cancelled'], true)) {
             return true;
         }
-        if (! in_array($run->status, ['queued', 'running'], true)) {
+        if (! in_array($run->status, ['fingerprinting', 'queued', 'running'], true)) {
             return false;
         }
 

@@ -26,7 +26,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items'] as $table) {
+        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_similarity_feedback'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -44,6 +44,7 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_sample_size'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_run_items', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'audio_analysis_profile_id'));
+        $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'phase'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'cancel_requested_at'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'heartbeat_at'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_run_items', 'audio_analysis_artifact_id'));

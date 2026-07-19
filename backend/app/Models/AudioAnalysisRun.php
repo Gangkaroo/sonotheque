@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'audio_analysis_profile_id',
+    'phase',
     'status',
     'selection_seed',
     'requested_track_count',

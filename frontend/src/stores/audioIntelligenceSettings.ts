@@ -6,9 +6,17 @@ import { apiRequest } from '@/api/client'
 export interface AudioIntelligencePilotSummary {
   eligibleTrackCount: number
   eligibleRootCount: number
-  selectedRootCount: number
-  selectedGenreCount: number
-  unclassifiedTrackCount: number
+  candidateTrackCount?: number
+  candidateRootCount?: number
+  candidateGenreCount?: number
+  candidateArtistCount?: number
+  fingerprintedTrackCount?: number
+  fingerprintFailedTrackCount?: number
+  processedFingerprintTrackCount?: number
+  selectedRootCount?: number
+  selectedGenreCount?: number
+  selectedArtistCount?: number
+  unclassifiedTrackCount?: number
   analyzedTrackCount?: number
   reusedTrackCount?: number
   failedTrackCount?: number
@@ -21,7 +29,8 @@ export interface AudioIntelligencePilotSummary {
 
 export interface AudioIntelligencePilot {
   id: number
-  status: 'prepared' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  phase: 'preparation' | 'analysis'
+  status: 'fingerprinting' | 'prepared' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
   requestedTrackCount: number
   selectedTrackCount: number
   summary: AudioIntelligencePilotSummary
@@ -56,6 +65,7 @@ export interface AudioIntelligenceSettings {
   enabled: boolean
   sampleSize: number
   eligibleTrackCount: number
+  fingerprintedTrackCount: number
   analyzerStatus: AudioAnalyzerStatus
   analyzer: {
     status: AudioAnalyzerStatus
@@ -65,10 +75,83 @@ export interface AudioIntelligenceSettings {
   latestPilot: AudioIntelligencePilot | null
 }
 
+export interface AudioSimilarityTrack {
+  id: number
+  title: string
+  label: string
+  artistName: string
+  artists: Array<{ id: number, name: string }>
+  albumId: number | null
+  albumTitle: string
+  year: number | null
+  discNumber: number | null
+  trackNumber: number | null
+  libraryRootId: number | null
+  libraryRootName: string
+  features: {
+    bpm?: number
+    danceability?: number
+    dynamicComplexity?: number
+    loudness?: number
+    key?: string
+    scale?: string
+    keyStrength?: number
+  }
+}
+
+export interface AudioFeatureDistribution {
+  count: number
+  minimum: number
+  maximum: number
+  mean: number
+  median: number
+  lowerQuartile: number
+  upperQuartile: number
+  bins: Array<{
+    minimum: number
+    maximum: number
+    count: number
+  }>
+}
+
+export interface AudioSimilarityFeedbackSummary {
+  relevant: number
+  irrelevant: number
+}
+
+export interface AudioSimilarityOverview {
+  profile: AudioAnalyzerProfile | null
+  analyzedTrackCount: number
+  coverage: {
+    rootCount: number
+    artistCount: number
+    albumCount: number
+  }
+  distributions: Record<string, AudioFeatureDistribution>
+  feedbackSummary: AudioSimilarityFeedbackSummary
+  tracks: AudioSimilarityTrack[]
+}
+
+export interface AudioSimilarityEvaluation {
+  profile: AudioAnalyzerProfile
+  source: AudioSimilarityTrack
+  candidateCount: number
+  calculationMs: number
+  filters: {
+    excludeSameAlbum: boolean
+    excludeSameArtist: boolean
+  }
+  matches: Array<AudioSimilarityTrack & {
+    similarity: number
+    feedback: 'relevant' | 'irrelevant' | null
+  }>
+}
+
 const defaults: AudioIntelligenceSettings = {
   enabled: false,
   sampleSize: 200,
   eligibleTrackCount: 0,
+  fingerprintedTrackCount: 0,
   analyzerStatus: 'not_configured',
   analyzer: {
     status: 'not_configured',
@@ -87,6 +170,26 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
   const startingPilot = ref(false)
   const cancellingPilot = ref(false)
   const resumingPilot = ref(false)
+  const evaluation = ref<AudioSimilarityOverview>({
+    profile: null,
+    analyzedTrackCount: 0,
+    coverage: {
+      rootCount: 0,
+      artistCount: 0,
+      albumCount: 0,
+    },
+    distributions: {},
+    feedbackSummary: {
+      relevant: 0,
+      irrelevant: 0,
+    },
+    tracks: [],
+  })
+  const evaluationResult = ref<AudioSimilarityEvaluation | null>(null)
+  const loadingEvaluation = ref(false)
+  const evaluatingTrack = ref(false)
+  const ratingTrackId = ref<number | null>(null)
+  const evaluationError = ref<string | null>(null)
   const error = ref<string | null>(null)
 
   async function load() {
@@ -196,6 +299,77 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     }
   }
 
+  async function loadEvaluation() {
+    loadingEvaluation.value = true
+    evaluationError.value = null
+    try {
+      evaluation.value = await apiRequest<AudioSimilarityOverview>(
+        '/settings/audio-intelligence/evaluation',
+      )
+    } catch (cause) {
+      evaluationError.value = errorMessage(cause)
+    } finally {
+      loadingEvaluation.value = false
+    }
+  }
+
+  async function evaluateTrack(
+    trackId: number,
+    options: { excludeSameAlbum: boolean, excludeSameArtist: boolean },
+  ) {
+    evaluatingTrack.value = true
+    evaluationError.value = null
+    try {
+      const query = new URLSearchParams({
+        limit: '10',
+        excludeSameAlbum: options.excludeSameAlbum ? '1' : '0',
+        excludeSameArtist: options.excludeSameArtist ? '1' : '0',
+      })
+      evaluationResult.value = await apiRequest<AudioSimilarityEvaluation>(
+        `/settings/audio-intelligence/evaluation/${trackId}?${query.toString()}`,
+      )
+    } catch (cause) {
+      evaluationError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      evaluatingTrack.value = false
+    }
+  }
+
+  async function setSimilarityFeedback(
+    sourceTrackId: number,
+    candidateTrackId: number,
+    feedback: 'relevant' | 'irrelevant' | null,
+  ) {
+    ratingTrackId.value = candidateTrackId
+    evaluationError.value = null
+    try {
+      const response = await apiRequest<{
+        feedback: 'relevant' | 'irrelevant' | null
+        feedbackSummary: AudioSimilarityFeedbackSummary
+      }>(
+        `/settings/audio-intelligence/evaluation/${sourceTrackId}`
+          + `/matches/${candidateTrackId}/feedback`,
+        feedback === null
+          ? { method: 'DELETE' }
+          : {
+              method: 'PUT',
+              body: JSON.stringify({ verdict: feedback }),
+            },
+      )
+      evaluation.value.feedbackSummary = response.feedbackSummary
+      const match = evaluationResult.value?.matches.find(item => item.id === candidateTrackId)
+      if (match) {
+        match.feedback = response.feedback
+      }
+    } catch (cause) {
+      evaluationError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      ratingTrackId.value = null
+    }
+  }
+
   return {
     settings,
     loading,
@@ -205,6 +379,12 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     startingPilot,
     cancellingPilot,
     resumingPilot,
+    evaluation,
+    evaluationResult,
+    loadingEvaluation,
+    evaluatingTrack,
+    ratingTrackId,
+    evaluationError,
     error,
     load,
     save,
@@ -213,6 +393,9 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     startPilot,
     cancelPilot,
     resumePilot,
+    loadEvaluation,
+    evaluateTrack,
+    setSimilarityFeedback,
   }
 })
 

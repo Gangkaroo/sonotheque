@@ -116,8 +116,10 @@ created artifacts; existing reusable artifacts remain valid and are not
 recomputed merely to populate timing data.
 
 Restart the backend and queue worker after changing these values. In Settings,
-enable the Audio intelligence workspace, use **Check analyzer**, prepare a
-fingerprinted sample, and explicitly start the pilot. The worker analyzes at
+enable the Audio intelligence workspace, prepare the bounded sample, use
+**Check analyzer**, and explicitly start the pilot. Preparation selects
+catalog candidates first and calculates fingerprints only for that sample plus
+a small reserve. The analysis worker analyzes at
 most three representative 30-second windows per long track. Each window is
 decoded directly rather than loading the entire track. The worker stores the
 exact analyzer/model versions, model checksum, licenses, features, pilot
@@ -139,13 +141,29 @@ retain the audio fingerprint and therefore reuse the existing work. Changed
 audio, a changed fingerprint algorithm, or a different model profile creates
 new work instead of silently reusing an incompatible result.
 
-Failed, partial, and cancelled pilots can be resumed from Settings. A queued or
-running pilot becomes resumable only after its heartbeat is older than
+Failed, partial, and cancelled preparation or analysis runs can be resumed from
+Settings. Preparation reuses current fingerprints and continues with the first
+unfinished candidate. A fingerprinting, queued, or running pilot becomes
+resumable only after its heartbeat is older than
 `AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES` (10 minutes by default), which avoids
 starting the same job twice while a worker is healthy. Completed and reused
 items are never submitted again. If a worker is forcibly stopped while an
 analyzer chunk is active, that one uncommitted chunk may run again; reducing the
 chunk size narrows that boundary but increases model startup overhead.
+
+After a pilot has results, Settings exposes a read-only similarity evaluator.
+Choose an analyzed source track to calculate and display its ten nearest tracks
+using exact cosine similarity. The response includes measured calculation time,
+scores, BPM/key context, and catalog links, but never returns embeddings or
+filesystem paths and never modifies playback, queues, or playlists.
+
+The evaluator also summarizes BPM, danceability, dynamic complexity, and the
+analyzer's raw loudness values with compact eight-bin distributions. Reviewers
+can exclude candidates from the same artist or album and mark individual
+matches relevant or not relevant. Feedback is stored against the exact
+analyzer/model profile and track pair, so replacing a model does not silently
+mix ratings from incompatible embeddings. These controls assess the unweighted
+embedding baseline; Sonotheque does not apply BPM or key heuristics yet.
 
 The adapter uses `--pull=never`, disables container networking during health and
 analysis runs, applies the configured CPU and memory limits, and mounts the
@@ -291,17 +309,22 @@ local audio analysis. Enabling the workspace does not download a model, start
 an analysis service, dispatch background work, read audio files, or reserve CPU,
 GPU, or memory. It only permits preparation of a representative pilot sample.
 
-The sample size accepts 50 through 500 tracks and defaults to 200. Only
-available tracks with a current tag-independent audio-content fingerprint are
-eligible. Selection is proportional across enabled library roots and rotates
-through genres within each root. The resulting run stores track IDs, the
-fingerprints that were current at selection time, and compact coverage totals.
-No feature vectors or embeddings are generated at this stage.
+The sample size accepts 50 through 500 tracks and defaults to 200. All available
+tracks in enabled roots are eligible; a full-library fingerprint backfill is not
+required. Sonotheque first chooses candidates proportionally across library
+roots while rotating through genres and preferring artists not already
+selected. A queued preparation job then reuses existing tag-independent audio
+fingerprints and reads only candidates whose fingerprint is missing. It stops
+as soon as the requested sample is ready, keeping a small reserve so missing or
+changed files do not leave the sample short. No feature vectors or embeddings
+are generated during preparation.
 
-Preparing a newer sample preserves earlier runs for comparison. A rescan may be
-needed before sampling if tracks were indexed before audio-content fingerprints
-were introduced. Future analyzer jobs must compare each stored fingerprint with
-the current media file before using or updating a result.
+Preparing a newer sample preserves earlier runs for comparison. Preparation is
+restart-safe and cancellable; completed fingerprints are retained and are not
+calculated again. A file that differs from its latest catalog size or modified
+time is skipped until the library is rescanned. Analysis also compares each
+stored fingerprint with the current media file before using or updating a
+result.
 
 To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:

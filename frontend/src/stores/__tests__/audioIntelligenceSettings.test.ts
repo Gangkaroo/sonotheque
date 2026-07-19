@@ -14,6 +14,7 @@ describe('audio intelligence settings store', () => {
       enabled: false,
       sampleSize: 200,
       eligibleTrackCount: 1200,
+      fingerprintedTrackCount: 50,
       analyzerStatus: 'not_configured',
       analyzer: {
         status: 'not_configured',
@@ -27,6 +28,7 @@ describe('audio intelligence settings store', () => {
       ...enabled,
       latestPilot: {
         id: 3,
+        phase: 'preparation',
         status: 'prepared',
         requestedTrackCount: 200,
         selectedTrackCount: 200,
@@ -71,10 +73,12 @@ describe('audio intelligence settings store', () => {
       enabled: true,
       sampleSize: 50,
       eligibleTrackCount: 111,
+      fingerprintedTrackCount: 111,
       analyzerStatus: 'ready',
       analyzer: { status: 'ready', message: 'Ready', profile: null },
       latestPilot: {
         id: 4,
+        phase: 'analysis',
         status: 'running',
         requestedTrackCount: 50,
         selectedTrackCount: 50,
@@ -120,10 +124,12 @@ describe('audio intelligence settings store', () => {
       enabled: true,
       sampleSize: 50,
       eligibleTrackCount: 111,
+      fingerprintedTrackCount: 111,
       analyzerStatus: 'ready',
       analyzer: { status: 'ready', message: 'Ready', profile: null },
       latestPilot: {
         id: 7,
+        phase: 'analysis',
         status: 'queued',
         requestedTrackCount: 50,
         selectedTrackCount: 50,
@@ -152,6 +158,151 @@ describe('audio intelligence settings store', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/settings/audio-intelligence/pilots/7/resume',
       expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('loads analyzed tracks and evaluates exact similarity', async () => {
+    const overview = {
+      profile: {
+        analyzerName: 'Essentia',
+        analyzerVersion: '1',
+        analyzerLicense: 'AGPL',
+        modelName: 'EffNet',
+        modelVersion: '1',
+        modelChecksum: 'abc',
+        modelLicense: 'CC',
+        embeddingDimensions: 1280,
+      },
+      analyzedTrackCount: 2,
+      coverage: {
+        rootCount: 1,
+        artistCount: 2,
+        albumCount: 2,
+      },
+      distributions: {
+        bpm: {
+          count: 2,
+          minimum: 100,
+          maximum: 120,
+          mean: 110,
+          median: 110,
+          lowerQuartile: 105,
+          upperQuartile: 115,
+          bins: [],
+        },
+      },
+      feedbackSummary: {
+        relevant: 0,
+        irrelevant: 0,
+      },
+      tracks: [
+        {
+          id: 10,
+          title: 'Source',
+          label: 'Artist · Source · Album',
+          artistName: 'Artist',
+          artists: [{ id: 1, name: 'Artist' }],
+          albumId: 2,
+          albumTitle: 'Album',
+          year: 2020,
+          discNumber: 1,
+          trackNumber: 1,
+          libraryRootId: 1,
+          libraryRootName: 'Root',
+          features: { bpm: 120 },
+        },
+      ],
+    }
+    const result = {
+      profile: overview.profile,
+      source: overview.tracks[0],
+      candidateCount: 1,
+      calculationMs: 0.25,
+      filters: {
+        excludeSameAlbum: true,
+        excludeSameArtist: true,
+      },
+      matches: [
+        {
+          ...overview.tracks[0],
+          id: 11,
+          title: 'Match',
+          similarity: 0.92,
+          feedback: null,
+        },
+      ],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(overview), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(result), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAudioIntelligenceSettingsStore()
+
+    await store.loadEvaluation()
+    await store.evaluateTrack(10, {
+      excludeSameAlbum: true,
+      excludeSameArtist: true,
+    })
+
+    expect(store.evaluation.analyzedTrackCount).toBe(2)
+    expect(store.evaluationResult?.matches[0]?.similarity).toBe(0.92)
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/settings/audio-intelligence/evaluation',
+      expect.any(Object),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/settings/audio-intelligence/evaluation/10?limit=10&excludeSameAlbum=1&excludeSameArtist=1',
+      expect.any(Object),
+    )
+  })
+
+  it('stores and removes similarity feedback without reloading matches', async () => {
+    const store = useAudioIntelligenceSettingsStore()
+    store.evaluation.feedbackSummary = { relevant: 0, irrelevant: 0 }
+    store.evaluationResult = {
+      profile: {
+        analyzerName: 'Test',
+        analyzerVersion: '1',
+        analyzerLicense: 'Test',
+        modelName: 'Model',
+        modelVersion: '1',
+        modelChecksum: 'abc',
+        modelLicense: 'Test',
+        embeddingDimensions: 3,
+      },
+      source: { id: 1 } as never,
+      candidateCount: 1,
+      calculationMs: 1,
+      filters: { excludeSameAlbum: true, excludeSameArtist: true },
+      matches: [{
+        id: 2,
+        feedback: null,
+        similarity: 0.9,
+      } as never],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        feedback: 'relevant',
+        feedbackSummary: { relevant: 1, irrelevant: 0 },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        feedback: null,
+        feedbackSummary: { relevant: 0, irrelevant: 0 },
+      }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await store.setSimilarityFeedback(1, 2, 'relevant')
+    expect(store.evaluationResult.matches[0]?.feedback).toBe('relevant')
+    expect(store.evaluation.feedbackSummary.relevant).toBe(1)
+
+    await store.setSimilarityFeedback(1, 2, null)
+    expect(store.evaluationResult.matches[0]?.feedback).toBeNull()
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/settings/audio-intelligence/evaluation/1/matches/2/feedback',
+      expect.objectContaining({ method: 'DELETE' }),
     )
   })
 })
