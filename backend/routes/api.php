@@ -26,6 +26,7 @@ use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistsController;
 use App\Http\Controllers\ScanRunIssuesController;
+use App\Http\Controllers\SimilarTracksController;
 use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\TrackMetadataController;
 use App\Http\Controllers\TrackPlayStatisticsController;
@@ -63,6 +64,7 @@ Route::get('/catalog/library-roots/{libraryRoot}/folder-tracks', [LibraryFolderC
 Route::patch('/library_roots/{libraryRoot}/entries/rename', [LibraryFolderController::class, 'rename']);
 Route::get('/artwork/{artwork}/thumbnail', ArtworkThumbnailController::class);
 Route::get('/tracks/{track}/stream', AudioStreamController::class);
+Route::get('/audio-intelligence/tracks/{track}/similar', SimilarTracksController::class);
 Route::post('/tracks/{track}/plays', [TrackPlayStatisticsController::class, 'store']);
 Route::post('/tracks/{track}/metadata/preview', [TrackMetadataController::class, 'preview']);
 Route::post('/tracks/{track}/metadata-edits', [TrackMetadataController::class, 'store']);

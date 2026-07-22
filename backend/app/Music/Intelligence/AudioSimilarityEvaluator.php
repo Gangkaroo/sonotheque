@@ -12,6 +12,17 @@ class AudioSimilarityEvaluator
 {
     private const MAXIMUM_MATCHES = 25;
 
+    private const REVIEW_MATCH_COUNT = 10;
+
+    private const REVIEW_SOURCE_COUNT = 30;
+
+    private const CONFIGURATIONS = [
+        'all',
+        'exclude_album',
+        'exclude_artist',
+        'exclude_album_artist',
+    ];
+
     /**
      * @return array{
      *     profile: ?array<string, mixed>,
@@ -19,6 +30,7 @@ class AudioSimilarityEvaluator
      *     coverage: array{rootCount: int, artistCount: int, albumCount: int},
      *     distributions: array<string, array<string, mixed>>,
      *     feedbackSummary: array{relevant: int, irrelevant: int},
+     *     review: array<string, mixed>,
      *     tracks: list<array<string, mixed>>
      * }
      */
@@ -39,6 +51,7 @@ class AudioSimilarityEvaluator
                     'relevant' => 0,
                     'irrelevant' => 0,
                 ],
+                'review' => $this->emptyReview(),
                 'tracks' => [],
             ];
         }
@@ -51,6 +64,7 @@ class AudioSimilarityEvaluator
             'coverage' => $this->coverage($items),
             'distributions' => $this->distributions($items),
             'feedbackSummary' => $this->feedbackSummary($profile),
+            'review' => $this->review($profile, $items),
             'tracks' => $items
                 ->map(fn (AudioAnalysisRunItem $item): array => $this->trackPayload($item))
                 ->sortBy([
@@ -96,9 +110,11 @@ class AudioSimilarityEvaluator
         $matches = [];
         $sourcePayload = $this->trackPayload($source);
         $sourceArtistIds = collect($sourcePayload['artists'])->pluck('id');
+        $configuration = $this->configuration($excludeSameAlbum, $excludeSameArtist);
         $feedback = AudioSimilarityFeedback::query()
             ->where('audio_analysis_profile_id', $profile->id)
             ->where('source_track_id', $source->track_id)
+            ->where('configuration', $configuration)
             ->pluck('verdict', 'candidate_track_id');
 
         foreach ($items as $candidate) {
@@ -155,9 +171,14 @@ class AudioSimilarityEvaluator
         ];
     }
 
-    /** @return array{feedback: string, feedbackSummary: array{relevant: int, irrelevant: int}} */
-    public function recordFeedback(int $sourceTrackId, int $candidateTrackId, string $verdict): array
-    {
+    /** @return array<string, mixed> */
+    public function recordFeedback(
+        int $sourceTrackId,
+        int $candidateTrackId,
+        string $verdict,
+        bool $excludeSameAlbum = false,
+        bool $excludeSameArtist = false,
+    ): array {
         $profile = $this->latestProfile();
         abort_if($profile === null, 404, 'No compatible audio analysis profile is available.');
         abort_if($sourceTrackId === $candidateTrackId, 422, 'A track cannot be rated against itself.');
@@ -168,24 +189,27 @@ class AudioSimilarityEvaluator
             'Both tracks require compatible audio analysis artifacts.',
         );
 
+        $configuration = $this->configuration($excludeSameAlbum, $excludeSameArtist);
         AudioSimilarityFeedback::query()->updateOrCreate(
             [
                 'audio_analysis_profile_id' => $profile->id,
                 'source_track_id' => $sourceTrackId,
                 'candidate_track_id' => $candidateTrackId,
+                'configuration' => $configuration,
             ],
             ['verdict' => $verdict],
         );
 
-        return [
-            'feedback' => $verdict,
-            'feedbackSummary' => $this->feedbackSummary($profile),
-        ];
+        return $this->feedbackResponse($profile, $verdict);
     }
 
-    /** @return array{feedback: null, feedbackSummary: array{relevant: int, irrelevant: int}} */
-    public function removeFeedback(int $sourceTrackId, int $candidateTrackId): array
-    {
+    /** @return array<string, mixed> */
+    public function removeFeedback(
+        int $sourceTrackId,
+        int $candidateTrackId,
+        bool $excludeSameAlbum = false,
+        bool $excludeSameArtist = false,
+    ): array {
         $profile = $this->latestProfile();
         abort_if($profile === null, 404, 'No compatible audio analysis profile is available.');
 
@@ -193,12 +217,13 @@ class AudioSimilarityEvaluator
             ->where('audio_analysis_profile_id', $profile->id)
             ->where('source_track_id', $sourceTrackId)
             ->where('candidate_track_id', $candidateTrackId)
+            ->where(
+                'configuration',
+                $this->configuration($excludeSameAlbum, $excludeSameArtist),
+            )
             ->delete();
 
-        return [
-            'feedback' => null,
-            'feedbackSummary' => $this->feedbackSummary($profile),
-        ];
+        return $this->feedbackResponse($profile, null);
     }
 
     private function latestProfile(): ?AudioAnalysisProfile
@@ -242,6 +267,7 @@ class AudioSimilarityEvaluator
                 'libraryRoot:id,name',
                 'track.album.primaryArtist',
                 'track.artists',
+                'track.genres:id,name',
             ])
             ->latest('id')
             ->get()
@@ -290,6 +316,8 @@ class AudioSimilarityEvaluator
         return [
             'id' => $track->id,
             'title' => $track->title,
+            'streamUrl' => "/api/tracks/{$track->id}/stream",
+            'durationMs' => $track->duration_ms,
             'label' => collect([$artistName, $track->title, $albumTitle])
                 ->filter(fn (string $part): bool => $part !== '')
                 ->join(' · '),
@@ -297,13 +325,275 @@ class AudioSimilarityEvaluator
             'artists' => $artists->all(),
             'albumId' => $track->album?->id,
             'albumTitle' => $albumTitle,
+            'albumOriginalReleaseYear' => $track->album?->original_release_year,
+            'albumArtworkThumbnailUrl' => $track->album?->artwork_id
+                ? "/api/artwork/{$track->album->artwork_id}/thumbnail"
+                : null,
             'year' => $track->year ?? $track->album?->original_release_year,
             'discNumber' => $track->disc_number,
             'trackNumber' => $track->track_number,
             'libraryRootId' => $item->library_root_id,
             'libraryRootName' => $item->libraryRoot?->name ?? '',
+            'genreIds' => $track->genres->pluck('id')->all(),
             'features' => $this->featurePayload($item->artifact?->features),
         ];
+    }
+
+    /**
+     * @param  Collection<int, AudioAnalysisRunItem>  $items
+     * @return array<string, mixed>
+     */
+    private function review(AudioAnalysisProfile $profile, Collection $items): array
+    {
+        $payloadsByTrackId = $items->mapWithKeys(
+            fn (AudioAnalysisRunItem $item): array => [
+                $item->track_id => $this->trackPayload($item),
+            ],
+        );
+        $sources = $this->representativeSources($profile, $items, $payloadsByTrackId);
+        if ($sources->isEmpty()) {
+            return $this->emptyReview();
+        }
+
+        $feedback = AudioSimilarityFeedback::query()
+            ->where('audio_analysis_profile_id', $profile->id)
+            ->whereIn('source_track_id', $sources->pluck('track_id'))
+            ->get(['source_track_id', 'configuration', 'verdict'])
+            ->groupBy(['source_track_id', 'configuration']);
+        $allPayloads = $payloadsByTrackId->values();
+        $sourcePayloads = $sources->map(function (AudioAnalysisRunItem $source) use (
+            $allPayloads,
+            $feedback,
+            $payloadsByTrackId,
+        ): array {
+            $payload = $payloadsByTrackId->get($source->track_id);
+            $configurationProgress = collect(self::CONFIGURATIONS)
+                ->mapWithKeys(function (string $configuration) use (
+                    $allPayloads,
+                    $feedback,
+                    $payload,
+                    $source,
+                ): array {
+                    $ratings = $feedback
+                        ->get($source->track_id, collect())
+                        ->get($configuration, collect());
+                    $relevant = $ratings->where('verdict', 'relevant')->count();
+                    $irrelevant = $ratings->where('verdict', 'irrelevant')->count();
+                    $required = min(
+                        self::REVIEW_MATCH_COUNT,
+                        $this->candidateCount($payload, $allPayloads, $configuration),
+                    );
+
+                    return [$configuration => [
+                        'required' => $required,
+                        'rated' => $relevant + $irrelevant,
+                        'relevant' => $relevant,
+                        'irrelevant' => $irrelevant,
+                        'complete' => $required > 0 && ($relevant + $irrelevant) >= $required,
+                    ]];
+                })
+                ->all();
+
+            return [
+                ...$payload,
+                'configurations' => $configurationProgress,
+            ];
+        })->values();
+
+        return [
+            'targetSourceCount' => $sourcePayloads->count(),
+            'matchCount' => self::REVIEW_MATCH_COUNT,
+            'sources' => $sourcePayloads->all(),
+            'quality' => collect(self::CONFIGURATIONS)
+                ->mapWithKeys(
+                    fn (string $configuration): array => [
+                        $configuration => $this->qualityMetrics(
+                            $sourcePayloads,
+                            $configuration,
+                        ),
+                    ],
+                )
+                ->all(),
+        ];
+    }
+
+    /**
+     * @param  Collection<int, AudioAnalysisRunItem>  $items
+     * @param  Collection<int, array<string, mixed>>  $payloadsByTrackId
+     * @return Collection<int, AudioAnalysisRunItem>
+     */
+    private function representativeSources(
+        AudioAnalysisProfile $profile,
+        Collection $items,
+        Collection $payloadsByTrackId,
+    ): Collection {
+        $remaining = $items->values();
+        $selected = collect();
+        $rootCounts = [];
+        $genreCounts = [];
+        $artistCounts = [];
+        $albumCounts = [];
+        $limit = min(self::REVIEW_SOURCE_COUNT, $remaining->count());
+
+        while ($selected->count() < $limit && $remaining->isNotEmpty()) {
+            $candidate = $remaining
+                ->sortBy(function (AudioAnalysisRunItem $item) use (
+                    $albumCounts,
+                    $artistCounts,
+                    $genreCounts,
+                    $payloadsByTrackId,
+                    $profile,
+                    $rootCounts,
+                ): string {
+                    $payload = $payloadsByTrackId->get($item->track_id);
+                    $artistId = collect($payload['artists'])->pluck('id')->first();
+                    $genreId = $payload['genreIds'][0] ?? null;
+
+                    return sprintf(
+                        '%04d:%04d:%04d:%04d:%s',
+                        $rootCounts[$item->library_root_id] ?? 0,
+                        $genreCounts[$genreId ?? 'none'] ?? 0,
+                        $artistCounts[$artistId ?? 'none'] ?? 0,
+                        $albumCounts[$payload['albumId'] ?? 'none'] ?? 0,
+                        hash('sha256', $profile->profile_key.':'.$item->track_id),
+                    );
+                })
+                ->first();
+            if ($candidate === null) {
+                break;
+            }
+
+            $payload = $payloadsByTrackId->get($candidate->track_id);
+            $artistId = collect($payload['artists'])->pluck('id')->first();
+            $genreId = $payload['genreIds'][0] ?? null;
+            $rootCounts[$candidate->library_root_id] =
+                ($rootCounts[$candidate->library_root_id] ?? 0) + 1;
+            $genreCounts[$genreId ?? 'none'] = ($genreCounts[$genreId ?? 'none'] ?? 0) + 1;
+            $artistCounts[$artistId ?? 'none'] = ($artistCounts[$artistId ?? 'none'] ?? 0) + 1;
+            $albumCounts[$payload['albumId'] ?? 'none'] =
+                ($albumCounts[$payload['albumId'] ?? 'none'] ?? 0) + 1;
+            $selected->push($candidate);
+            $remaining = $remaining->reject(
+                fn (AudioAnalysisRunItem $item): bool => $item->track_id === $candidate->track_id,
+            );
+        }
+
+        return $selected->values();
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $candidates
+     */
+    private function candidateCount(
+        array $source,
+        Collection $candidates,
+        string $configuration,
+    ): int {
+        $sourceArtistIds = collect($source['artists'])->pluck('id');
+        $excludeSameAlbum = in_array(
+            $configuration,
+            ['exclude_album', 'exclude_album_artist'],
+            true,
+        );
+        $excludeSameArtist = in_array(
+            $configuration,
+            ['exclude_artist', 'exclude_album_artist'],
+            true,
+        );
+
+        return $candidates->filter(function (array $candidate) use (
+            $excludeSameAlbum,
+            $excludeSameArtist,
+            $source,
+            $sourceArtistIds,
+        ): bool {
+            if ($candidate['id'] === $source['id']) {
+                return false;
+            }
+            if ($excludeSameAlbum
+                && $source['albumId'] !== null
+                && $candidate['albumId'] === $source['albumId']) {
+                return false;
+            }
+
+            return ! ($excludeSameArtist && $sourceArtistIds->intersect(
+                collect($candidate['artists'])->pluck('id'),
+            )->isNotEmpty());
+        })->count();
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $sources
+     * @return array<string, int|float|null>
+     */
+    private function qualityMetrics(Collection $sources, string $configuration): array
+    {
+        $progress = $sources->pluck("configurations.{$configuration}");
+        $relevant = (int) $progress->sum('relevant');
+        $irrelevant = (int) $progress->sum('irrelevant');
+        $rated = $relevant + $irrelevant;
+        $completed = $progress->where('complete', true);
+
+        return [
+            'startedSourceCount' => $progress->where('rated', '>', 0)->count(),
+            'completedSourceCount' => $completed->count(),
+            'ratedMatchCount' => $rated,
+            'relevant' => $relevant,
+            'irrelevant' => $irrelevant,
+            'relevanceRate' => $rated === 0 ? null : round($relevant / $rated, 4),
+            'meanRelevantShare' => $completed->isEmpty()
+                ? null
+                : round($completed->avg(
+                    fn (array $source): float => $source['required'] === 0
+                        ? 0.0
+                        : $source['relevant'] / $source['required'],
+                ), 4),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function feedbackResponse(
+        AudioAnalysisProfile $profile,
+        ?string $feedback,
+    ): array {
+        $items = $this->itemsForProfile($profile, includeEmbeddings: false);
+
+        return [
+            'feedback' => $feedback,
+            'feedbackSummary' => $this->feedbackSummary($profile),
+            'review' => $this->review($profile, $items),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyReview(): array
+    {
+        return [
+            'targetSourceCount' => 0,
+            'matchCount' => self::REVIEW_MATCH_COUNT,
+            'sources' => [],
+            'quality' => collect(self::CONFIGURATIONS)
+                ->mapWithKeys(fn (string $configuration): array => [$configuration => [
+                    'startedSourceCount' => 0,
+                    'completedSourceCount' => 0,
+                    'ratedMatchCount' => 0,
+                    'relevant' => 0,
+                    'irrelevant' => 0,
+                    'relevanceRate' => null,
+                    'meanRelevantShare' => null,
+                ]])
+                ->all(),
+        ];
+    }
+
+    private function configuration(bool $excludeSameAlbum, bool $excludeSameArtist): string
+    {
+        return match (true) {
+            $excludeSameAlbum && $excludeSameArtist => 'exclude_album_artist',
+            $excludeSameAlbum => 'exclude_album',
+            $excludeSameArtist => 'exclude_artist',
+            default => 'all',
+        };
     }
 
     /**

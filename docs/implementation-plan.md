@@ -1037,15 +1037,22 @@ Last.fm integration.
   candidates in about 120 ms. HNSW remains pending until a larger,
   cross-collection sample demonstrates useful neighbours and a need for it.)
 - Add a deterministic similarity service with optional BPM, key, energy, mood,
-  library-root, artist-diversity, and duplicate controls. (Pending)
+  library-root, artist-diversity, and duplicate controls. (Partially complete:
+  the exact-cosine baseline supports bounded results plus same-album and
+  same-artist exclusion; feature reranking and the remaining controls are
+  pending.)
 - Add Similar Tracks and Continue This Mood actions with a reviewable queue
-  preview; never modify playback or playlists without confirmation. (Pending)
+  preview; never modify playback or playlists without confirmation. (Similar
+  Tracks is complete from track details with a scored preview and explicit
+  Play matches or Add matches to queue actions. Continue This Mood is pending.)
 - Add a read-only evaluation workspace that selects an analyzed track, ranks
   exact cosine neighbours, exposes scores and feature context, and links back
   to catalog details without changing playback. Add compact feature
   distributions, same-album and same-artist exclusions, and profile-scoped
   relevant/not-relevant feedback so baseline quality can be measured before
-  introducing heuristic weighting. (Complete)
+  introducing heuristic weighting. Add a deterministic 30-source review queue
+  balanced across roots, genres, artists, and albums; keep progress and quality
+  metrics separate for each exclusion configuration. (Complete)
 - Add Settings controls for opt-in model downloads, worker health, analysis
   progress, pause/resume, CPU/GPU limits, model replacement, and result rebuild.
   (Worker health, bounded CPU/memory settings, durable chunk progress,
@@ -1151,14 +1158,28 @@ Last.fm integration.
 The cross-root pilot completed 200 of 200 tracks without analysis failures. Its
 sample covers all three enabled roots, 197 artists, and 167 genres; together
 with the initial pilot, 250 reusable artifacts are available for evaluation.
-The next experiment is qualitative review in the read-only evaluator: inspect
-feature distributions, compare exact-cosine neighbours with and without
-same-artist/album exclusions, and record relevant/not-relevant feedback. Do not
-increase to 500 tracks, add heuristic BPM/key weighting, provision a
+The read-only evaluator now provides feature distributions, exact-cosine
+neighbours, exclusion controls, a deterministic 30-source review queue, and
+configuration-scoped relevant/not-relevant feedback with completion and quality
+metrics.
+
+Ten varied review sources produced consistently useful high-score matches and
+are accepted as a provisional go decision for the unweighted embedding
+baseline. The remaining review queue stays available for later confidence
+measurement; it is not recorded as complete. Similar Tracks now exposes the
+baseline from track details through a scored, reviewable preview with explicit
+playback confirmation.
+
+The next step is to add Continue This Mood using the same preview contract,
+then expand the analyzed candidate pool incrementally while reusing existing
+artifacts. A larger pool improves neighbour availability but does not retrain
+or inherently improve the embedding model. Compare the same reviewed sources
+after expansion before adding BPM/key/energy reranking. Do not provision a
 full-library worker, build an optional GPU image, or commit to pgvector until
-the feedback demonstrates useful baseline neighbours. The collection assistant
-in Phase 5f should follow only after the underlying search, aggregate, and
-similarity tools produce trustworthy, explainable results without an LLM.
+the expanded-pool query latency and match quality justify them. The collection
+assistant in Phase 5f should follow only after the underlying search,
+aggregate, and similarity tools produce trustworthy, explainable results
+without an LLM.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every

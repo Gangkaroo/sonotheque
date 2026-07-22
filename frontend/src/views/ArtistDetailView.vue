@@ -27,6 +27,13 @@ const trackResultsTop = ref<HTMLElement | null>(null)
 
 const artistId = computed(() => Number(route.params.id))
 const artist = computed(() => catalog.artistDetail)
+const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
+const backRoute = computed(() => backToAudioIntelligence.value
+  ? { name: 'settings', query: { tab: 'intelligence' } }
+  : { name: 'artists' })
+const backLabel = computed(() => backToAudioIntelligence.value
+  ? t('artists.backToAudioIntelligence')
+  : t('artists.back'))
 
 watch(artistId, (id) => {
   artistImageUrl.value = null
@@ -82,8 +89,8 @@ function toggleTrack(track: Track) {
 </script>
 
 <template>
-  <v-btn class="mb-4" variant="text" prepend-icon="mdi-arrow-left" :to="{ name: 'artists' }">
-    {{ t('artists.back') }}
+  <v-btn class="mb-4" variant="text" prepend-icon="mdi-arrow-left" :to="backRoute">
+    {{ backLabel }}
   </v-btn>
 
   <v-alert v-if="catalog.artistDetailError" type="error" variant="tonal">

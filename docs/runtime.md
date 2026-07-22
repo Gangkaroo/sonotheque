@@ -162,8 +162,18 @@ analyzer's raw loudness values with compact eight-bin distributions. Reviewers
 can exclude candidates from the same artist or album and mark individual
 matches relevant or not relevant. Feedback is stored against the exact
 analyzer/model profile and track pair, so replacing a model does not silently
-mix ratings from incompatible embeddings. These controls assess the unweighted
-embedding baseline; Sonotheque does not apply BPM or key heuristics yet.
+mix ratings from incompatible embeddings. Ratings are also scoped to the active
+same-artist and same-album exclusion configuration, so comparisons do not mix
+different candidate sets.
+
+The structured review queue deterministically chooses up to 30 source tracks
+while balancing library roots, genres, artists, and albums. It resumes a
+partially rated source before offering a new one and tracks completed sources,
+the number of rated matches, the overall rated-relevant share, and the mean
+relevant share for completed sources. Changing exclusion switches shows the
+separate progress and metrics for that configuration. These controls assess the
+unweighted embedding baseline; Sonotheque does not apply BPM or key heuristics
+yet.
 
 The adapter uses `--pull=never`, disables container networking during health and
 analysis runs, applies the configured CPU and memory limits, and mounts the

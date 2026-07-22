@@ -18,11 +18,14 @@ import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { openExternalUrl } from '@/utils/externalLinks'
 import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
+import { releaseMediaSource } from '@/utils/mediaPlayback'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
 const { locale, t } = useI18n()
 const MINIMUM_COUNTED_TRACK_SECONDS = 30
 const MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS = 240
+const PLAYBACK_HANDOFF_RETRY_MS = 2500
+const PLAYBACK_HANDOFF_TIMEOUT_MS = 10000
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
@@ -54,6 +57,8 @@ const albumDescriptionExpanded = ref(false)
 const reportedPlayKey = ref<string | null>(null)
 let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
+let playbackHandoffRetryTimer: ReturnType<typeof window.setTimeout> | null = null
+let playbackHandoffTimeoutTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackAttemptId = 0
 const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
@@ -141,8 +146,10 @@ interface TrackPlayResponse {
 
 watch(
   () => currentPlayKey.value,
-  () => {
+  (playKey) => {
+    releasePreviousMediaSource(playKey)
     playbackAttemptId += 1
+    clearPlaybackHandoffTimers()
     clearSeekFeedback()
     restoredTrackId.value = null
     reportedPlayKey.value = null
@@ -153,6 +160,9 @@ watch(
     isRestoringPlayback.value = false
     artistDescriptionExpanded.value = false
     albumDescriptionExpanded.value = false
+    if (playKey && player.isPlaying) {
+      void nextTick().then(() => schedulePlaybackHandoff(playKey))
+    }
   },
   { flush: 'sync' },
 )
@@ -203,10 +213,12 @@ watch(
     if (!audio.value || !player.currentTrack) return
 
     if (isPlaying) {
+      if (currentPlayKey.value) schedulePlaybackHandoff(currentPlayKey.value)
       if (resumeAfterMetadata.value) return
       await playAudio()
     } else {
       playbackAttemptId += 1
+      clearPlaybackHandoffTimers()
       audio.value.pause()
     }
   },
@@ -269,6 +281,10 @@ async function playAudio(showError = true) {
   try {
     player.setPlaybackState('loading')
     await element.play()
+    if (isCurrentPlaybackAttempt(playKey, element, attemptId) && !element.paused) {
+      clearPlaybackHandoffTimers()
+      player.setPlaybackState('playing')
+    }
   } catch {
     if (!isCurrentPlaybackAttempt(playKey, element, attemptId)) return
 
@@ -344,6 +360,20 @@ function onLoadedMetadata(event?: Event) {
   syncAudioProgress(false)
   restorePlaybackPosition()
   maybeRecordCountedPlay()
+  startRequestedPlayback()
+}
+
+function onCanPlay(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
+  if (isRestoringPosition.value) {
+    syncAudioProgress(false)
+    restorePlaybackPosition()
+  }
+  startRequestedPlayback()
+}
+
+function startRequestedPlayback() {
   if (resumeAfterMetadata.value && player.isPlaying) {
     resumeAfterMetadata.value = false
     const showResumeError = !isRestoringPlayback.value
@@ -355,6 +385,7 @@ function onLoadedMetadata(event?: Event) {
 function onError(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
+  clearPlaybackHandoffTimers()
   resumeAfterMetadata.value = false
   isRestoringPlayback.value = false
   isRestoringPosition.value = false
@@ -375,13 +406,16 @@ function onLoading(event: Event) {
 function onPause(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
   if (!player.currentTrack || player.playbackState === 'ended' || player.playbackState === 'error') return
+  if (player.playbackState === 'loading' && resumeAfterMetadata.value) return
 
+  clearPlaybackHandoffTimers()
   player.setPlaybackState('paused')
 }
 
 function onPlaying(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
+  clearPlaybackHandoffTimers()
   endSeekFeedback()
   player.setPlaybackState('playing')
   maybeRecordCountedPlay()
@@ -413,6 +447,19 @@ function formatTime(value: number) {
 
 function queueItemKey(track: typeof player.queue[number], index: number) {
   return `${track.id}-${index}`
+}
+
+function toggleQueueItem(index: number) {
+  if (index === player.currentIndex) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
+    return
+  }
+
+  player.playQueueIndex(index)
 }
 
 function startQueueDrag(index: number, event: DragEvent) {
@@ -546,6 +593,88 @@ function clearSeekFeedback() {
   }
 }
 
+function schedulePlaybackHandoff(playKey: string) {
+  clearPlaybackHandoffTimers()
+  if (
+    playKey !== currentPlayKey.value
+    || !player.isPlaying
+    || player.playbackState !== 'loading'
+  ) return
+
+  playbackHandoffRetryTimer = window.setTimeout(() => {
+    playbackHandoffRetryTimer = null
+    recoverPlaybackHandoff(playKey)
+  }, PLAYBACK_HANDOFF_RETRY_MS)
+  playbackHandoffTimeoutTimer = window.setTimeout(() => {
+    playbackHandoffTimeoutTimer = null
+    failStalledPlaybackHandoff(playKey)
+  }, PLAYBACK_HANDOFF_TIMEOUT_MS)
+}
+
+function recoverPlaybackHandoff(playKey: string) {
+  const element = audio.value
+  if (!isPendingPlaybackHandoff(playKey, element)) return
+
+  if (!element.paused) {
+    clearPlaybackHandoffTimers()
+    player.setPlaybackState('playing')
+    return
+  }
+
+  playbackAttemptId += 1
+  resumeAfterMetadata.value = true
+  restoredTrackId.value = null
+  isRestoringPosition.value = player.playbackPosition > 0
+  element.load()
+}
+
+function failStalledPlaybackHandoff(playKey: string) {
+  const element = audio.value
+  if (!isPendingPlaybackHandoff(playKey, element)) return
+
+  clearPlaybackHandoffTimers()
+  if (!element.paused) {
+    player.setPlaybackState('playing')
+    return
+  }
+
+  player.setError(t('player.playbackError'))
+}
+
+function isPendingPlaybackHandoff(
+  playKey: string,
+  element: HTMLAudioElement | null,
+): element is HTMLAudioElement {
+  return element !== null
+    && playKey === currentPlayKey.value
+    && element.dataset.playKey === playKey
+    && player.isPlaying
+    && player.playbackState === 'loading'
+}
+
+function clearPlaybackHandoffTimers() {
+  if (playbackHandoffRetryTimer) {
+    window.clearTimeout(playbackHandoffRetryTimer)
+    playbackHandoffRetryTimer = null
+  }
+  if (playbackHandoffTimeoutTimer) {
+    window.clearTimeout(playbackHandoffTimeoutTimer)
+    playbackHandoffTimeoutTimer = null
+  }
+}
+
+function releasePreviousMediaSource(nextPlayKey: string | null) {
+  const element = audio.value
+  if (!element || element.dataset.playKey === nextPlayKey) return
+
+  releasePlayerMediaSource(element)
+}
+
+function releasePlayerMediaSource(element: HTMLAudioElement) {
+  element.dataset.playKey = ''
+  releaseMediaSource(element)
+}
+
 function isCurrentPlaybackAttempt(
   playKey: string,
   element: HTMLAudioElement,
@@ -568,7 +697,9 @@ function isCurrentMediaEvent(event?: Event) {
 onBeforeUnmount(() => {
   persistCurrentPlaybackPosition()
   window.removeEventListener('beforeunload', persistCurrentPlaybackPosition)
+  clearPlaybackHandoffTimers()
   clearSeekFeedback()
+  if (audio.value) releasePlayerMediaSource(audio.value)
 })
 
 onMounted(() => {
@@ -585,6 +716,7 @@ onMounted(() => {
       :src="player.currentTrack.streamUrl"
       preload="metadata"
       :volume="player.volume"
+      @canplay="onCanPlay"
       @durationchange="updateDuration"
       @ended="onEnded"
       @error="onError"
@@ -962,7 +1094,7 @@ onMounted(() => {
           class="queue-item"
           :class="{ 'is-dragging': draggedQueueIndex === nowPlayingQueueItem.index }"
           draggable="true"
-          @click="player.playQueueIndex(nowPlayingQueueItem.index)"
+          @click="toggleQueueItem(nowPlayingQueueItem.index)"
           @dragend="stopQueueDrag"
           @dragover.prevent
           @dragstart="startQueueDrag(nowPlayingQueueItem.index, $event)"
@@ -1021,6 +1153,15 @@ onMounted(() => {
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(nowPlayingQueueItem.track.durationMs) }}</span>
               <TooltipIconButton
+                :text="player.isPlaying ? t('player.pause') : t('player.play')"
+                :aria-label="player.isPlaying ? t('player.pause') : t('player.play')"
+                color="primary"
+                :icon="player.isPlaying ? 'mdi-pause' : 'mdi-play'"
+                size="small"
+                variant="text"
+                @click.stop="toggleQueueItem(nowPlayingQueueItem.index)"
+              />
+              <TooltipIconButton
                 :text="t('playlists.addTrackToPlaylist')"
                 :aria-label="t('playlists.addTrackToPlaylist')"
                 icon="mdi-playlist-plus"
@@ -1049,7 +1190,7 @@ onMounted(() => {
           class="queue-item"
           :class="{ 'is-dragging': draggedQueueIndex === index }"
           draggable="true"
-          @click="player.playQueueIndex(index)"
+          @click="toggleQueueItem(index)"
           @dragend="stopQueueDrag"
           @dragover.prevent
           @dragstart="startQueueDrag(index, $event)"
@@ -1104,6 +1245,14 @@ onMounted(() => {
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(track.durationMs) }}</span>
               <TooltipIconButton
+                :text="t('player.play')"
+                :aria-label="t('player.play')"
+                icon="mdi-play"
+                size="small"
+                variant="text"
+                @click.stop="toggleQueueItem(index)"
+              />
+              <TooltipIconButton
                 :text="t('playlists.addTrackToPlaylist')"
                 :aria-label="t('playlists.addTrackToPlaylist')"
                 icon="mdi-playlist-plus"
@@ -1132,7 +1281,7 @@ onMounted(() => {
           class="queue-item"
           :class="{ 'is-dragging': draggedQueueIndex === index }"
           draggable="true"
-          @click="player.playQueueIndex(index)"
+          @click="toggleQueueItem(index)"
           @dragend="stopQueueDrag"
           @dragover.prevent
           @dragstart="startQueueDrag(index, $event)"
@@ -1186,6 +1335,14 @@ onMounted(() => {
           <template #append>
             <div class="queue-actions">
               <span class="text-caption text-medium-emphasis">{{ queueDuration(track.durationMs) }}</span>
+              <TooltipIconButton
+                :text="t('player.play')"
+                :aria-label="t('player.play')"
+                icon="mdi-play"
+                size="small"
+                variant="text"
+                @click.stop="toggleQueueItem(index)"
+              />
               <TooltipIconButton
                 :text="t('playlists.addTrackToPlaylist')"
                 :aria-label="t('playlists.addTrackToPlaylist')"

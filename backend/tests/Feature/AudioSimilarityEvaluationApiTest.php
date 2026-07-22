@@ -103,6 +103,10 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             ->assertJsonPath('distributions.bpm.median', 120)
             ->assertJsonCount(8, 'distributions.bpm.bins')
             ->assertJsonPath('feedbackSummary.relevant', 0)
+            ->assertJsonPath('review.targetSourceCount', 3)
+            ->assertJsonPath('review.matchCount', 10)
+            ->assertJsonPath('review.quality.all.completedSourceCount', 0)
+            ->assertJsonCount(3, 'review.sources')
             ->assertJsonCount(3, 'tracks');
 
         $response = $this->getJson(
@@ -112,6 +116,9 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('source.id', $source->id)
+            ->assertJsonPath('source.streamUrl', "/api/tracks/{$source->id}/stream")
+            ->assertJsonPath('source.durationMs', 123000)
+            ->assertJsonPath('source.albumOriginalReleaseYear', 2026)
             ->assertJsonPath('candidateCount', 2)
             ->assertJsonPath('matches.0.id', $near->id)
             ->assertJsonPath('matches.1.id', $far->id)
@@ -132,6 +139,23 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             ->assertJsonPath('filters.excludeSameArtist', true)
             ->assertJsonCount(0, 'matches');
 
+        $this->getJson("/api/audio-intelligence/tracks/{$source->id}/similar?limit=2")
+            ->assertOk()
+            ->assertJsonPath('source.id', $source->id)
+            ->assertJsonPath('filters.excludeSameAlbum', true)
+            ->assertJsonPath('filters.excludeSameArtist', true)
+            ->assertJsonPath('candidateCount', 0)
+            ->assertJsonCount(0, 'matches');
+
+        $this->getJson(
+            "/api/audio-intelligence/tracks/{$source->id}/similar"
+                .'?limit=2&excludeSameAlbum=0&excludeSameArtist=0',
+        )
+            ->assertOk()
+            ->assertJsonPath('matches.0.id', $near->id)
+            ->assertJsonPath('matches.1.id', $far->id)
+            ->assertJsonCount(2, 'matches');
+
         $this->putJson(
             "/api/settings/audio-intelligence/evaluation/{$source->id}"
                 ."/matches/{$near->id}/feedback",
@@ -139,7 +163,9 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         )
             ->assertOk()
             ->assertJsonPath('feedback', 'relevant')
-            ->assertJsonPath('feedbackSummary.relevant', 1);
+            ->assertJsonPath('feedbackSummary.relevant', 1)
+            ->assertJsonPath('review.quality.all.ratedMatchCount', 1)
+            ->assertJsonPath('review.quality.all.relevanceRate', 1);
 
         $this->getJson("/api/settings/audio-intelligence/evaluation/{$source->id}")
             ->assertOk()
@@ -151,7 +177,8 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         )
             ->assertOk()
             ->assertJsonPath('feedback', null)
-            ->assertJsonPath('feedbackSummary.relevant', 0);
+            ->assertJsonPath('feedbackSummary.relevant', 0)
+            ->assertJsonPath('review.quality.all.ratedMatchCount', 0);
     }
 
     public function test_evaluation_requires_opt_in_and_analyzed_source_track(): void
@@ -232,6 +259,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             'title' => $title,
             'sort_title' => $title,
             'track_number' => $position + 1,
+            'duration_ms' => 123000,
             'year' => 2026,
         ]);
         $track->artists()->attach($artist->id, ['role' => 'primary', 'position' => 0]);

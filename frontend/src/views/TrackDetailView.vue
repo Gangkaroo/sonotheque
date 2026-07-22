@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import { apiRequest } from '@/api/client'
 import { useCatalogStore } from '@/stores/catalog'
@@ -24,6 +25,7 @@ const player = usePlayerStore()
 const playlists = usePlaylistsStore()
 const statistics = useStatisticsStore()
 const addToPlaylistDialog = ref(false)
+const similarTracksDialog = ref(false)
 const recentPlaysPage = ref(1)
 const metadataDialog = ref(false)
 const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
@@ -96,12 +98,23 @@ const backAlbumId = computed(() => {
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
+const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
 const backRoute = computed(() => {
-  return backAlbumId.value
-    ? { name: 'album-detail', params: { id: backAlbumId.value } }
-    : { name: 'tracks' }
+  if (backAlbumId.value) {
+    return { name: 'album-detail', params: { id: backAlbumId.value } }
+  }
+  if (backToAudioIntelligence.value) {
+    return { name: 'settings', query: { tab: 'intelligence' } }
+  }
+
+  return { name: 'tracks' }
 })
-const backLabel = computed(() => backAlbumId.value ? t('tracks.backToAlbum') : t('tracks.back'))
+const backLabel = computed(() => {
+  if (backAlbumId.value) return t('tracks.backToAlbum')
+  if (backToAudioIntelligence.value) return t('tracks.backToAudioIntelligence')
+
+  return t('tracks.back')
+})
 const track = computed(() => catalog.trackDetail)
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
@@ -423,6 +436,14 @@ onUnmounted(() => {
         >
           {{ t('tracks.queueTrack') }}
         </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-vector-link"
+          variant="tonal"
+          @click="similarTracksDialog = true"
+        >
+          {{ t('tracks.similarTracks') }}
+        </v-btn>
         <TrackPlaylistMembershipMenu
           :track-id="track.id"
           @add-to-playlist="addToPlaylistDialog = true"
@@ -530,6 +551,7 @@ onUnmounted(() => {
   <EmptyCatalogState v-else :title="t('tracks.emptyTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+  <SimilarTracksDialog v-model="similarTracksDialog" :track-id="track?.id ?? null" />
 
   <v-dialog v-model="metadataDialog" max-width="680" persistent>
     <v-card prepend-icon="mdi-tag-edit-outline" :title="t('tracks.editMetadata')">

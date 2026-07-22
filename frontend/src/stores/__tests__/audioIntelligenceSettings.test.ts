@@ -195,6 +195,49 @@ describe('audio intelligence settings store', () => {
         relevant: 0,
         irrelevant: 0,
       },
+      review: {
+        targetSourceCount: 1,
+        matchCount: 10,
+        sources: [],
+        quality: {
+          all: {
+            startedSourceCount: 0,
+            completedSourceCount: 0,
+            ratedMatchCount: 0,
+            relevant: 0,
+            irrelevant: 0,
+            relevanceRate: null,
+            meanRelevantShare: null,
+          },
+          exclude_album: {
+            startedSourceCount: 0,
+            completedSourceCount: 0,
+            ratedMatchCount: 0,
+            relevant: 0,
+            irrelevant: 0,
+            relevanceRate: null,
+            meanRelevantShare: null,
+          },
+          exclude_artist: {
+            startedSourceCount: 0,
+            completedSourceCount: 0,
+            ratedMatchCount: 0,
+            relevant: 0,
+            irrelevant: 0,
+            relevanceRate: null,
+            meanRelevantShare: null,
+          },
+          exclude_album_artist: {
+            startedSourceCount: 0,
+            completedSourceCount: 0,
+            ratedMatchCount: 0,
+            relevant: 0,
+            irrelevant: 0,
+            relevanceRate: null,
+            meanRelevantShare: null,
+          },
+        },
+      },
       tracks: [
         {
           id: 10,
@@ -209,6 +252,7 @@ describe('audio intelligence settings store', () => {
           trackNumber: 1,
           libraryRootId: 1,
           libraryRootName: 'Root',
+          genreIds: [],
           features: { bpm: 120 },
         },
       ],
@@ -286,22 +330,43 @@ describe('audio intelligence settings store', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         feedback: 'relevant',
         feedbackSummary: { relevant: 1, irrelevant: 0 },
+        review: {
+          ...store.evaluation.review,
+          quality: {
+            ...store.evaluation.review.quality,
+            exclude_album_artist: {
+              ...store.evaluation.review.quality.exclude_album_artist,
+              ratedMatchCount: 1,
+              relevant: 1,
+              relevanceRate: 1,
+            },
+          },
+        },
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         feedback: null,
         feedbackSummary: { relevant: 0, irrelevant: 0 },
+        review: store.evaluation.review,
       }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await store.setSimilarityFeedback(1, 2, 'relevant')
+    await store.setSimilarityFeedback(1, 2, 'relevant', {
+      excludeSameAlbum: true,
+      excludeSameArtist: true,
+    })
     expect(store.evaluationResult.matches[0]?.feedback).toBe('relevant')
     expect(store.evaluation.feedbackSummary.relevant).toBe(1)
+    expect(store.evaluation.review.quality.exclude_album_artist.ratedMatchCount).toBe(1)
 
-    await store.setSimilarityFeedback(1, 2, null)
+    await store.setSimilarityFeedback(1, 2, null, {
+      excludeSameAlbum: true,
+      excludeSameArtist: true,
+    })
     expect(store.evaluationResult.matches[0]?.feedback).toBeNull()
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/settings/audio-intelligence/evaluation/1/matches/2/feedback',
+      '/api/settings/audio-intelligence/evaluation/1/matches/2/feedback'
+        + '?excludeSameAlbum=1&excludeSameArtist=1',
       expect.objectContaining({ method: 'DELETE' }),
     )
   })

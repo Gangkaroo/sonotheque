@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'audio_analysis_profile_id',
     'source_track_id',
     'candidate_track_id',
+    'configuration',
     'verdict',
 ])]
 class AudioSimilarityFeedback extends Model

@@ -78,16 +78,21 @@ export interface AudioIntelligenceSettings {
 export interface AudioSimilarityTrack {
   id: number
   title: string
+  streamUrl: string
+  durationMs: number | null
   label: string
   artistName: string
   artists: Array<{ id: number, name: string }>
   albumId: number | null
   albumTitle: string
+  albumOriginalReleaseYear: number | null
+  albumArtworkThumbnailUrl: string | null
   year: number | null
   discNumber: number | null
   trackNumber: number | null
   libraryRootId: number | null
   libraryRootName: string
+  genreIds: number[]
   features: {
     bpm?: number
     danceability?: number
@@ -119,6 +124,39 @@ export interface AudioSimilarityFeedbackSummary {
   irrelevant: number
 }
 
+export type AudioSimilarityConfiguration =
+  | 'all'
+  | 'exclude_album'
+  | 'exclude_artist'
+  | 'exclude_album_artist'
+
+export interface AudioSimilaritySourceProgress {
+  required: number
+  rated: number
+  relevant: number
+  irrelevant: number
+  complete: boolean
+}
+
+export interface AudioSimilarityQualityMetrics {
+  startedSourceCount: number
+  completedSourceCount: number
+  ratedMatchCount: number
+  relevant: number
+  irrelevant: number
+  relevanceRate: number | null
+  meanRelevantShare: number | null
+}
+
+export interface AudioSimilarityReview {
+  targetSourceCount: number
+  matchCount: number
+  sources: Array<AudioSimilarityTrack & {
+    configurations: Record<AudioSimilarityConfiguration, AudioSimilaritySourceProgress>
+  }>
+  quality: Record<AudioSimilarityConfiguration, AudioSimilarityQualityMetrics>
+}
+
 export interface AudioSimilarityOverview {
   profile: AudioAnalyzerProfile | null
   analyzedTrackCount: number
@@ -129,6 +167,7 @@ export interface AudioSimilarityOverview {
   }
   distributions: Record<string, AudioFeatureDistribution>
   feedbackSummary: AudioSimilarityFeedbackSummary
+  review: AudioSimilarityReview
   tracks: AudioSimilarityTrack[]
 }
 
@@ -161,6 +200,28 @@ const defaults: AudioIntelligenceSettings = {
   latestPilot: null,
 }
 
+const emptyQualityMetrics = (): AudioSimilarityQualityMetrics => ({
+  startedSourceCount: 0,
+  completedSourceCount: 0,
+  ratedMatchCount: 0,
+  relevant: 0,
+  irrelevant: 0,
+  relevanceRate: null,
+  meanRelevantShare: null,
+})
+
+const emptyReview = (): AudioSimilarityReview => ({
+  targetSourceCount: 0,
+  matchCount: 10,
+  sources: [],
+  quality: {
+    all: emptyQualityMetrics(),
+    exclude_album: emptyQualityMetrics(),
+    exclude_artist: emptyQualityMetrics(),
+    exclude_album_artist: emptyQualityMetrics(),
+  },
+})
+
 export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceSettings', () => {
   const settings = ref<AudioIntelligenceSettings>({ ...defaults })
   const loading = ref(false)
@@ -183,6 +244,7 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
       relevant: 0,
       irrelevant: 0,
     },
+    review: emptyReview(),
     tracks: [],
   })
   const evaluationResult = ref<AudioSimilarityEvaluation | null>(null)
@@ -340,6 +402,7 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     sourceTrackId: number,
     candidateTrackId: number,
     feedback: 'relevant' | 'irrelevant' | null,
+    options: { excludeSameAlbum: boolean, excludeSameArtist: boolean },
   ) {
     ratingTrackId.value = candidateTrackId
     evaluationError.value = null
@@ -347,17 +410,29 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
       const response = await apiRequest<{
         feedback: 'relevant' | 'irrelevant' | null
         feedbackSummary: AudioSimilarityFeedbackSummary
+        review: AudioSimilarityReview
       }>(
         `/settings/audio-intelligence/evaluation/${sourceTrackId}`
-          + `/matches/${candidateTrackId}/feedback`,
+          + `/matches/${candidateTrackId}/feedback`
+          + (feedback === null
+            ? `?${new URLSearchParams({
+                excludeSameAlbum: options.excludeSameAlbum ? '1' : '0',
+                excludeSameArtist: options.excludeSameArtist ? '1' : '0',
+              }).toString()}`
+            : ''),
         feedback === null
           ? { method: 'DELETE' }
           : {
               method: 'PUT',
-              body: JSON.stringify({ verdict: feedback }),
+              body: JSON.stringify({
+                verdict: feedback,
+                excludeSameAlbum: options.excludeSameAlbum,
+                excludeSameArtist: options.excludeSameArtist,
+              }),
             },
       )
       evaluation.value.feedbackSummary = response.feedbackSummary
+      evaluation.value.review = response.review
       const match = evaluationResult.value?.matches.find(item => item.id === candidateTrackId)
       if (match) {
         match.feedback = response.feedback

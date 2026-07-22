@@ -47,19 +47,39 @@ class AudioSimilarityEvaluationController extends Controller
         $this->requireEnabledWorkspace();
         $validated = $request->validate([
             'verdict' => ['required', 'in:relevant,irrelevant'],
+            'excludeSameAlbum' => ['sometimes', 'boolean'],
+            'excludeSameArtist' => ['sometimes', 'boolean'],
         ]);
 
         return response()->json(
-            $this->evaluator->recordFeedback($track->id, $candidate->id, $validated['verdict']),
+            $this->evaluator->recordFeedback(
+                $track->id,
+                $candidate->id,
+                $validated['verdict'],
+                $validated['excludeSameAlbum'] ?? false,
+                $validated['excludeSameArtist'] ?? false,
+            ),
         );
     }
 
-    public function destroyFeedback(Track $track, Track $candidate): JsonResponse
-    {
+    public function destroyFeedback(
+        Request $request,
+        Track $track,
+        Track $candidate,
+    ): JsonResponse {
         $this->requireEnabledWorkspace();
+        $validated = $request->validate([
+            'excludeSameAlbum' => ['sometimes', 'boolean'],
+            'excludeSameArtist' => ['sometimes', 'boolean'],
+        ]);
 
         return response()->json(
-            $this->evaluator->removeFeedback($track->id, $candidate->id),
+            $this->evaluator->removeFeedback(
+                $track->id,
+                $candidate->id,
+                $validated['excludeSameAlbum'] ?? false,
+                $validated['excludeSameArtist'] ?? false,
+            ),
         );
     }
 

@@ -133,15 +133,18 @@ const backArtistId = computed(() => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
 const backToTracks = computed(() => route.query.backTo === 'tracks')
+const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
 const backRoute = computed(() => {
   if (backArtistId.value) return { name: 'artist-detail', params: { id: backArtistId.value } }
   if (backToTracks.value) return { name: 'tracks' }
+  if (backToAudioIntelligence.value) return { name: 'settings', query: { tab: 'intelligence' } }
 
   return { name: 'albums' }
 })
 const backLabel = computed(() => {
   if (backArtistId.value) return t('albums.backToArtist')
   if (backToTracks.value) return t('albums.backToTracks')
+  if (backToAudioIntelligence.value) return t('albums.backToAudioIntelligence')
 
   return t('albums.back')
 })

@@ -2,11 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useAudioIntelligenceSettingsStore } from '@/stores/audioIntelligenceSettings'
+import {
+  type AudioSimilarityTrack,
+  type AudioSimilarityConfiguration,
+  useAudioIntelligenceSettingsStore,
+} from '@/stores/audioIntelligenceSettings'
+import { usePlayerStore } from '@/stores/player'
+import { similarityTrackToPlayableTrack } from '@/utils/audioSimilarity'
 import { formatDateTime } from '@/utils/formatters'
 
 const { locale, t } = useI18n()
 const audioIntelligence = useAudioIntelligenceSettingsStore()
+const player = usePlayerStore()
 const sampleSize = ref(200)
 const evaluationTrackId = ref<number | null>(null)
 const excludeSameAlbum = ref(true)
@@ -25,6 +32,34 @@ const distributionFeatures = computed(() => (
       return distribution ? [{ key, distribution }] : []
     })
 ))
+const activeReviewConfiguration = computed<AudioSimilarityConfiguration>(() => {
+  if (excludeSameAlbum.value && excludeSameArtist.value) return 'exclude_album_artist'
+  if (excludeSameAlbum.value) return 'exclude_album'
+  if (excludeSameArtist.value) return 'exclude_artist'
+
+  return 'all'
+})
+const activeReviewQuality = computed(() => (
+  audioIntelligence.evaluation.review.quality[activeReviewConfiguration.value]
+))
+const currentReviewSource = computed(() => (
+  audioIntelligence.evaluation.review.sources.find(
+    source => source.id === audioIntelligence.evaluationResult?.source.id,
+  )
+))
+const currentReviewProgress = computed(() => (
+  currentReviewSource.value?.configurations[activeReviewConfiguration.value]
+))
+const nextReviewSource = computed(() => {
+  const sources = audioIntelligence.evaluation.review.sources
+  const configuration = activeReviewConfiguration.value
+
+  return sources.find((source) => {
+    const progress = source.configurations[configuration]
+
+    return progress.rated > 0 && !progress.complete
+  }) ?? sources.find(source => !source.configurations[configuration].complete)
+})
 
 watch(
   () => audioIntelligence.settings.sampleSize,
@@ -33,6 +68,9 @@ watch(
   },
   { immediate: true },
 )
+watch([excludeSameAlbum, excludeSameArtist], () => {
+  audioIntelligence.evaluationResult = null
+})
 
 onMounted(async () => {
   await audioIntelligence.load()
@@ -105,10 +143,49 @@ function similarityScore(value: number) {
   }).format(value)
 }
 
+function percentage(value: number | null) {
+  if (value === null) return '–'
+
+  return new Intl.NumberFormat(locale.value, {
+    maximumFractionDigits: 1,
+    style: 'percent',
+  }).format(value)
+}
+
 function featureBpm(value: number | undefined) {
   return value === undefined
     ? null
     : t('settings.audioSimilarityBpm', { value: Math.round(value) })
+}
+
+function isPlaying(trackId: number) {
+  return player.currentTrack?.id === trackId && player.isPlaying
+}
+
+function togglePlayback(track: AudioSimilarityTrack) {
+  if (player.currentTrack?.id === track.id) {
+    if (player.isPlaying) {
+      player.pause()
+    } else {
+      player.resume()
+    }
+    return
+  }
+
+  const playableTrack = similarityTrackToPlayableTrack(track)
+  player.playTrack(playableTrack, [playableTrack], 'track-list')
+}
+
+function playEvaluationTracks() {
+  const result = audioIntelligence.evaluationResult
+  if (!result) return
+
+  const tracks = [result.source, ...result.matches].map(similarityTrackToPlayableTrack)
+  const sourceTrack = tracks[0]
+
+  if (sourceTrack) {
+    player.playTrack(sourceTrack, tracks, 'track-list')
+  }
 }
 
 function featureKey(key: string | undefined, scale: string | undefined) {
@@ -147,6 +224,13 @@ async function evaluateSelectedTrack() {
   })
 }
 
+async function reviewNextTrack() {
+  if (!nextReviewSource.value) return
+
+  evaluationTrackId.value = nextReviewSource.value.id
+  await evaluateSelectedTrack()
+}
+
 async function toggleMatchFeedback(
   candidateId: number,
   feedback: 'relevant' | 'irrelevant',
@@ -159,6 +243,10 @@ async function toggleMatchFeedback(
     result.source.id,
     candidateId,
     match?.feedback === feedback ? null : feedback,
+    {
+      excludeSameAlbum: excludeSameAlbum.value,
+      excludeSameArtist: excludeSameArtist.value,
+    },
   )
 }
 </script>
@@ -489,6 +577,66 @@ async function toggleMatchFeedback(
             </v-card>
           </div>
 
+          <v-card border class="audio-review-card mb-5" rounded="lg" variant="tonal">
+            <v-card-text class="pa-4">
+              <div class="d-flex flex-wrap align-start justify-space-between ga-3 mb-3">
+                <div>
+                  <div class="text-subtitle-2 font-weight-bold">
+                    {{ t('settings.audioSimilarityReview') }}
+                  </div>
+                  <div class="text-body-2 text-medium-emphasis">
+                    {{ t('settings.audioSimilarityReviewDescription', {
+                      sources: audioIntelligence.evaluation.review.targetSourceCount,
+                      matches: audioIntelligence.evaluation.review.matchCount,
+                    }) }}
+                  </div>
+                </div>
+                <v-btn
+                  color="primary"
+                  :disabled="!nextReviewSource"
+                  :loading="audioIntelligence.evaluatingTrack"
+                  prepend-icon="mdi-clipboard-text-search-outline"
+                  variant="tonal"
+                  @click="reviewNextTrack"
+                >
+                  {{ nextReviewSource
+                    ? t('settings.audioSimilarityReviewNext')
+                    : t('settings.audioSimilarityReviewComplete') }}
+                </v-btn>
+              </div>
+              <v-progress-linear
+                color="primary"
+                height="8"
+                :max="Math.max(1, audioIntelligence.evaluation.review.targetSourceCount)"
+                rounded
+                :model-value="activeReviewQuality.completedSourceCount"
+              />
+              <div class="d-flex flex-wrap ga-2 mt-3">
+                <v-chip prepend-icon="mdi-check-circle-outline" size="small" variant="outlined">
+                  {{ t('settings.audioSimilarityReviewedSources', {
+                    completed: activeReviewQuality.completedSourceCount,
+                    total: audioIntelligence.evaluation.review.targetSourceCount,
+                  }) }}
+                </v-chip>
+                <v-chip prepend-icon="mdi-format-list-checks" size="small" variant="outlined">
+                  {{ t('settings.audioSimilarityRatedMatches', {
+                    count: activeReviewQuality.ratedMatchCount,
+                  }) }}
+                </v-chip>
+                <v-chip prepend-icon="mdi-chart-donut" size="small" variant="outlined">
+                  {{ t('settings.audioSimilarityRelevanceRate', {
+                    value: percentage(activeReviewQuality.relevanceRate),
+                  }) }}
+                </v-chip>
+                <v-chip prepend-icon="mdi-chart-box-outline" size="small" variant="outlined">
+                  {{ t('settings.audioSimilarityCompletedSourceQuality', {
+                    value: percentage(activeReviewQuality.meanRelevantShare),
+                  }) }}
+                </v-chip>
+              </div>
+            </v-card-text>
+          </v-card>
+
           <div class="audio-similarity-controls">
             <v-autocomplete
               v-model="evaluationTrackId"
@@ -542,27 +690,137 @@ async function toggleMatchFeedback(
                     milliseconds: audioIntelligence.evaluationResult.calculationMs,
                   }) }}
                 </div>
+                <div v-if="currentReviewProgress" class="text-caption text-medium-emphasis">
+                  {{ t('settings.audioSimilaritySourceProgress', {
+                    rated: currentReviewProgress.rated,
+                    required: currentReviewProgress.required,
+                  }) }}
+                </div>
+                <div class="d-flex flex-wrap ga-1 mt-1">
+                  <v-chip
+                    v-if="featureBpm(audioIntelligence.evaluationResult.source.features.bpm)"
+                    size="x-small"
+                    variant="outlined"
+                  >
+                    {{ featureBpm(audioIntelligence.evaluationResult.source.features.bpm) }}
+                  </v-chip>
+                  <v-chip
+                    v-if="featureKey(
+                      audioIntelligence.evaluationResult.source.features.key,
+                      audioIntelligence.evaluationResult.source.features.scale,
+                    )"
+                    size="x-small"
+                    variant="outlined"
+                  >
+                    {{ featureKey(
+                      audioIntelligence.evaluationResult.source.features.key,
+                      audioIntelligence.evaluationResult.source.features.scale,
+                    ) }}
+                  </v-chip>
+                </div>
               </div>
-              <v-chip size="small" variant="outlined">
-                {{ audioIntelligence.evaluationResult.profile.modelName }}
-              </v-chip>
+              <div class="d-flex flex-wrap align-center justify-end ga-1">
+                <v-chip size="small" variant="outlined">
+                  {{ audioIntelligence.evaluationResult.profile.modelName }}
+                </v-chip>
+                <v-btn
+                  color="primary"
+                  prepend-icon="mdi-playlist-play"
+                  size="small"
+                  :title="t('settings.audioSimilarityPlayAll')"
+                  variant="tonal"
+                  @click="playEvaluationTracks"
+                >
+                  {{ t('settings.audioSimilarityPlayAll') }}
+                </v-btn>
+                <v-btn
+                  :aria-label="t('settings.audioSimilarityOpenSourceDetails')"
+                  icon="mdi-information-outline"
+                  size="small"
+                  :title="t('settings.audioSimilarityOpenSourceDetails')"
+                  :to="{
+                    name: 'track-detail',
+                    params: { id: audioIntelligence.evaluationResult.source.id },
+                    query: { backTo: 'audio-intelligence' },
+                  }"
+                  variant="text"
+                />
+                <v-btn
+                  color="primary"
+                  :icon="isPlaying(audioIntelligence.evaluationResult.source.id)
+                    ? 'mdi-pause'
+                    : 'mdi-play'"
+                  size="small"
+                  :title="isPlaying(audioIntelligence.evaluationResult.source.id)
+                    ? t('player.pause')
+                    : t('settings.audioSimilarityPlaySource')"
+                  variant="tonal"
+                  @click="togglePlayback(audioIntelligence.evaluationResult.source)"
+                />
+              </div>
             </div>
 
             <v-list border class="audio-similarity-results" lines="two" rounded="lg">
               <v-list-item
                 v-for="match in audioIntelligence.evaluationResult.matches"
                 :key="match.id"
-                :to="{ name: 'track-detail', params: { id: match.id } }"
+                class="audio-similarity-result"
+                :class="{
+                  'audio-similarity-result--active': player.currentTrack?.id === match.id,
+                }"
+                @click="togglePlayback(match)"
               >
                 <template #prepend>
                   <v-avatar color="primary" size="40" variant="tonal">
                     <v-icon icon="mdi-music-note" />
                   </v-avatar>
                 </template>
-                <v-list-item-title>{{ match.title }}</v-list-item-title>
+                <v-list-item-title>
+                  <RouterLink
+                    class="audio-similarity-link font-weight-bold"
+                    :to="{
+                      name: 'track-detail',
+                      params: { id: match.id },
+                      query: { backTo: 'audio-intelligence' },
+                    }"
+                    @click.stop
+                  >
+                    {{ match.title }}
+                  </RouterLink>
+                </v-list-item-title>
                 <v-list-item-subtitle>
-                  {{ [match.artistName, match.albumTitle, match.year]
-                    .filter(Boolean).join(' · ') }}
+                  <template v-if="match.artists.length">
+                    <template v-for="(artist, index) in match.artists" :key="artist.id">
+                      <span v-if="index > 0">, </span>
+                      <RouterLink
+                        class="audio-similarity-link"
+                        :to="{
+                          name: 'artist-detail',
+                          params: { id: artist.id },
+                          query: { backTo: 'audio-intelligence' },
+                        }"
+                        @click.stop
+                      >
+                        {{ artist.name }}
+                      </RouterLink>
+                    </template>
+                  </template>
+                  <span v-else>{{ t('catalog.unknownArtist') }}</span>
+                  <template v-if="match.albumId">
+                    <span> · </span>
+                    <RouterLink
+                      class="audio-similarity-link"
+                      :to="{
+                        name: 'album-detail',
+                        params: { id: match.albumId },
+                        query: { backTo: 'audio-intelligence' },
+                      }"
+                      @click.stop
+                    >
+                      {{ match.albumTitle }}
+                    </RouterLink>
+                  </template>
+                  <span v-if="match.year"> · {{ match.year }}</span>
                 </v-list-item-subtitle>
                 <template #append>
                   <div class="audio-similarity-match-meta">
@@ -585,6 +843,22 @@ async function toggleMatchFeedback(
                         {{ featureKey(match.features.key, match.features.scale) }}
                       </v-chip>
                       <v-btn
+                        color="primary"
+                        density="compact"
+                        :icon="isPlaying(match.id) ? 'mdi-pause' : 'mdi-play'"
+                        size="x-small"
+                        :title="isPlaying(match.id)
+                          ? t('player.pause')
+                          : t('settings.audioSimilarityPlayMatch')"
+                        variant="text"
+                        @click.prevent.stop="togglePlayback(match)"
+                      />
+                      <v-btn
+                        :aria-pressed="match.feedback === 'relevant'"
+                        :class="{
+                          'audio-feedback-button--subdued':
+                            match.feedback !== null && match.feedback !== 'relevant',
+                        }"
                         color="success"
                         density="compact"
                         :icon="match.feedback === 'relevant'
@@ -593,10 +867,15 @@ async function toggleMatchFeedback(
                         :loading="audioIntelligence.ratingTrackId === match.id"
                         size="x-small"
                         :title="t('settings.audioSimilarityRelevant')"
-                        :variant="match.feedback === 'relevant' ? 'flat' : 'text'"
+                        :variant="match.feedback === 'relevant' ? 'tonal' : 'text'"
                         @click.prevent.stop="toggleMatchFeedback(match.id, 'relevant')"
                       />
                       <v-btn
+                        :aria-pressed="match.feedback === 'irrelevant'"
+                        :class="{
+                          'audio-feedback-button--subdued':
+                            match.feedback !== null && match.feedback !== 'irrelevant',
+                        }"
                         color="error"
                         density="compact"
                         :icon="match.feedback === 'irrelevant'
@@ -605,7 +884,7 @@ async function toggleMatchFeedback(
                         :loading="audioIntelligence.ratingTrackId === match.id"
                         size="x-small"
                         :title="t('settings.audioSimilarityIrrelevant')"
-                        :variant="match.feedback === 'irrelevant' ? 'flat' : 'text'"
+                        :variant="match.feedback === 'irrelevant' ? 'tonal' : 'text'"
                         @click.prevent.stop="toggleMatchFeedback(match.id, 'irrelevant')"
                       />
                     </div>
@@ -666,9 +945,38 @@ async function toggleMatchFeedback(
   overflow: hidden;
 }
 
+.audio-similarity-result {
+  cursor: pointer;
+}
+
+.audio-similarity-result--active {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.audio-similarity-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.audio-similarity-link:hover,
+.audio-similarity-link:focus-visible {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+}
+
 .audio-similarity-match-meta {
   min-width: 112px;
   text-align: right;
+}
+
+.audio-feedback-button--subdued {
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.audio-feedback-button--subdued:hover,
+.audio-feedback-button--subdued:focus-visible {
+  opacity: 0.75;
 }
 
 @media (max-width: 760px) {

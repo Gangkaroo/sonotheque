@@ -42,6 +42,7 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_sample_size'));
+        $this->assertTrue(Schema::hasColumn('audio_similarity_feedback', 'configuration'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_run_items', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'audio_analysis_profile_id'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'phase'));
