@@ -16,6 +16,7 @@ use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\PlaybackStatistics\ImportedPlayStatistics;
 use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
+use App\Music\Playlists\PlaylistFileSynchronizationDispatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +103,7 @@ class LibraryScanner
         private readonly AlbumArtworkManager $artworkManager,
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
+        private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
     ) {
     }
 
@@ -876,6 +878,9 @@ class LibraryScanner
             $this->staleFilesByFingerprint[$fingerprint],
         );
         $this->existingFiles[$pathHash] = $state;
+        if (($state['track_id'] ?? null) !== null) {
+            $this->playlistSynchronizationDispatcher->tracks([$state['track_id']]);
+        }
 
         return $state;
     }

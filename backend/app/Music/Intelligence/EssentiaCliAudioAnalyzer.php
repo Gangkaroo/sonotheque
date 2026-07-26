@@ -56,6 +56,10 @@ class EssentiaCliAudioAnalyzer implements AudioAnalyzer
         }
     }
 
+    public function shutdown(): void
+    {
+    }
+
     public function analyzeBatch(array $requests): array
     {
         try {

@@ -69,12 +69,15 @@ The implemented release baseline and active roadmap include:
 - Browser playback for supported audio formats
 - Persistent playback controls, seeking, volume, current-page queue navigation, and random playback actions
 - Lightweight Web Audio API music visualization in the expanded player
-- Continuous album and track playback with optional random next-item selection
+- Continuous album and track playback with optional random next-item selection;
+  random playback started from filtered album or track lists keeps a frozen
+  root/search/genre/year/ownership/sort scope for subsequent choices
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
-- Custom playlists, playlist folders, ordered playlist items, and queue-to-playlist actions
+- Custom playlists, playlist folders, ordered playlist items, queue-to-playlist
+  actions, M3U/M3U8 export, and optional background file synchronization
 - Personal album information, including purchase source, purchase date,
-  physical-copy state, physical format, and notes
+  physical-copy state, physical format, and sanitized rich-text notes
 - Optional Discogs connection for matching albums to exact owned physical
   releases and collection instances
 - Root-scoped folder browsing with file and folder playback, queue, playlist,
@@ -86,8 +89,9 @@ The implemented release baseline and active roadmap include:
 - Optional cached artist, album, identity, portrait, and lyrics enrichment
   through Last.fm, MusicBrainz, Wikidata, Wikimedia Commons, and LRCLIB
 - Disabled-by-default local audio analysis and semantic similarity
-  recommendations using versioned pretrained models, background jobs, and
-  PostgreSQL vector search
+  recommendations using versioned pretrained models, reusable background
+  analysis, and exact cosine search; optional PostgreSQL vector indexing is
+  introduced only if full-collection measurements justify it
 - Independently disabled-by-default local collection assistant that answers
   questions and prepares searches or queue previews through validated,
   read-only Sonotheque tools
@@ -98,7 +102,7 @@ The following longer-term features remain deferred:
 
 - User accounts and permissions
 - Audio transcoding
-- Playlist import/export
+- External M3U/M3U8 playlist import
 - Last.fm history import and now-playing updates
 - Mobile applications
 
@@ -279,7 +283,8 @@ installation, like favorites and playlists. A future user-account migration can
 add an owner without changing the scanned catalog.
 
 - `album_personal_metadata`: one optional row per album for album-wide personal
-  notes and timestamps.
+  notes and timestamps. Notes are stored as sanitized HTML from a deliberately
+  small rich-text editor and rendered through a second client-side sanitizer.
 - Purchase and edition-specific information belongs to `owned_album_copies` so
   an album can represent digital ownership, several physical editions, or more
   than one copy without duplicating scanned catalog metadata.
@@ -507,11 +512,24 @@ No model should be trained from scratch for the initial release. The first-run
 cost is analysis and indexing with pretrained models. Optional personalization
 can later learn a lightweight reranking profile from explicit feedback, skips,
 completed plays, favorites, and playlists without replacing the base embedding
-model. Feedback collection must be opt-in and inspectable.
+model. A few ratings cannot retrain the embedding model itself. They can instead
+adjust a small, local and reversible reranking layer. Feedback collection must
+be opt-in and inspectable.
 
-Settings should expose separate enablement for audio analysis and the assistant,
-worker and model health, download size and license information, analysis
-progress, pause/resume controls, resource limits, and removal/rebuild actions.
+The ordinary Audio intelligence settings should expose only controls that help
+the listener: independent enablement, collection coverage, current analysis
+progress, pause/resume, conservative resource limits, and recommendation
+preferences such as tempo/key/energy influence, artist diversity, duplicate
+handling, and library-root scope. If matches are poor, the user should be able
+to rate them and see subsequent recommendations change through the local
+reranker. Until that reranker exists, relevant/not-relevant ratings are quality
+evaluation data only and must not be described as training or personalization.
+
+Analyzer health, model identity and license, validation samples, bounded pool
+expansion, feature distributions, and baseline-quality measurements are
+experimental diagnostics. Keep them collapsed behind an Advanced diagnostics
+section or a development setting; they are not required after the analyzer
+baseline has been accepted and should never block normal collection analysis.
 Model downloads and all analysis remain local by default. A packaged optional
 AI profile must degrade cleanly when no supported GPU, sufficient memory, model,
 or pgvector extension is available.
@@ -566,8 +584,14 @@ Completed:
 - Playlist detail usability refinements: visible playlist positions,
   selection mode for bulk removal, clearer drag-and-drop insertion feedback,
   and compact playlist-folder grouping
+- M3U/M3U8 export for albums and custom playlists, reusable export locations,
+  a dedicated playlist-settings tab, and optional asynchronous synchronization
+  that mirrors playlist folders and reports live progress
 - Playback robustness for fast playlist switching, seeking, stale media events,
   and page refresh restoration
+- Frozen album and track playback scopes that preserve the active root and
+  list filters for continuous sequential or random playback and describe the
+  captured scope in the queue
 - Web Audio API frequency visualization in the expanded player with a persisted
   on/off player setting
 - Artist detail pages with cached artist context, album and track tabs, artist
@@ -603,6 +627,9 @@ Completed:
   Security tab for verified session or device admin tokens, and documented
   server-token recovery
 - Database-backed play events and track play statistics with a counted-play threshold, history views, aggregate album/artist statistics, and a never-played track filter
+- Shared listen-time accumulation for local statistics and Last.fm that counts
+  actual advancing playback time, survives refreshes, and does not treat seeking
+  to a late position as listening
 - Optional MP3 statistics synchronization using foo_playcount-compatible tags, with queued coalesced write-back
 - Defensive play-count import that normalizes non-standard ID3 counters and
   excludes ambiguous global popularity values from per-track totals
@@ -630,22 +657,37 @@ Completed:
   automated host preflight for valid and invalid admin-token behavior
 - One-to-many owned album copies with lossless migration of existing purchase,
   format, and physical-copy data while album-wide notes remain separate
+- Sanitized album rich-text notes with a compact Tiptap/Vuetify toolbar for
+  emphasis, lists, quotes, and safe external links
 - Encrypted Discogs personal-token connection with immediate account identity
   validation, disconnect support, LAN admin protection, and a Connections-tab UI
 - Read-only matching of owned album copies to exact Discogs releases and
   collection instances, including duplicate-instance selection, cached release
   details and thumbnails, refresh, change, and unlink actions
 - Disabled-by-default Audio intelligence settings with durable representative
-  pilot samples selected across enabled roots, artists, and genres; bounded,
+  validation samples selected across enabled roots, artists, and genres; bounded,
   resumable fingerprint preparation; a versioned analyzer contract; and
-  manually provisioned pilot execution. No analyzer or model download is
+  manually provisioned analysis execution. No analyzer or model download is
   started automatically
+- Durable all-root or root-scoped collection analysis with separate collection,
+  validation, and bounded pool-expansion run state; pause/resume checkpoints and
+  content-addressed artifacts prevent completed audio from being analyzed twice
+- Persistent CUDA analysis service with batched model inference and overlapped
+  CPU preparation, plus a cancellable CPU/CUDA benchmark that records verified
+  throughput and a hardware-specific recommendation without changing analysis
+  artifacts or run progress
 
 Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
-- Local audio intelligence and semantic similarity recommendations
+- Full-collection audio-intelligence completion and exact-search measurement,
+  followed by optional feature reranking, personalization, and final separation
+  of listener controls from advanced diagnostics
+- Explicit persisted CPU/CUDA analyzer selection based on availability and
+  benchmark results, plus remaining zero-overhead and failure-path coverage
+- Optional alternate configured destination for album playlist exports and,
+  later, external M3U/M3U8 playlist import
 - Local collection assistant over guarded Sonotheque tools
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
@@ -877,7 +919,28 @@ This phase was pulled forward after the queue model became stable. It builds on 
   playlists, and provide an action from track contexts to navigate directly to
   one of those playlists. (Complete for track details, track lists, and album
   track lists, including direct item focus)
-- Consider importing/exporting playlists only after the core local workflow is stable.
+- Export an album's ordered tracks as M3U8 or M3U directly beside the album
+  files, using a prefilled `Album Artist - Album Title` filename and a simple
+  path-only format with portable relative paths. (Complete)
+- Configure a default playlist format and reusable named export folders through
+  a dedicated Playlists settings tab. (Complete)
+- Export custom Sonotheque playlists to a configured folder, with a selectable
+  destination and format. Preserve playlist order and the active library-root
+  scope; use portable relative paths on the same volume and absolute paths when
+  Windows volumes differ. (Complete)
+- Add disabled-by-default background synchronization of every custom playlist
+  to the default export folder. Mirror nested playlist folders as filesystem
+  subfolders, replace filesystem-invalid folder-name characters without
+  changing names in Sonotheque, update files after playlist edits/reordering and
+  recognized library-file moves, and retain the last valid export when a write
+  fails. When a drive root is selected as the destination, create a named
+  container folder instead of writing playlist folders directly into the drive
+  root. Expose queued, successful, and failed counts with a progress bar that
+  polls only while synchronization work remains. (Complete)
+- Let album exports optionally use a configured playlist destination instead
+  of the album folder. (Next)
+- Consider importing external M3U/M3U8 playlists after the custom-playlist
+  export workflow is stable.
 
 ### 5b. Metadata Editing
 
@@ -1004,36 +1067,40 @@ Last.fm integration.
 ### 5e. Local Audio Intelligence And Similarity
 
 - Add an independently protected Audio intelligence settings area and durable
-  pilot runs that select 50-to-500 catalog tracks across enabled roots, artists,
+  validation runs that select 50-to-500 catalog tracks across enabled roots, artists,
   and genres without provisioning a model or dispatching analysis. Fingerprint
   only the selected bounded sample plus a small reserve, reuse existing
   fingerprints, and support cancellation and restart without repeating
   completed work. (Complete)
 - Add an optional Python analysis worker that shares read-only access to mounted
   library roots and receives versioned jobs from Laravel. Keep the service
-  stopped and unprovisioned until the user opts in. (Initial CLI pilot worker
+  stopped and unprovisioned until the user opts in. (Initial CLI analysis worker
   complete; packaged optional service remains pending.)
 - Add an optional pgvector extension and separate model, feature, embedding,
   status, confidence, and error records keyed by track and audio-content
-  fingerprint. (Versioned model, reusable content-addressed feature and pilot
+  fingerprint. (Versioned model and reusable content-addressed feature and
   embedding artifacts, status, runtime, hardware, and error records complete;
-  pgvector and full-library scheduling remain pending.)
-- Pilot Essentia audio features and a replaceable pretrained music embedding
+  resumable all-root or root-scoped collection scheduling is complete. pgvector
+  remains pending until exact-search measurements justify it.)
+- Validate Essentia audio features and a replaceable pretrained music embedding
   model on a representative 200-to-500-track sample before full-library
   analysis. Record model checksum, dimensions, license, runtime, and quality
-  observations. (Initial 50-track CPU pilot complete with 50 successes, no
-  failures, and 831.7 seconds of recorded analysis time; collection-wide
-  qualitative comparison remains pending.)
+  observations. (Initial 50-track CPU validation complete with 50 successes, no
+  failures, and 831.7 seconds of recorded analysis time. The expanded review
+  pool produced predominantly useful matches and is accepted as the go decision
+  for collection analysis. A bounded expansion workflow can still grow a
+  reviewed pool while carrying forward valid artifacts and selecting only the
+  missing tracks.)
 - Analyze multiple representative windows or a model-supported variable-length
   input so long introductions and stylistically changing tracks are not reduced
-  to an arbitrary opening excerpt. (Complete for the pilot worker, including
+  to an arbitrary opening excerpt. (Complete for the analysis worker, including
   bounded decoding of only the selected windows and separate stage timings.)
 - Invalidate analysis only when the audio-content fingerprint or analyzer model
   version changes; tag-only edits, moves, and renames must reuse it. (Complete
-  for pilot artifacts, including reuse across runs and duplicate fingerprints.)
+  for analysis artifacts, including reuse across runs and duplicate fingerprints.)
 - Add exact cosine search first, then an HNSW index only after measuring query
   latency and recall on the real collection. (Exact cosine evaluation is
-  complete for reusable pilot artifacts: the initial 50-track set compares 49
+  complete for reusable analysis artifacts: the initial 50-track set compares 49
   candidates in about 120 ms. HNSW remains pending until a larger,
   cross-collection sample demonstrates useful neighbours and a need for it.)
 - Add a deterministic similarity service with optional BPM, key, energy, mood,
@@ -1041,10 +1108,18 @@ Last.fm integration.
   the exact-cosine baseline supports bounded results plus same-album and
   same-artist exclusion; feature reranking and the remaining controls are
   pending.)
+- Add an inspectable, local personalization layer that learns only reranking
+  weights from explicit relevant/not-relevant feedback and optionally from
+  completed plays, skips, favorites, and playlists. Keep the base embedding
+  unchanged, provide reset/disable controls, and compare personalized results
+  with the accepted cosine baseline. (Pending; current feedback records
+  evaluation metrics and is displayed with matches but does not alter ranking.)
 - Add Similar Tracks and Continue This Mood actions with a reviewable queue
-  preview; never modify playback or playlists without confirmation. (Similar
-  Tracks is complete from track details with a scored preview and explicit
-  Play matches or Add matches to queue actions. Continue This Mood is pending.)
+  preview; never modify playback or playlists without confirmation. (Complete:
+  Similar Tracks is available from track details, while Continue This Mood is
+  available beside the current track in the queue. Both use the same scored
+  preview and explicit playback confirmation; continuing preserves the current
+  track and replaces only the unplayed queue tail.)
 - Add a read-only evaluation workspace that selects an analyzed track, ranks
   exact cosine neighbours, exposes scores and feature context, and links back
   to catalog details without changing playback. Add compact feature
@@ -1056,9 +1131,47 @@ Last.fm integration.
 - Add Settings controls for opt-in model downloads, worker health, analysis
   progress, pause/resume, CPU/GPU limits, model replacement, and result rebuild.
   (Worker health, bounded CPU/memory settings, durable chunk progress,
-  cancellation, and guarded resume are complete; downloads remain deliberately
-  manual. A GTX 1070 is available for an optional CUDA image; pause, GPU-image
-  packaging and benchmarking, model replacement, and rebuild remain pending.)
+  rolling wall-clock-throughput remaining-time estimates, cancellation, explicit
+  pause/resume, collection/root scope, and guarded restart are complete;
+  downloads remain deliberately manual. An optional, default-off CUDA image is
+  packaged and benchmarked on a GTX 1070; it preserves the existing analyzer
+  profile and reusable artifacts. A separately opt-in persistent, networkless
+  Docker service now keeps the model loaded between chunks, uses read-only root
+  mounts and an internal Unix socket, validates its image/model/resource
+  identity, recovers through the same accelerator, and is removed when a run
+  stops. CUDA model patches are now batched across all representative windows
+  in a request, and a bounded two-worker CPU preparation pipeline overlaps
+  decoding and feature extraction with serialized GPU inference. A controlled
+  five-track comparison reduced wall time from 106.2 to 52.4 seconds with
+  byte-for-byte identical embeddings and matching features. The pipeline is
+  strictly CUDA-only; the default CPU path remains sequential and never
+  requests GPU devices. Model replacement and rebuild remain pending.)
+- Add a CPU-versus-CUDA benchmark to Advanced diagnostics. Run both analyzers
+  against the same small, bounded set of readable tracks without modifying
+  collection-analysis progress or stored artifacts. Report image/GPU health,
+  wall-clock and per-stage timings, throughput, and the measured speed
+  difference. Verify that generated embeddings remain within a strict cosine
+  tolerance before CUDA can be recommended. (Complete: Advanced diagnostics
+  runs a cancellable six-configuration background benchmark on the same 15
+  readable tracks. It compares the CPU baseline with CUDA preparation workers
+  1/2/3, then tests chunk sizes 10/15 using the first-stage winner. Results,
+  throughput, verification, unavailable hardware, and the recommendation are
+  durable. A paused collection run remains untouched, and no artifacts or run
+  progress are written.)
+- Provide an explicit analyzer-method selector for CPU or CUDA, display
+  availability and the benchmark recommendation beside it, and persist the
+  user's choice. Keep the active method unchanged until the user applies a
+  selection; never switch or fall back silently. A change applies to future
+  chunks without interrupting an active chunk or invalidating reusable
+  artifacts. Explain clearly when CUDA is unavailable or slower. (Pending)
+- Split listener-facing controls from experimental diagnostics. The normal view
+  should show enablement, coverage, collection-run progress, pause/resume,
+  resource limits, and actionable recommendation preferences. Analyzer details,
+  validation runs, pool expansion, distributions, and baseline evaluation
+  should remain collapsed under Advanced diagnostics and need not be used by a
+  normal listener. (UI separation is partial: collection analysis and validation
+  state are distinct, but the advanced section still needs its final
+  listener-versus-diagnostics simplification.)
 - Verify that a default installation performs no model downloads, starts no AI
   services, schedules no analysis jobs, and has no additional steady-state CPU,
   GPU, or memory usage. (Pending)
@@ -1155,31 +1268,52 @@ Last.fm integration.
 
 ## Recommended Next Step
 
-The cross-root pilot completed 200 of 200 tracks without analysis failures. Its
-sample covers all three enabled roots, 197 artists, and 167 genres; together
-with the initial pilot, 250 reusable artifacts are available for evaluation.
-The read-only evaluator now provides feature distributions, exact-cosine
-neighbours, exclusion controls, a deterministic 30-source review queue, and
-configuration-scoped relevant/not-relevant feedback with completion and quality
-metrics.
+The expanded similarity review produced predominantly useful matches and is
+accepted as the go decision for the unweighted embedding baseline. Sonotheque
+now supports explicit collection analysis across all enabled roots or one
+selected root. Candidate enumeration, fingerprint preparation, and analysis
+are durable and pausable. Each run records its scope and checkpoint; resume
+continues the same run, while current fingerprints and analyzer-profile/content
+artifacts are reused across overlapping scopes.
 
-Ten varied review sources produced consistently useful high-score matches and
-are accepted as a provisional go decision for the unweighted embedding
-baseline. The remaining review queue stays available for later confidence
-measurement; it is not recorded as complete. Similar Tracks now exposes the
-baseline from track details through a scored, reviewable preview with explicit
-playback confirmation.
+Collection, validation, and pool-expansion runs now have separate API state and
+UI ownership. The validation sample size is persistent, while a pool-expansion
+target is a one-off request and is hidden after the 500-track review ceiling is
+reached. Validation and pool expansion have served their initial model-selection
+purpose and should now be treated as experimental diagnostics rather than a
+normal-user workflow.
 
-The next step is to add Continue This Mood using the same preview contract,
-then expand the analyzed candidate pool incrementally while reusing existing
-artifacts. A larger pool improves neighbour availability but does not retrain
-or inherently improve the embedding model. Compare the same reviewed sources
-after expansion before adding BPM/key/energy reranking. Do not provision a
-full-library worker, build an optional GPU image, or commit to pgvector until
-the expanded-pool query latency and match quality justify them. The collection
-assistant in Phase 5f should follow only after the underlying search,
-aggregate, and similarity tools produce trustworthy, explainable results
-without an LLM.
+The next audio-intelligence milestone is completing the current collection run
+and measuring exact-cosine query latency at full scale. Keep exact search while
+it remains responsive; introduce pgvector/HNSW only from measured need. Before
+another long run, add the explicit persisted CPU/CUDA method selector already
+designed for Advanced diagnostics. It should show availability and the latest
+benchmark recommendation, apply only to future chunks, and never fall back
+silently.
+
+After coverage is established, add optional BPM/key/energy reranking and a
+small, resettable personalization layer driven by explicit match feedback. A
+listener who dislikes the results should then be able to rate matches, adjust
+understandable preferences such as tempo influence and artist diversity, and
+obtain a visibly different preview. The existing thumbs-up/down records are
+evaluation-only and must not be presented as if they already improve
+recommendations. Compare every new ranking against the accepted embedding-only
+baseline before making it the default.
+
+Once that workflow is useful, simplify the standard settings surface to
+enablement, collection coverage/progress, resource limits, and recommendation
+preferences. Keep analyzer setup, validation samples, distributions, and model
+diagnostics in a collapsed Advanced diagnostics area. GPU acceleration remains
+an optional independent optimization. The packaged CUDA adapter, persistent
+networkless service, CPU-preparation pipeline, and benchmark are complete; they
+preserve artifact identity and do not force completed audio to be analyzed
+again.
+
+Playlist file export and custom-playlist synchronization are complete. The next
+optional playlist-file refinement is allowing album exports to target one of the
+configured export folders instead of only the album directory. External
+M3U/M3U8 import remains a later feature rather than part of the completed export
+workflow.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every

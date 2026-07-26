@@ -4,12 +4,14 @@ use App\Http\Controllers\AdminAccessController;
 use App\Http\Controllers\AlbumDiscogsController;
 use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\AlbumPersonalMetadataController;
+use App\Http\Controllers\AlbumPlaylistExportController;
 use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioIntelligenceSettingsController;
 use App\Http\Controllers\AudioSimilarityEvaluationController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
+use App\Http\Controllers\CustomPlaylistExportController;
 use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\DiscogsSettingsController;
 use App\Http\Controllers\DiscogsImageController;
@@ -24,6 +26,7 @@ use App\Http\Controllers\OnlineEnrichmentController;
 use App\Http\Controllers\OwnedAlbumCopyController;
 use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
+use App\Http\Controllers\PlaylistExportSettingsController;
 use App\Http\Controllers\PlaylistsController;
 use App\Http\Controllers\ScanRunIssuesController;
 use App\Http\Controllers\SimilarTracksController;
@@ -42,6 +45,8 @@ Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::cl
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
 Route::patch('/albums/{album}/personal-metadata', [AlbumPersonalMetadataController::class, 'update']);
 Route::patch('/albums/{album}/personal-notes', [AlbumPersonalMetadataController::class, 'updateNotes']);
+Route::get('/albums/{album}/playlist-export', [AlbumPlaylistExportController::class, 'show']);
+Route::post('/albums/{album}/playlist-export', [AlbumPlaylistExportController::class, 'store']);
 Route::get('/albums/{album}/discogs/candidates', [AlbumDiscogsController::class, 'candidates']);
 Route::get('/albums/{album}/discogs/releases/{releaseId}/collection-instances', [AlbumDiscogsController::class, 'collectionInstances']);
 Route::post('/albums/{album}/owned-copies', [OwnedAlbumCopyController::class, 'store']);
@@ -76,19 +81,36 @@ Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsControl
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
 Route::get('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'show']);
 Route::patch('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'update']);
-Route::post('/settings/audio-intelligence/pilots', [AudioIntelligenceSettingsController::class, 'preparePilot']);
+Route::post(
+    '/settings/audio-intelligence/validation-runs',
+    [AudioIntelligenceSettingsController::class, 'prepareValidationSample'],
+);
+Route::post('/settings/audio-intelligence/expansions', [AudioIntelligenceSettingsController::class, 'prepareExpansion']);
+Route::post('/settings/audio-intelligence/collections', [AudioIntelligenceSettingsController::class, 'prepareCollection']);
 Route::post('/settings/audio-intelligence/analyzer/test', [AudioIntelligenceSettingsController::class, 'testAnalyzer']);
 Route::post(
-    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/start',
-    [AudioIntelligenceSettingsController::class, 'startPilot'],
+    '/settings/audio-intelligence/benchmarks',
+    [AudioIntelligenceSettingsController::class, 'startBenchmark'],
 );
 Route::post(
-    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/cancel',
-    [AudioIntelligenceSettingsController::class, 'cancelPilot'],
+    '/settings/audio-intelligence/benchmarks/{audioAnalyzerBenchmark}/cancel',
+    [AudioIntelligenceSettingsController::class, 'cancelBenchmark'],
 );
 Route::post(
-    '/settings/audio-intelligence/pilots/{audioAnalysisRun}/resume',
-    [AudioIntelligenceSettingsController::class, 'resumePilot'],
+    '/settings/audio-intelligence/runs/{audioAnalysisRun}/start',
+    [AudioIntelligenceSettingsController::class, 'startRun'],
+);
+Route::post(
+    '/settings/audio-intelligence/runs/{audioAnalysisRun}/cancel',
+    [AudioIntelligenceSettingsController::class, 'cancelRun'],
+);
+Route::post(
+    '/settings/audio-intelligence/runs/{audioAnalysisRun}/pause',
+    [AudioIntelligenceSettingsController::class, 'pauseRun'],
+);
+Route::post(
+    '/settings/audio-intelligence/runs/{audioAnalysisRun}/resume',
+    [AudioIntelligenceSettingsController::class, 'resumeRun'],
 );
 Route::get(
     '/settings/audio-intelligence/evaluation',
@@ -110,6 +132,21 @@ Route::get('/settings/first-run', [FirstRunSetupController::class, 'show']);
 Route::patch('/settings/first-run', [FirstRunSetupController::class, 'update']);
 Route::get('/settings/access', AdminAccessController::class);
 Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
+Route::get('/settings/playlist-exports', [PlaylistExportSettingsController::class, 'show']);
+Route::patch('/settings/playlist-exports', [PlaylistExportSettingsController::class, 'update']);
+Route::post('/settings/playlist-exports/locations', [PlaylistExportSettingsController::class, 'storeLocation']);
+Route::patch(
+    '/settings/playlist-exports/locations/{playlistExportLocation}',
+    [PlaylistExportSettingsController::class, 'updateLocation'],
+);
+Route::post(
+    '/settings/playlist-exports/locations/{playlistExportLocation}/default',
+    [PlaylistExportSettingsController::class, 'setDefault'],
+);
+Route::delete(
+    '/settings/playlist-exports/locations/{playlistExportLocation}',
+    [PlaylistExportSettingsController::class, 'destroyLocation'],
+);
 Route::get('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'show']);
 Route::patch('/settings/metadata-backups', [MetadataBackupSettingsController::class, 'update']);
 Route::get('/settings/lastfm', [LastFmSettingsController::class, 'show']);
@@ -151,6 +188,8 @@ Route::get('/playlists', [PlaylistsController::class, 'playlists']);
 Route::post('/playlists', [PlaylistsController::class, 'createPlaylist']);
 Route::get('/playlists/memberships', [PlaylistsController::class, 'memberships']);
 Route::get('/playlists/{playlist}', [PlaylistsController::class, 'playlist']);
+Route::get('/playlists/{playlist}/file-export', [CustomPlaylistExportController::class, 'show']);
+Route::post('/playlists/{playlist}/file-export', [CustomPlaylistExportController::class, 'store']);
 Route::patch('/playlists/{playlist}', [PlaylistsController::class, 'updatePlaylist']);
 Route::delete('/playlists/{playlist}', [PlaylistsController::class, 'deletePlaylist']);
 Route::post('/playlists/{playlist}/tracks', [PlaylistsController::class, 'addTracks']);

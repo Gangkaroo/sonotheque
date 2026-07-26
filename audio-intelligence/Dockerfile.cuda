@@ -1,0 +1,12 @@
+FROM tensorflow/tensorflow:2.17.0-gpu
+
+ENV SONOTHEQUE_AUDIO_ACCELERATOR=cuda
+
+RUN python -m pip install --no-cache-dir \
+    essentia==2.1b6.dev1389
+
+WORKDIR /opt/sonotheque
+
+COPY worker.py /opt/sonotheque/worker.py
+
+ENTRYPOINT ["python", "/opt/sonotheque/worker.py"]

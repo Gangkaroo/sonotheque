@@ -6,6 +6,8 @@ use App\Enums\ScanStatus;
 use App\Models\Album;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
+use App\Models\Track;
+use App\Music\Playlists\PlaylistFileSynchronizationDispatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +46,7 @@ class LibraryEntryRenamer
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryDirectoryResolver $directoryResolver,
+        private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
         private readonly array $extensions,
     ) {
     }
@@ -138,6 +141,11 @@ class LibraryEntryRenamer
             ->whereIn('id', $mediaFiles->pluck('id'))
             ->whereHas('track')
             ->count();
+        $this->playlistSynchronizationDispatcher->tracks(
+            Track::query()
+                ->whereIn('media_file_id', $mediaFiles->pluck('id'))
+                ->pluck('id'),
+        );
 
         return [
             'kind' => $kind,

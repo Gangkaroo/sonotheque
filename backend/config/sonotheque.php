@@ -35,10 +35,33 @@ return [
         'timeout_seconds' => (int) env('AUDIO_INTELLIGENCE_TIMEOUT_SECONDS', 14400),
         'docker_image' => env(
             'AUDIO_INTELLIGENCE_DOCKER_IMAGE',
-            'sonotheque-audio-intelligence:pilot',
+            'sonotheque-audio-intelligence:analysis',
+        ),
+        'benchmark_cpu_image' => env(
+            'AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE',
+            'sonotheque-audio-intelligence:analysis',
+        ),
+        'benchmark_cuda_image' => env(
+            'AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE',
+            'sonotheque-audio-intelligence:cuda',
+        ),
+        'benchmark_sample_size' => (int) env(
+            'AUDIO_INTELLIGENCE_BENCHMARK_SAMPLE_SIZE',
+            15,
+        ),
+        'accelerator' => env('AUDIO_INTELLIGENCE_ACCELERATOR', 'cpu'),
+        'persistent' => (bool) env('AUDIO_INTELLIGENCE_PERSISTENT', false),
+        'persistent_container_name' => env(
+            'AUDIO_INTELLIGENCE_CONTAINER_NAME',
+            'sonotheque-audio-analyzer',
+        ),
+        'persistent_startup_timeout_seconds' => (int) env(
+            'AUDIO_INTELLIGENCE_STARTUP_TIMEOUT_SECONDS',
+            90,
         ),
         'cpu_limit' => (float) env('AUDIO_INTELLIGENCE_CPU_LIMIT', 2),
         'memory_limit' => env('AUDIO_INTELLIGENCE_MEMORY_LIMIT', '4g'),
+        'preparation_workers' => (int) env('AUDIO_INTELLIGENCE_PREPARATION_WORKERS', 2),
         'chunk_size' => (int) env('AUDIO_INTELLIGENCE_CHUNK_SIZE', 5),
         'preparation_chunk_size' => (int) env('AUDIO_INTELLIGENCE_PREPARATION_CHUNK_SIZE', 10),
         'resume_stale_minutes' => (int) env('AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES', 10),

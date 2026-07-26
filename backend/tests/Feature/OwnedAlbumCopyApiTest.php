@@ -99,13 +99,20 @@ class OwnedAlbumCopyApiTest extends TestCase
             'purchase_source' => 'Record store',
         ]);
 
-        $this->patchJson("/api/albums/{$album->id}/personal-notes", [
-            'notes' => 'Signed insert',
-        ])
+        $response = $this->patchJson("/api/albums/{$album->id}/personal-notes", [
+            'notes' => '<p><a href="https://example.com" target="_self">Signed</a> insert</p><script>alert("no")</script>',
+        ]);
+
+        $response
             ->assertOk()
-            ->assertJsonPath('notes', 'Signed insert')
             ->assertJsonPath('ownedCopies.0.id', $copy->id)
             ->assertJsonPath('ownedCopies.0.purchaseSource', 'Record store');
+
+        $notes = (string) $response->json('notes');
+        $this->assertStringContainsString('href="https://example.com"', $notes);
+        $this->assertStringContainsString('target="_blank"', $notes);
+        $this->assertStringContainsString('rel="noopener noreferrer"', $notes);
+        $this->assertStringNotContainsString('<script', $notes);
 
         $this->assertDatabaseHas('owned_album_copies', [
             'id' => $copy->id,

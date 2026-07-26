@@ -3,7 +3,10 @@ import { ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
 
-export interface AudioIntelligencePilotSummary {
+export interface AudioAnalysisRunSummary {
+  mode?: 'expansion' | 'collection'
+  baselineAnalyzedTrackCount?: number
+  newTrackTargetCount?: number
   eligibleTrackCount: number
   eligibleRootCount: number
   candidateTrackCount?: number
@@ -24,22 +27,35 @@ export interface AudioIntelligencePilotSummary {
   cancelledTrackCount?: number
   processedTrackCount?: number
   runtimeMs?: number
+  analysisMeasuredTrackCount?: number
+  analysisElapsedMs?: number
   analysisError?: string
+  candidatesEnumerated?: boolean
 }
 
-export interface AudioIntelligencePilot {
+export interface AudioAnalysisRun {
   id: number
+  kind: 'validation' | 'expansion' | 'collection'
   phase: 'preparation' | 'analysis'
-  status: 'fingerprinting' | 'prepared' | 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  status: 'fingerprinting' | 'prepared' | 'queued' | 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled'
   requestedTrackCount: number
   selectedTrackCount: number
-  summary: AudioIntelligencePilotSummary
+  summary: AudioAnalysisRunSummary
   resumable: boolean
+  libraryRoot: { id: number, name: string } | null
   profile: AudioAnalyzerProfile | null
   startedAt: string | null
   finishedAt: string | null
   cancelRequestedAt: string | null
+  pauseRequestedAt: string | null
   createdAt: string
+}
+
+export interface AudioIntelligenceEligibleRoot {
+  id: number
+  name: string
+  eligibleTrackCount: number
+  fingerprintedTrackCount: number
 }
 
 export interface AudioAnalyzerProfile {
@@ -53,8 +69,50 @@ export interface AudioAnalyzerProfile {
   embeddingDimensions: number
 }
 
+export interface AudioAnalyzerBenchmarkResult {
+  accelerator: 'cpu' | 'cuda'
+  preparationWorkers: number
+  chunkSize: number
+  status: 'completed' | 'unavailable' | 'failed' | 'cancelled'
+  trackCount?: number
+  wallTimeMs?: number
+  tracksPerMinute?: number
+  averageTimings?: {
+    decodeMs: number
+    featureExtractionMs: number
+    embeddingMs: number
+  }
+  equivalent?: boolean
+  minimumCosine?: number
+  featuresMatch?: boolean
+  error?: string | null
+}
+
+export interface AudioAnalyzerBenchmark {
+  id: number
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  sampleSize: number
+  sampleTrackIds: number[]
+  results: AudioAnalyzerBenchmarkResult[]
+  recommendation: {
+    accelerator: 'cpu' | 'cuda'
+    preparationWorkers: number
+    chunkSize: number
+    tracksPerMinute: number
+    speedupVsCpu: number | null
+  } | null
+  completedConfigurationCount: number
+  totalConfigurationCount: number
+  error: string | null
+  cancelRequestedAt: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+}
+
 export type AudioAnalyzerStatus =
   | 'not_configured'
+  | 'unchecked'
   | 'dependency_missing'
   | 'model_missing'
   | 'ready'
@@ -63,16 +121,20 @@ export type AudioAnalyzerStatus =
 
 export interface AudioIntelligenceSettings {
   enabled: boolean
-  sampleSize: number
+  validationSampleSize: number
   eligibleTrackCount: number
   fingerprintedTrackCount: number
+  eligibleRoots: AudioIntelligenceEligibleRoot[]
   analyzerStatus: AudioAnalyzerStatus
   analyzer: {
     status: AudioAnalyzerStatus
     message: string | null
     profile: AudioAnalyzerProfile | null
   }
-  latestPilot: AudioIntelligencePilot | null
+  latestCollectionRun: AudioAnalysisRun | null
+  latestValidationRun: AudioAnalysisRun | null
+  activeRun: AudioAnalysisRun | null
+  latestBenchmark: AudioAnalyzerBenchmark | null
 }
 
 export interface AudioSimilarityTrack {
@@ -188,16 +250,20 @@ export interface AudioSimilarityEvaluation {
 
 const defaults: AudioIntelligenceSettings = {
   enabled: false,
-  sampleSize: 200,
+  validationSampleSize: 200,
   eligibleTrackCount: 0,
   fingerprintedTrackCount: 0,
+  eligibleRoots: [],
   analyzerStatus: 'not_configured',
   analyzer: {
     status: 'not_configured',
     message: null,
     profile: null,
   },
-  latestPilot: null,
+  latestCollectionRun: null,
+  latestValidationRun: null,
+  activeRun: null,
+  latestBenchmark: null,
 }
 
 const emptyQualityMetrics = (): AudioSimilarityQualityMetrics => ({
@@ -226,11 +292,16 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
   const settings = ref<AudioIntelligenceSettings>({ ...defaults })
   const loading = ref(false)
   const saving = ref(false)
-  const preparingPilot = ref(false)
+  const preparingValidationSample = ref(false)
+  const expandingPool = ref(false)
+  const preparingCollection = ref(false)
   const testingAnalyzer = ref(false)
-  const startingPilot = ref(false)
-  const cancellingPilot = ref(false)
-  const resumingPilot = ref(false)
+  const startingBenchmark = ref(false)
+  const cancellingBenchmark = ref(false)
+  const startingRun = ref(false)
+  const cancellingRun = ref(false)
+  const pausingRun = ref(false)
+  const resumingRun = ref(false)
   const evaluation = ref<AudioSimilarityOverview>({
     profile: null,
     analyzedTrackCount: 0,
@@ -254,25 +325,29 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
   const evaluationError = ref<string | null>(null)
   const error = ref<string | null>(null)
 
-  async function load() {
-    loading.value = true
+  async function load(options: { silent?: boolean } = {}) {
+    if (!options.silent) {
+      loading.value = true
+    }
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>('/settings/audio-intelligence')
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
-      loading.value = false
+      if (!options.silent) {
+        loading.value = false
+      }
     }
   }
 
-  async function save(enabled: boolean, sampleSize: number) {
+  async function save(enabled: boolean, validationSampleSize: number) {
     saving.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>('/settings/audio-intelligence', {
         method: 'PATCH',
-        body: JSON.stringify({ enabled, sampleSize }),
+        body: JSON.stringify({ enabled, validationSampleSize }),
       })
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -282,18 +357,57 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     }
   }
 
-  async function preparePilot() {
-    preparingPilot.value = true
+  async function prepareValidationSample() {
+    preparingValidationSample.value = true
     error.value = null
     try {
-      settings.value = await apiRequest<AudioIntelligenceSettings>('/settings/audio-intelligence/pilots', {
-        method: 'POST',
-      })
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        '/settings/audio-intelligence/validation-runs',
+        { method: 'POST' },
+      )
     } catch (cause) {
       error.value = errorMessage(cause)
       throw cause
     } finally {
-      preparingPilot.value = false
+      preparingValidationSample.value = false
+    }
+  }
+
+  async function expandPool(targetTrackCount: number) {
+    expandingPool.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        '/settings/audio-intelligence/expansions',
+        {
+          method: 'POST',
+          body: JSON.stringify({ targetTrackCount }),
+        },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      expandingPool.value = false
+    }
+  }
+
+  async function prepareCollection(libraryRootId: number | null) {
+    preparingCollection.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        '/settings/audio-intelligence/collections',
+        {
+          method: 'POST',
+          body: JSON.stringify({ libraryRootId }),
+        },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      preparingCollection.value = false
     }
   }
 
@@ -313,51 +427,99 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     }
   }
 
-  async function startPilot(pilotId: number) {
-    startingPilot.value = true
+  async function startBenchmark() {
+    startingBenchmark.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>(
-        `/settings/audio-intelligence/pilots/${pilotId}/start`,
+        '/settings/audio-intelligence/benchmarks',
         { method: 'POST' },
       )
     } catch (cause) {
       error.value = errorMessage(cause)
       throw cause
     } finally {
-      startingPilot.value = false
+      startingBenchmark.value = false
     }
   }
 
-  async function cancelPilot(pilotId: number) {
-    cancellingPilot.value = true
+  async function cancelBenchmark(benchmarkId: number) {
+    cancellingBenchmark.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>(
-        `/settings/audio-intelligence/pilots/${pilotId}/cancel`,
+        `/settings/audio-intelligence/benchmarks/${benchmarkId}/cancel`,
         { method: 'POST' },
       )
     } catch (cause) {
       error.value = errorMessage(cause)
       throw cause
     } finally {
-      cancellingPilot.value = false
+      cancellingBenchmark.value = false
     }
   }
 
-  async function resumePilot(pilotId: number) {
-    resumingPilot.value = true
+  async function startRun(runId: number) {
+    startingRun.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>(
-        `/settings/audio-intelligence/pilots/${pilotId}/resume`,
+        `/settings/audio-intelligence/runs/${runId}/start`,
         { method: 'POST' },
       )
     } catch (cause) {
       error.value = errorMessage(cause)
       throw cause
     } finally {
-      resumingPilot.value = false
+      startingRun.value = false
+    }
+  }
+
+  async function cancelRun(runId: number) {
+    cancellingRun.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        `/settings/audio-intelligence/runs/${runId}/cancel`,
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      cancellingRun.value = false
+    }
+  }
+
+  async function pauseRun(runId: number) {
+    pausingRun.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        `/settings/audio-intelligence/runs/${runId}/pause`,
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      pausingRun.value = false
+    }
+  }
+
+  async function resumeRun(runId: number) {
+    resumingRun.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        `/settings/audio-intelligence/runs/${runId}/resume`,
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      resumingRun.value = false
     }
   }
 
@@ -449,11 +611,16 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     settings,
     loading,
     saving,
-    preparingPilot,
+    preparingValidationSample,
+    expandingPool,
+    preparingCollection,
     testingAnalyzer,
-    startingPilot,
-    cancellingPilot,
-    resumingPilot,
+    startingBenchmark,
+    cancellingBenchmark,
+    startingRun,
+    cancellingRun,
+    pausingRun,
+    resumingRun,
     evaluation,
     evaluationResult,
     loadingEvaluation,
@@ -463,11 +630,16 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     error,
     load,
     save,
-    preparePilot,
+    prepareValidationSample,
+    expandPool,
+    prepareCollection,
     testAnalyzer,
-    startPilot,
-    cancelPilot,
-    resumePilot,
+    startBenchmark,
+    cancelBenchmark,
+    startRun,
+    cancelRun,
+    pauseRun,
+    resumeRun,
     loadEvaluation,
     evaluateTrack,
     setSimilarityFeedback,

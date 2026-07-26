@@ -11,7 +11,8 @@ import type { Album } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
-import { usePlayerStore } from '@/stores/player'
+import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { usePlayerStore, type AlbumPlaybackScope } from '@/stores/player'
 import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface AlbumFilters {
@@ -34,6 +35,7 @@ const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
+const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
 const storageKey = 'sonotheque:album-filters'
 const restoredFilters = initialFilters()
@@ -79,6 +81,25 @@ function load() {
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
     sort: sort.value,
   })
+}
+
+function playRandomAlbum() {
+  const filters = currentFilters()
+  const selectedRoot = libraryRoots.roots.find(root => root.id === libraryRootScope.selectedRootId)
+  const scope: AlbumPlaybackScope = {
+    type: 'albums',
+    libraryRootId: libraryRootScope.selectedRootId,
+    libraryRootName: selectedRoot?.name ?? null,
+    search: filters.search.trim(),
+    initial: filters.initial,
+    year: filters.year,
+    genreId: filters.genre,
+    genreName: filters.genreName,
+    physicalCopy: filters.physicalCopy === 'all' ? null : filters.physicalCopy,
+    sort: filters.sort,
+  }
+
+  void player.playRandomAlbum(scope)
 }
 
 function selectInitial(value: string | null) {
@@ -336,7 +357,7 @@ onUnmounted(() => {
     icon="mdi-album"
   />
   <div class="d-flex flex-wrap ga-3 mb-4">
-    <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="void player.playRandomAlbum()">
+    <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="playRandomAlbum">
       {{ t('player.playRandomAlbum') }}
     </v-btn>
     <v-btn color="primary" prepend-icon="mdi-shuffle-variant" variant="tonal" @click="void player.playRandomTrack()">

@@ -14,6 +14,10 @@ class UnavailableAudioAnalyzer implements AudioAnalyzer
         );
     }
 
+    public function shutdown(): void
+    {
+    }
+
     public function analyzeBatch(array $requests): array
     {
         throw new RuntimeException('No local audio analyzer driver is configured.');

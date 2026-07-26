@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Album;
 use App\Models\AlbumPersonalMetadata;
+use App\Support\AlbumNotesSanitizer;
 use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,8 +12,10 @@ use Illuminate\Support\Facades\DB;
 
 class AlbumPersonalMetadataController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly AlbumNotesSanitizer $notesSanitizer,
+    ) {
     }
 
     public function update(Request $request, Album $album): JsonResponse
@@ -28,7 +31,7 @@ class AlbumPersonalMetadataController extends Controller
         DB::transaction(function () use ($album, $validated): void {
             AlbumPersonalMetadata::query()->updateOrCreate(
                 ['album_id' => $album->id],
-                ['notes' => $this->nullableText($validated['notes'])],
+                ['notes' => $this->notesSanitizer->sanitize($validated['notes'])],
             );
 
             $purchaseSource = $this->nullableText($validated['purchaseSource']);
@@ -70,7 +73,7 @@ class AlbumPersonalMetadataController extends Controller
 
         AlbumPersonalMetadata::query()->updateOrCreate(
             ['album_id' => $album->id],
-            ['notes' => $this->nullableText($validated['notes'])],
+            ['notes' => $this->notesSanitizer->sanitize($validated['notes'])],
         );
         $album->load(['personalMetadata', 'ownedCopies']);
 

@@ -19,6 +19,25 @@ export function formatTotalDuration(milliseconds?: number | null, fallback = '-'
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
 }
 
+export function formatApproximateDuration(milliseconds: number, locale: string) {
+  const totalMinutes = Math.max(1, Math.round(milliseconds / 60_000))
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  const units = days > 0
+    ? [[days, 'day'], [hours, 'hour']] as const
+    : [[hours, 'hour'], [minutes, 'minute']] as const
+
+  return units
+    .filter(([value]) => value > 0)
+    .map(([value, unit]) => new Intl.NumberFormat(locale, {
+      style: 'unit',
+      unit,
+      unitDisplay: 'short',
+    }).format(value))
+    .join(' ')
+}
+
 export function formatDateTime(
   value: string | null | undefined,
   locale: string,

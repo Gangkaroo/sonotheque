@@ -14,7 +14,7 @@ use Illuminate\Support\Collection;
 use RuntimeException;
 use Throwable;
 
-class RunAudioIntelligencePilot implements ShouldQueue
+class RunAudioAnalysis implements ShouldQueue
 {
     use Queueable;
 
@@ -35,10 +35,14 @@ class RunAudioIntelligencePilot implements ShouldQueue
         if ($run->phase !== 'analysis') {
             return;
         }
-        if (in_array($run->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
+        if (in_array($run->status, ['completed', 'partial', 'failed', 'cancelled', 'paused'], true)) {
+            $analyzer->shutdown();
+
             return;
         }
         if ($run->profile === null) {
+            $analyzer->shutdown();
+
             throw new RuntimeException('The audio analysis run has no analyzer profile.');
         }
 
@@ -52,20 +56,24 @@ class RunAudioIntelligencePilot implements ShouldQueue
             'finished_at' => null,
             'heartbeat_at' => now(),
         ]);
-        $run->load('items.track.mediaFile.libraryRoot');
-        $this->reuseAvailableArtifacts($run, $run->items);
-
         $chunkSize = max(1, min(25, (int) config('sonotheque.audio_intelligence.chunk_size', 5)));
-        $items = $run->items
+        $items = $run->items()
+            ->with('track.mediaFile.libraryRoot')
             ->whereIn('status', ['selected', 'queued'])
-            ->sortBy('position')
-            ->values();
+            ->lazyById($chunkSize);
+        $lastProgressUpdate = microtime(true);
 
         try {
             foreach ($items->chunk($chunkSize) as $chunk) {
+                $chunk = $chunk->collect();
                 $run->refresh();
                 if ($run->cancel_requested_at !== null) {
                     $this->cancel($run);
+
+                    return;
+                }
+                if ($run->pause_requested_at !== null) {
+                    $this->pause($run);
 
                     return;
                 }
@@ -73,18 +81,37 @@ class RunAudioIntelligencePilot implements ShouldQueue
                 $run->update(['heartbeat_at' => now()]);
                 $this->reuseAvailableArtifacts($run, $chunk);
                 $chunk = $chunk->whereIn('status', ['selected', 'queued'])->values();
+                $measuredTrackCount = $chunk->count();
                 $requests = $this->prepareChunk($chunk, $pathGuard);
                 if ($requests !== []) {
+                    $analysisStarted = hrtime(true);
                     $results = $analyzer->analyzeBatch($requests);
+                    $analysisElapsedMs = max(
+                        1,
+                        (int) round((hrtime(true) - $analysisStarted) / 1_000_000),
+                    );
                     $this->persistChunkResults($run, $chunk, $results);
+                    $this->recordAnalysisTiming(
+                        $run,
+                        $measuredTrackCount,
+                        $analysisElapsedMs,
+                    );
                 }
-                $this->updateProgress($run);
                 $run->update(['heartbeat_at' => now()]);
+                if (microtime(true) - $lastProgressUpdate >= 2) {
+                    $this->updateProgress($run);
+                    $lastProgressUpdate = microtime(true);
+                }
             }
 
             $run->refresh();
             if ($run->cancel_requested_at !== null) {
                 $this->cancel($run);
+
+                return;
+            }
+            if ($run->pause_requested_at !== null) {
+                $this->pause($run);
 
                 return;
             }
@@ -105,13 +132,19 @@ class RunAudioIntelligencePilot implements ShouldQueue
             ]);
 
             throw $exception;
+        } finally {
+            $analyzer->shutdown();
         }
     }
 
     public function failed(?Throwable $exception): void
     {
         $run = AudioAnalysisRun::find($this->audioAnalysisRunId);
-        if ($run === null || in_array($run->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
+        if ($run === null || in_array(
+            $run->status,
+            ['completed', 'partial', 'failed', 'cancelled', 'paused'],
+            true,
+        )) {
             return;
         }
 
@@ -119,7 +152,7 @@ class RunAudioIntelligencePilot implements ShouldQueue
             'status' => 'failed',
             'summary' => array_merge($run->summary ?? [], [
                 'analysisError' => mb_substr(
-                    $exception?->getMessage() ?? 'The audio analysis pilot failed.',
+                    $exception?->getMessage() ?? 'The audio analysis run failed.',
                     0,
                     4000,
                 ),
@@ -131,7 +164,13 @@ class RunAudioIntelligencePilot implements ShouldQueue
 
     /**
      * @param  Collection<int, AudioAnalysisRunItem>  $chunk
-     * @return list<array{itemId: int, path: string, durationSeconds: float|null}>
+     * @return list<array{
+     *     itemId: int,
+     *     path: string,
+     *     durationSeconds: float|null,
+     *     libraryRootPath: string,
+     *     relativePath: string
+     * }>
      */
     private function prepareChunk(Collection $chunk, LibraryPathGuard $pathGuard): array
     {
@@ -146,7 +185,7 @@ class RunAudioIntelligencePilot implements ShouldQueue
                     || $mediaFile->content_fingerprint_version !== $item->content_fingerprint_version) {
                     $item->update([
                         'status' => 'stale',
-                        'error' => 'The audio content changed after the pilot sample was prepared.',
+                        'error' => 'The audio content changed after the analysis run was prepared.',
                     ]);
 
                     continue;
@@ -181,6 +220,8 @@ class RunAudioIntelligencePilot implements ShouldQueue
                 'durationSeconds' => $representative->track?->duration_ms === null
                     ? null
                     : $representative->track->duration_ms / 1000,
+                'libraryRootPath' => $representative->track->mediaFile->libraryRoot->path,
+                'relativePath' => $representative->track->mediaFile->relative_path,
             ];
         }
 
@@ -271,6 +312,20 @@ class RunAudioIntelligencePilot implements ShouldQueue
         ]);
     }
 
+    private function pause(AudioAnalysisRun $run): void
+    {
+        $run->items()->where('status', 'running')->update([
+            'status' => 'queued',
+            'error' => null,
+        ]);
+        $this->updateProgress($run);
+        $run->update([
+            'status' => 'paused',
+            'finished_at' => null,
+            'heartbeat_at' => now(),
+        ]);
+    }
+
     private function finish(AudioAnalysisRun $run): void
     {
         $summary = $this->progressSummary($run);
@@ -294,6 +349,41 @@ class RunAudioIntelligencePilot implements ShouldQueue
         $run->update([
             'summary' => array_merge($run->summary ?? [], $this->progressSummary($run)),
         ]);
+    }
+
+    private function recordAnalysisTiming(
+        AudioAnalysisRun $run,
+        int $trackCount,
+        int $elapsedMs,
+    ): void {
+        $summary = $run->summary ?? [];
+        $performanceKey = hash('sha256', json_encode([
+            'driver' => config('sonotheque.audio_intelligence.driver'),
+            'image' => config('sonotheque.audio_intelligence.docker_image'),
+            'accelerator' => config('sonotheque.audio_intelligence.accelerator'),
+            'persistent' => config('sonotheque.audio_intelligence.persistent'),
+            'cpuLimit' => config('sonotheque.audio_intelligence.cpu_limit'),
+            'memoryLimit' => config('sonotheque.audio_intelligence.memory_limit'),
+            'preparationWorkers' => config(
+                'sonotheque.audio_intelligence.preparation_workers',
+            ),
+            'chunkSize' => config('sonotheque.audio_intelligence.chunk_size'),
+        ], JSON_THROW_ON_ERROR));
+        $samples = ($summary['analysisPerformanceKey'] ?? null) === $performanceKey
+            && is_array($summary['analysisTimingSamples'] ?? null)
+                ? $summary['analysisTimingSamples']
+                : [];
+        $samples[] = [
+            'trackCount' => max(1, $trackCount),
+            'elapsedMs' => max(1, $elapsedMs),
+        ];
+        $samples = array_slice($samples, -20);
+
+        $summary['analysisPerformanceKey'] = $performanceKey;
+        $summary['analysisTimingSamples'] = $samples;
+        $summary['analysisMeasuredTrackCount'] = array_sum(array_column($samples, 'trackCount'));
+        $summary['analysisElapsedMs'] = array_sum(array_column($samples, 'elapsedMs'));
+        $run->update(['summary' => $summary]);
     }
 
     /**

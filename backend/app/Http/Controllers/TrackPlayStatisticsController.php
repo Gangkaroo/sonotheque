@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 class TrackPlayStatisticsController extends Controller
 {
+    private const int MAX_LISTENED_DURATION_OVERFLOW_MS = 5000;
+
+    private const int MAX_LISTENED_WALL_CLOCK_OVERFLOW_MS = 5000;
+
     public function store(Request $request, Track $track): JsonResponse
     {
         $validated = $request->validate([
@@ -27,8 +31,11 @@ class TrackPlayStatisticsController extends Controller
 
         $listenedMs = (int) $validated['listenedMs'];
         $durationMs = $track->duration_ms ?? ($validated['durationMs'] ?? null);
-        $playedAt = isset($validated['playedAt']) ? Carbon::parse($validated['playedAt']) : now();
-        $counted = $this->isCountedPlay($listenedMs, $durationMs);
+        $playbackStartedAt = isset($validated['playedAt'])
+            ? Carbon::parse($validated['playedAt'])
+            : null;
+        $playedAt = $playbackStartedAt ?? now();
+        $counted = $this->isCountedPlay($listenedMs, $durationMs, $playbackStartedAt);
         $sessionKey = $validated['sessionKey'] ?? null;
         $settings = ApplicationSetting::current();
 
@@ -132,8 +139,11 @@ class TrackPlayStatisticsController extends Controller
         ], $counted ? ($result['duplicate'] ? 200 : 201) : 202);
     }
 
-    private function isCountedPlay(int $listenedMs, ?int $durationMs): bool
-    {
+    private function isCountedPlay(
+        int $listenedMs,
+        ?int $durationMs,
+        ?Carbon $playbackStartedAt,
+    ): bool {
         $minimumDurationMs = max(
             0,
             (int) config('sonotheque.counted_play_minimum_track_seconds', 30) * 1000,
@@ -141,6 +151,18 @@ class TrackPlayStatisticsController extends Controller
 
         if ($durationMs === null || $durationMs <= $minimumDurationMs) {
             return false;
+        }
+        if ($listenedMs > $durationMs + self::MAX_LISTENED_DURATION_OVERFLOW_MS) {
+            return false;
+        }
+        if ($playbackStartedAt !== null) {
+            $elapsedSinceStartMs = max(
+                0,
+                now()->getTimestampMs() - $playbackStartedAt->getTimestampMs(),
+            );
+            if ($listenedMs > $elapsedSinceStartMs + self::MAX_LISTENED_WALL_CLOCK_OVERFLOW_MS) {
+                return false;
+            }
         }
 
         $maximumThresholdMs = max(

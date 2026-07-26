@@ -5,8 +5,11 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
+import AlbumPlaylistExportDialog from '@/components/AlbumPlaylistExportDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import OwnedAlbumCopies from '@/components/OwnedAlbumCopies.vue'
+import RichTextContent from '@/components/RichTextContent.vue'
+import RichTextEditor from '@/components/RichTextEditor.vue'
 import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -31,6 +34,7 @@ const player = usePlayerStore()
 const playlists = usePlaylistsStore()
 const artworkDialog = ref(false)
 const addToPlaylistDialog = ref(false)
+const playlistExportDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 const metadataDialog = ref(false)
 const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
@@ -258,6 +262,12 @@ function addAlbumToPlaylist() {
 function addTrackToPlaylist(track: Track) {
   playlistTracks.value = [track]
   addToPlaylistDialog.value = true
+}
+
+function playlistExportSaved(result: { filename: string }) {
+  selectionMessageColor.value = 'success'
+  selectionMessage.value = t('albums.playlistSaved', { filename: result.filename })
+  selectionMessageVisible.value = true
 }
 
 function enterSelectionMode() {
@@ -597,21 +607,21 @@ onUnmounted(() => {
             <div class="personal-information mt-4">
               <div class="d-flex align-center justify-space-between ga-2 mb-2">
                 <div class="text-subtitle-2 text-high-emphasis">{{ t('albums.personalInformation') }}</div>
-                <TooltipIconButton
-                  :text="t('albums.editPersonalNotes')"
-                  :aria-label="t('albums.editPersonalNotes')"
-                  density="comfortable"
-                  icon="mdi-pencil-outline"
+                <v-btn
+                  color="primary"
+                  prepend-icon="mdi-note-edit-outline"
                   size="small"
-                  variant="text"
+                  variant="tonal"
                   @click="openPersonalEditor"
-                />
+                >
+                  {{ t('albums.editPersonalNotes') }}
+                </v-btn>
               </div>
               <div v-if="albumPersonalMetadata.notes" class="personal-information-tile personal-notes mb-3">
                 <v-icon color="primary" icon="mdi-note-text-outline" size="small" />
                 <div>
                   <div class="text-caption text-medium-emphasis">{{ t('albums.personalNotes') }}</div>
-                  <div class="text-body-2">{{ albumPersonalMetadata.notes }}</div>
+                  <RichTextContent class="text-body-2" :html="albumPersonalMetadata.notes" />
                 </div>
               </div>
               <OwnedAlbumCopies
@@ -634,11 +644,17 @@ onUnmounted(() => {
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-music" :disabled="!tracks.length" @click="addAlbumToPlaylist">
               {{ t('playlists.addAlbumToPlaylist') }}
             </v-btn>
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-file-music-outline"
+              :disabled="!tracks.length"
+              @click="playlistExportDialog = true"
+            >
+              {{ t('albums.savePlaylist') }}
+            </v-btn>
             <v-btn color="primary" variant="tonal" prepend-icon="mdi-tag-edit-outline" :disabled="!tracks.length" @click="openMetadataEditor">
               {{ t('albums.editMetadata') }}
-            </v-btn>
-            <v-btn color="primary" variant="tonal" prepend-icon="mdi-note-edit-outline" @click="openPersonalEditor">
-              {{ t('albums.editPersonalNotes') }}
             </v-btn>
             <v-btn
               color="primary"
@@ -835,6 +851,12 @@ onUnmounted(() => {
   </v-dialog>
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+  <AlbumPlaylistExportDialog
+    v-if="album"
+    v-model="playlistExportDialog"
+    :album-id="album.id"
+    @saved="playlistExportSaved"
+  />
 
   <v-dialog v-model="personalDialog" max-width="620">
     <v-card prepend-icon="mdi-note-edit-outline" :title="t('albums.editPersonalNotes')">
@@ -842,14 +864,11 @@ onUnmounted(() => {
         <v-alert v-if="personalError" class="mb-4" type="error" variant="tonal">
           {{ personalError }}
         </v-alert>
-        <v-textarea
+        <RichTextEditor
           v-model="personalForm.notes"
-          auto-grow
-          clearable
-          counter="10000"
+          :disabled="personalLoading"
           :label="t('albums.personalNotes')"
-          maxlength="10000"
-          rows="3"
+          :max-length="10000"
         />
       </v-card-text>
       <v-card-actions>

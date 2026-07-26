@@ -27,7 +27,9 @@ use Illuminate\Database\Eloquent\Model;
     'online_information_enabled',
     'online_lyrics_enabled',
     'audio_intelligence_enabled',
-    'audio_intelligence_sample_size',
+    'audio_intelligence_validation_sample_size',
+    'playlist_export_format',
+    'synchronize_playlists_to_files',
 ])]
 class ApplicationSetting extends Model
 {
@@ -45,7 +47,9 @@ class ApplicationSetting extends Model
             'online_information_enabled' => false,
             'online_lyrics_enabled' => false,
             'audio_intelligence_enabled' => false,
-            'audio_intelligence_sample_size' => 200,
+            'audio_intelligence_validation_sample_size' => 200,
+            'playlist_export_format' => 'm3u8',
+            'synchronize_playlists_to_files' => false,
         ]);
     }
 
@@ -96,7 +100,8 @@ class ApplicationSetting extends Model
             'online_information_enabled' => 'boolean',
             'online_lyrics_enabled' => 'boolean',
             'audio_intelligence_enabled' => 'boolean',
-            'audio_intelligence_sample_size' => 'integer',
+            'audio_intelligence_validation_sample_size' => 'integer',
+            'synchronize_playlists_to_files' => 'boolean',
         ];
     }
 }

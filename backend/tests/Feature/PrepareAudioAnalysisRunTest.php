@@ -2,20 +2,20 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\PrepareAudioIntelligencePilot;
+use App\Jobs\PrepareAudioAnalysisRun;
 use App\Models\Album;
 use App\Models\AudioAnalysisRun;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
-use App\Music\Intelligence\AudioIntelligencePilotSampler;
+use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Tests\Fakes\FakeAudioContentFingerprinter;
 use Tests\TestCase;
 
-class PrepareAudioIntelligencePilotTest extends TestCase
+class PrepareAudioAnalysisRunTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -24,7 +24,7 @@ class PrepareAudioIntelligencePilotTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->libraryPath = storage_path('framework/testing/pilot-preparation-'.uniqid());
+        $this->libraryPath = storage_path('framework/testing/analysis-preparation-'.uniqid());
         File::ensureDirectoryExists($this->libraryPath.'/Album');
     }
 
@@ -36,7 +36,7 @@ class PrepareAudioIntelligencePilotTest extends TestCase
 
     public function test_it_reuses_fingerprints_and_processes_reserve_candidates_until_the_sample_is_full(): void
     {
-        $library = Library::create(['name' => 'Pilot']);
+        $library = Library::create(['name' => 'Analysis']);
         $root = $library->roots()->create([
             'name' => 'Root',
             'path' => $this->libraryPath,
@@ -83,10 +83,10 @@ class PrepareAudioIntelligencePilotTest extends TestCase
         }
 
         $fingerprinter = new FakeAudioContentFingerprinter();
-        (new PrepareAudioIntelligencePilot($run->id))->handle(
+        (new PrepareAudioAnalysisRun($run->id))->handle(
             $fingerprinter,
             new LibraryPathGuard(),
-            app(AudioIntelligencePilotSampler::class),
+            app(AudioAnalysisRunPlanner::class),
         );
 
         $run->refresh();

@@ -6,12 +6,13 @@
     "keywords": ["music", "laravel", "api-platform"],
     "license": "MIT",
     "require": {
-        "ext-gd": "*",
         "php": "^8.3",
+        "ext-gd": "*",
         "api-platform/laravel": "^4.3",
         "james-heinrich/getid3": "^1.9.25",
         "laravel/framework": "^13.8",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "symfony/html-sanitizer": "^8.1"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

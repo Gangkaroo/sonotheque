@@ -9,21 +9,75 @@ import {
 } from '@/stores/audioIntelligenceSettings'
 import { usePlayerStore } from '@/stores/player'
 import { similarityTrackToPlayableTrack } from '@/utils/audioSimilarity'
-import { formatDateTime } from '@/utils/formatters'
+import { formatApproximateDuration } from '@/utils/formatters'
+import AudioAnalysisRunStatus from '@/components/AudioAnalysisRunStatus.vue'
+
+const RUN_POLL_INTERVAL_MS = 5000
 
 const { locale, t } = useI18n()
 const audioIntelligence = useAudioIntelligenceSettingsStore()
 const player = usePlayerStore()
-const sampleSize = ref(200)
+const validationSampleSize = ref(200)
+const expansionTarget = ref(500)
+const collectionScope = ref<'all' | number>('all')
 const evaluationTrackId = ref<number | null>(null)
 const excludeSameAlbum = ref(true)
 const excludeSameArtist = ref(true)
-let pilotPollTimer: ReturnType<typeof setTimeout> | null = null
-const sampleSizeValid = computed(() => (
-  Number.isInteger(sampleSize.value)
-  && sampleSize.value >= 50
-  && sampleSize.value <= 500
+let runPollTimer: ReturnType<typeof setTimeout> | null = null
+const validationSampleSizeValid = computed(() => (
+  Number.isInteger(validationSampleSize.value)
+  && validationSampleSize.value >= 50
+  && validationSampleSize.value <= 500
 ))
+const analyzedTrackCount = computed(() => audioIntelligence.evaluation.analyzedTrackCount)
+const hasAnalyzedPool = computed(() => analyzedTrackCount.value > 0)
+const reviewPoolAtMaximum = computed(() => analyzedTrackCount.value >= 500)
+const expansionTargetValid = computed(() => (
+  Number.isInteger(expansionTarget.value)
+  && expansionTarget.value >= 50
+  && expansionTarget.value <= 500
+  && expansionTarget.value > analyzedTrackCount.value
+))
+const collectionScopeItems = computed(() => [
+  {
+    id: 'all' as const,
+    name: t('settings.audioCollectionAllRoots'),
+  },
+  ...audioIntelligence.settings.eligibleRoots.map(root => ({
+    id: root.id,
+    name: `${root.name} (${root.eligibleTrackCount})`,
+  })),
+])
+const collectionRun = computed(() => audioIntelligence.settings.latestCollectionRun)
+const validationRun = computed(() => audioIntelligence.settings.latestValidationRun)
+const analysisRunBlocksNewWork = computed(() => (
+  audioIntelligence.settings.activeRun !== null
+))
+const analysisWorkerActive = computed(() => (
+  ['fingerprinting', 'queued', 'running'].includes(
+    audioIntelligence.settings.activeRun?.status ?? '',
+  )
+))
+const benchmark = computed(() => audioIntelligence.settings.latestBenchmark)
+const benchmarkActive = computed(() => (
+  benchmark.value?.status === 'queued' || benchmark.value?.status === 'running'
+))
+const preparedCollectionScope = computed(() => (
+  collectionRun.value
+    ? collectionRun.value.libraryRoot?.name
+      ?? t('settings.audioCollectionAllRoots')
+    : t('settings.audioCollectionAllRoots')
+))
+const resumableCollectionName = computed(() => (
+  collectionRun.value?.libraryRoot?.name ?? t('settings.audioCollectionAllRoots')
+))
+const resumableValidationName = computed(() => {
+  if (validationRun.value?.kind === 'expansion') {
+    return t('settings.audioPoolExpansionName')
+  }
+
+  return t('settings.audioValidationSampleName')
+})
 const distributionFeatures = computed(() => (
   ['bpm', 'danceability', 'dynamicComplexity', 'loudness']
     .flatMap((key) => {
@@ -62,15 +116,27 @@ const nextReviewSource = computed(() => {
 })
 
 watch(
-  () => audioIntelligence.settings.sampleSize,
+  () => audioIntelligence.settings.validationSampleSize,
   (value) => {
-    sampleSize.value = value
+    validationSampleSize.value = value
   },
   { immediate: true },
 )
 watch([excludeSameAlbum, excludeSameArtist], () => {
   audioIntelligence.evaluationResult = null
 })
+watch(
+  () => audioIntelligence.settings.latestCollectionRun,
+  (run) => {
+    if (run?.kind !== 'collection'
+      || !['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(run.status)) {
+      return
+    }
+
+    collectionScope.value = run.libraryRoot?.id ?? 'all'
+  },
+  { immediate: true },
+)
 
 onMounted(async () => {
   await audioIntelligence.load()
@@ -78,62 +144,108 @@ onMounted(async () => {
     await audioIntelligence.loadEvaluation()
   }
 })
-onBeforeUnmount(stopPilotPolling)
+onBeforeUnmount(stopRunPolling)
 
 watch(
-  () => audioIntelligence.settings.latestPilot?.status,
-  (status) => {
-    stopPilotPolling()
-    if (status === 'fingerprinting' || status === 'queued' || status === 'running') {
-      schedulePilotPoll()
+  () => [
+    audioIntelligence.settings.activeRun?.status,
+    audioIntelligence.settings.latestBenchmark?.status,
+  ],
+  ([runStatus, benchmarkStatus]) => {
+    stopRunPolling()
+    if (['fingerprinting', 'queued', 'running'].includes(runStatus ?? '')
+      || benchmarkStatus === 'queued'
+      || benchmarkStatus === 'running') {
+      scheduleRunPoll()
     }
   },
+  { immediate: true },
 )
 
 async function setEnabled(value: boolean | null) {
   if (value === null) return
 
-  await audioIntelligence.save(value, sampleSize.value)
+  await audioIntelligence.save(value, validationSampleSize.value)
   if (value) {
     await audioIntelligence.loadEvaluation()
   }
 }
 
-async function saveSampleSize() {
-  if (!sampleSizeValid.value) return
+async function saveValidationSampleSize() {
+  if (!validationSampleSizeValid.value) return
 
-  await audioIntelligence.save(audioIntelligence.settings.enabled, sampleSize.value)
+  await audioIntelligence.save(
+    audioIntelligence.settings.enabled,
+    validationSampleSize.value,
+  )
 }
 
-function setSampleSize(value: string | number | null) {
-  sampleSize.value = Number(value)
+function setValidationSampleSize(value: string | number | null) {
+  validationSampleSize.value = Number(value)
 }
 
-function pilotDate(value: string) {
-  return formatDateTime(value, locale.value)
+function setExpansionTarget(value: string | number | null) {
+  expansionTarget.value = Number(value)
 }
 
-function stopPilotPolling() {
-  if (pilotPollTimer !== null) {
-    clearTimeout(pilotPollTimer)
-    pilotPollTimer = null
+function prepareCollection() {
+  return audioIntelligence.prepareCollection(
+    collectionScope.value === 'all' ? null : collectionScope.value,
+  )
+}
+
+function stopRunPolling() {
+  if (runPollTimer !== null) {
+    clearTimeout(runPollTimer)
+    runPollTimer = null
   }
 }
 
-function schedulePilotPoll() {
-  pilotPollTimer = setTimeout(async () => {
-    await audioIntelligence.load()
-    const status = audioIntelligence.settings.latestPilot?.status
-    if (status === 'fingerprinting' || status === 'queued' || status === 'running') {
-      schedulePilotPoll()
-    } else {
+function scheduleRunPoll() {
+  runPollTimer = setTimeout(async () => {
+    await audioIntelligence.load({ silent: true })
+    const runStatus = audioIntelligence.settings.activeRun?.status
+    const benchmarkStatus = audioIntelligence.settings.latestBenchmark?.status
+    if (['fingerprinting', 'queued', 'running'].includes(runStatus ?? '')
+      || benchmarkStatus === 'queued'
+      || benchmarkStatus === 'running') {
+      scheduleRunPoll()
+    } else if (runStatus !== undefined) {
       await audioIntelligence.loadEvaluation()
     }
-  }, 2000)
+  }, RUN_POLL_INTERVAL_MS)
 }
 
 function analyzerColor() {
   return audioIntelligence.settings.analyzerStatus === 'ready' ? 'success' : 'warning'
+}
+
+function benchmarkStatusColor() {
+  if (benchmark.value?.status === 'completed') return 'success'
+  if (benchmark.value?.status === 'failed') return 'error'
+  if (benchmark.value?.status === 'partial') return 'warning'
+
+  return 'info'
+}
+
+function benchmarkMethod(accelerator: 'cpu' | 'cuda') {
+  return accelerator === 'cuda'
+    ? t('settings.audioBenchmarkCuda')
+    : t('settings.audioBenchmarkCpu')
+}
+
+function benchmarkRate(value: number | undefined) {
+  if (value === undefined) return '–'
+
+  return new Intl.NumberFormat(locale.value, {
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+function benchmarkDuration(value: number | undefined) {
+  return value === undefined
+    ? '–'
+    : formatApproximateDuration(value, locale.value)
 }
 
 function similarityScore(value: number) {
@@ -283,6 +395,145 @@ async function toggleMatchFeedback(
 
         <v-divider class="my-6" />
 
+        <section>
+          <div class="text-subtitle-1 font-weight-bold">
+            {{ t('settings.audioCollectionAnalysis') }}
+          </div>
+          <div class="text-body-2 text-medium-emphasis mb-4">
+            {{ t('settings.audioCollectionAnalysisDescription') }}
+          </div>
+          <div class="audio-collection-controls">
+            <v-select
+              v-model="collectionScope"
+              class="audio-collection-scope"
+              density="comfortable"
+              :disabled="analysisRunBlocksNewWork"
+              hide-details
+              item-title="name"
+              item-value="id"
+              :items="collectionScopeItems"
+              :label="t('settings.audioCollectionScope')"
+            />
+            <div class="audio-collection-actions">
+              <v-tooltip location="top" :text="t('settings.prepareAudioCollectionTooltip')">
+                <template #activator="{ props }">
+                  <span v-bind="props" class="d-inline-flex">
+                    <v-btn
+                      color="primary"
+                      :disabled="!audioIntelligence.settings.enabled
+                        || audioIntelligence.settings.analyzerStatus !== 'ready'
+                        || analyzedTrackCount === 0
+                        || audioIntelligence.settings.eligibleTrackCount === 0
+                        || analysisRunBlocksNewWork"
+                      :loading="audioIntelligence.preparingCollection"
+                      prepend-icon="mdi-database-cog-outline"
+                      variant="flat"
+                      @click="prepareCollection"
+                    >
+                      {{ t('settings.prepareAudioCollection') }}
+                    </v-btn>
+                  </span>
+                </template>
+              </v-tooltip>
+              <v-tooltip
+                v-if="collectionRun?.status === 'prepared'"
+                location="top"
+                :text="t('settings.runAudioCollectionTooltip')"
+              >
+                <template #activator="{ props }">
+                  <span v-bind="props" class="d-inline-flex">
+                    <v-btn
+                      color="primary"
+                      :disabled="audioIntelligence.settings.analyzerStatus !== 'ready'"
+                      :loading="audioIntelligence.startingRun"
+                      prepend-icon="mdi-play"
+                      variant="tonal"
+                      @click="audioIntelligence.startRun(collectionRun.id)"
+                    >
+                      {{ t('settings.runPreparedAudioCollection', {
+                        scope: preparedCollectionScope,
+                      }) }}
+                    </v-btn>
+                  </span>
+                </template>
+              </v-tooltip>
+              <v-btn
+                v-if="collectionRun
+                  && ['fingerprinting', 'queued', 'running'].includes(collectionRun.status)"
+                color="primary"
+                :disabled="collectionRun.pauseRequestedAt !== null"
+                :loading="audioIntelligence.pausingRun"
+                prepend-icon="mdi-pause-circle-outline"
+                variant="tonal"
+                @click="audioIntelligence.pauseRun(collectionRun.id)"
+              >
+                {{ collectionRun.pauseRequestedAt
+                  ? t('settings.audioAnalysisPausing')
+                  : t('settings.pauseAudioAnalysis') }}
+              </v-btn>
+              <v-btn
+                v-if="collectionRun
+                  && ['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(
+                    collectionRun.status,
+                  )"
+                color="error"
+                :disabled="collectionRun.cancelRequestedAt !== null"
+                :loading="audioIntelligence.cancellingRun"
+                prepend-icon="mdi-stop-circle-outline"
+                variant="tonal"
+                @click="audioIntelligence.cancelRun(collectionRun.id)"
+              >
+                {{ collectionRun.cancelRequestedAt
+                  ? t('settings.audioAnalysisCancelling')
+                  : t('settings.cancelAudioAnalysis') }}
+              </v-btn>
+              <v-tooltip
+                v-if="collectionRun?.resumable"
+                location="top"
+                :text="t('settings.resumeAudioAnalysisTooltip', {
+                  scope: resumableCollectionName,
+                })"
+              >
+                <template #activator="{ props }">
+                  <span v-bind="props" class="d-inline-flex">
+                    <v-btn
+                      color="primary"
+                      :loading="audioIntelligence.resumingRun"
+                      prepend-icon="mdi-restart"
+                      variant="tonal"
+                      @click="audioIntelligence.resumeRun(collectionRun.id)"
+                    >
+                      {{ t('settings.resumeScopedAudioAnalysis', {
+                        scope: resumableCollectionName,
+                      }) }}
+                    </v-btn>
+                  </span>
+                </template>
+              </v-tooltip>
+            </div>
+          </div>
+          <AudioAnalysisRunStatus
+            v-if="collectionRun"
+            class="mt-5"
+            :run="collectionRun"
+          />
+        </section>
+
+        <v-divider class="my-6" />
+
+        <v-expansion-panels variant="accordion">
+          <v-expansion-panel>
+            <v-expansion-panel-title>
+              <div>
+                <div class="text-subtitle-1 font-weight-bold">
+                  {{ t('settings.audioAdvancedSetup') }}
+                </div>
+                <div class="text-body-2 text-medium-emphasis">
+                  {{ t('settings.audioAdvancedSetupDescription') }}
+                </div>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
         <div class="d-flex flex-wrap align-start justify-space-between ga-4">
           <div>
             <div class="text-subtitle-1 font-weight-bold">{{ t('settings.audioAnalyzer') }}</div>
@@ -322,11 +573,153 @@ async function toggleMatchFeedback(
           }) }}
         </div>
 
+        <div class="d-flex flex-wrap align-start justify-space-between ga-3 mt-6">
+          <div>
+            <div class="text-subtitle-1 font-weight-bold">
+              {{ t('settings.audioBenchmark') }}
+            </div>
+            <div class="text-body-2 text-medium-emphasis">
+              {{ t('settings.audioBenchmarkDescription') }}
+            </div>
+          </div>
+          <div class="d-flex flex-wrap ga-2">
+            <v-tooltip location="top" :text="t('settings.audioBenchmarkTooltip')">
+              <template #activator="{ props }">
+                <span v-bind="props" class="d-inline-flex">
+                  <v-btn
+                    color="primary"
+                    :disabled="!audioIntelligence.settings.enabled
+                      || analysisWorkerActive
+                      || benchmarkActive"
+                    :loading="audioIntelligence.startingBenchmark"
+                    prepend-icon="mdi-speedometer"
+                    size="small"
+                    variant="tonal"
+                    @click="audioIntelligence.startBenchmark"
+                  >
+                    {{ t('settings.runAudioBenchmark') }}
+                  </v-btn>
+                </span>
+              </template>
+            </v-tooltip>
+            <v-btn
+              v-if="benchmarkActive && benchmark"
+              color="error"
+              :disabled="benchmark.cancelRequestedAt !== null"
+              :loading="audioIntelligence.cancellingBenchmark"
+              prepend-icon="mdi-stop-circle-outline"
+              size="small"
+              variant="tonal"
+              @click="audioIntelligence.cancelBenchmark(benchmark.id)"
+            >
+              {{ benchmark.cancelRequestedAt
+                ? t('settings.audioBenchmarkCancelling')
+                : t('settings.cancelAudioBenchmark') }}
+            </v-btn>
+          </div>
+        </div>
+
+        <v-alert
+          v-if="benchmark"
+          class="mt-4"
+          :color="benchmarkStatusColor()"
+          icon="mdi-chart-timeline-variant"
+          variant="tonal"
+        >
+          <div class="d-flex flex-wrap align-center justify-space-between ga-2">
+            <strong>
+              {{ t(`settings.audioBenchmarkStatuses.${benchmark.status}`) }}
+            </strong>
+            <span class="text-caption">
+              {{ t('settings.audioBenchmarkProgress', {
+                completed: benchmark.completedConfigurationCount,
+                total: benchmark.totalConfigurationCount,
+              }) }}
+            </span>
+          </div>
+          <v-progress-linear
+            v-if="benchmarkActive"
+            class="mt-3"
+            color="primary"
+            :model-value="benchmark.totalConfigurationCount > 0
+              ? benchmark.completedConfigurationCount / benchmark.totalConfigurationCount * 100
+              : 0"
+            rounded
+          />
+          <div v-if="benchmark.error" class="mt-2">
+            {{ benchmark.error }}
+          </div>
+          <div v-if="benchmark.recommendation" class="mt-3">
+            {{ t('settings.audioBenchmarkRecommendation', {
+              method: benchmarkMethod(benchmark.recommendation.accelerator),
+              chunk: benchmark.recommendation.chunkSize,
+              workers: benchmark.recommendation.preparationWorkers,
+              rate: benchmarkRate(benchmark.recommendation.tracksPerMinute),
+            }) }}
+            <span v-if="benchmark.recommendation.speedupVsCpu !== null">
+              {{ t('settings.audioBenchmarkSpeedup', {
+                speedup: benchmarkRate(benchmark.recommendation.speedupVsCpu),
+              }) }}
+            </span>
+          </div>
+        </v-alert>
+
+        <v-table v-if="benchmark?.results.length" class="mt-4" density="compact">
+          <thead>
+            <tr>
+              <th>{{ t('settings.audioBenchmarkMethod') }}</th>
+              <th>{{ t('settings.audioBenchmarkChunk') }}</th>
+              <th>{{ t('settings.audioBenchmarkWorkers') }}</th>
+              <th>{{ t('settings.audioBenchmarkThroughput') }}</th>
+              <th>{{ t('settings.audioBenchmarkElapsed') }}</th>
+              <th>{{ t('settings.audioBenchmarkVerification') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(result, index) in benchmark.results"
+              :key="`${result.accelerator}-${result.preparationWorkers}-${result.chunkSize}-${index}`"
+            >
+              <td>{{ benchmarkMethod(result.accelerator) }}</td>
+              <td>{{ result.chunkSize }}</td>
+              <td>{{ result.accelerator === 'cuda' ? result.preparationWorkers : '–' }}</td>
+              <td>
+                <template v-if="result.status === 'completed'">
+                  {{ t('settings.audioBenchmarkRate', {
+                    rate: benchmarkRate(result.tracksPerMinute),
+                  }) }}
+                </template>
+                <template v-else>
+                  {{ t(`settings.audioBenchmarkResultStatuses.${result.status}`) }}
+                </template>
+              </td>
+              <td>{{ benchmarkDuration(result.wallTimeMs) }}</td>
+              <td>
+                <v-icon
+                  v-if="result.equivalent === true"
+                  color="success"
+                  icon="mdi-check-circle-outline"
+                  size="small"
+                />
+                <v-icon
+                  v-else-if="result.equivalent === false"
+                  color="error"
+                  icon="mdi-alert-circle-outline"
+                  size="small"
+                />
+                <span v-else>–</span>
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+
         <v-divider class="my-6" />
 
-        <div class="text-subtitle-1 font-weight-bold">{{ t('settings.audioPilot') }}</div>
+        <div class="text-subtitle-1 font-weight-bold">
+          {{ t('settings.audioValidationSample') }}
+        </div>
         <div class="text-body-2 text-medium-emphasis mb-4">
-          {{ t('settings.audioPilotDescription', {
+          {{ t('settings.audioValidationSampleDescription', {
             eligible: audioIntelligence.settings.eligibleTrackCount,
             fingerprinted: audioIntelligence.settings.fingerprintedTrackCount,
           }) }}
@@ -335,161 +728,211 @@ async function toggleMatchFeedback(
           v-if="audioIntelligence.settings.eligibleTrackCount === 0"
           class="mb-4"
           icon="mdi-database-sync-outline"
-          :text="t('settings.audioPilotNeedsTracks')"
+          :text="t('settings.audioValidationSampleNeedsTracks')"
           type="warning"
           variant="tonal"
         />
-        <div class="audio-pilot-controls">
-          <v-text-field
-            density="comfortable"
-            :error="!sampleSizeValid"
-            :hint="t('settings.audioPilotSizeHint')"
-            inputmode="numeric"
-            :label="t('settings.audioPilotSize')"
-            max="500"
-            min="50"
-            :model-value="sampleSize"
-            persistent-hint
-            step="50"
-            type="number"
-            @update:model-value="setSampleSize"
-          />
-          <v-btn
-            :disabled="!sampleSizeValid || sampleSize === audioIntelligence.settings.sampleSize"
-            :loading="audioIntelligence.saving"
-            variant="tonal"
-            @click="saveSampleSize"
+        <v-alert
+          v-if="reviewPoolAtMaximum"
+          class="mb-4"
+          icon="mdi-check-circle-outline"
+          :text="t('settings.audioPoolMaximumReached', { count: analyzedTrackCount })"
+          type="success"
+          variant="tonal"
+        />
+        <div class="audio-validation-controls">
+          <template v-if="!hasAnalyzedPool">
+            <v-text-field
+              density="comfortable"
+              :error="!validationSampleSizeValid"
+              :hint="t('settings.audioValidationSampleSizeHint')"
+              inputmode="numeric"
+              :label="t('settings.audioValidationSampleSize')"
+              max="500"
+              min="50"
+              :model-value="validationSampleSize"
+              persistent-hint
+              step="50"
+              type="number"
+              @update:model-value="setValidationSampleSize"
+            />
+            <v-btn
+              :disabled="!validationSampleSizeValid
+                || validationSampleSize === audioIntelligence.settings.validationSampleSize"
+              :loading="audioIntelligence.saving"
+              variant="tonal"
+              @click="saveValidationSampleSize"
+            >
+              {{ t('settings.saveValidationSampleSize') }}
+            </v-btn>
+            <v-btn
+              color="primary"
+              :disabled="!audioIntelligence.settings.enabled
+                || !validationSampleSizeValid
+                || audioIntelligence.settings.eligibleTrackCount === 0
+                || analysisRunBlocksNewWork
+                || validationSampleSize
+                  !== audioIntelligence.settings.validationSampleSize"
+              :loading="audioIntelligence.preparingValidationSample"
+              prepend-icon="mdi-flask-outline"
+              variant="flat"
+              @click="audioIntelligence.prepareValidationSample"
+            >
+              {{ t('settings.prepareAudioValidationSample') }}
+            </v-btn>
+          </template>
+          <template v-else-if="!reviewPoolAtMaximum">
+            <v-text-field
+              density="comfortable"
+              :error="!expansionTargetValid"
+              :hint="t('settings.audioPoolTargetHint', { count: analyzedTrackCount })"
+              inputmode="numeric"
+              :label="t('settings.audioPoolTarget')"
+              max="500"
+              :min="analyzedTrackCount + 1"
+              :model-value="expansionTarget"
+              persistent-hint
+              step="50"
+              type="number"
+              @update:model-value="setExpansionTarget"
+            />
+            <v-tooltip location="top" :text="t('settings.prepareAudioPoolExpansionTooltip')">
+              <template #activator="{ props }">
+                <span v-bind="props" class="d-inline-flex">
+                  <v-btn
+                    color="primary"
+                    :disabled="!audioIntelligence.settings.enabled
+                      || !expansionTargetValid
+                      || audioIntelligence.settings.analyzerStatus !== 'ready'
+                      || analysisRunBlocksNewWork"
+                    :loading="audioIntelligence.expandingPool"
+                    prepend-icon="mdi-chart-timeline-variant-shimmer"
+                    variant="flat"
+                    @click="audioIntelligence.expandPool(expansionTarget)"
+                  >
+                    {{ t('settings.expandAudioPool') }}
+                  </v-btn>
+                </span>
+              </template>
+            </v-tooltip>
+          </template>
+          <v-tooltip
+            v-if="validationRun"
+            location="top"
+            :text="validationRun.summary.mode === 'expansion'
+              ? t('settings.runAudioPoolExpansionTooltip')
+              : t('settings.runAudioValidationTooltip')"
           >
-            {{ t('settings.savePilotSize') }}
-          </v-btn>
+            <template #activator="{ props }">
+              <span v-bind="props" class="d-inline-flex">
+                <v-btn
+                  color="primary"
+                  :disabled="validationRun.status !== 'prepared'
+                    || audioIntelligence.settings.analyzerStatus !== 'ready'"
+                  :loading="audioIntelligence.startingRun"
+                  prepend-icon="mdi-play"
+                  variant="tonal"
+                  @click="audioIntelligence.startRun(validationRun.id)"
+                >
+                  {{ validationRun.summary.mode === 'expansion'
+                    ? t('settings.runAudioExpansion')
+                    : t('settings.runAudioValidation') }}
+                </v-btn>
+              </span>
+            </template>
+          </v-tooltip>
           <v-btn
-            color="primary"
-            :disabled="!audioIntelligence.settings.enabled
-              || !sampleSizeValid
-              || audioIntelligence.settings.eligibleTrackCount === 0
-              || ['fingerprinting', 'queued', 'running'].includes(
-                audioIntelligence.settings.latestPilot?.status ?? '',
-              )
-              || sampleSize !== audioIntelligence.settings.sampleSize"
-            :loading="audioIntelligence.preparingPilot"
-            prepend-icon="mdi-flask-outline"
-            variant="flat"
-            @click="audioIntelligence.preparePilot"
-          >
-            {{ t('settings.prepareAudioPilot') }}
-          </v-btn>
-          <v-btn
-            color="primary"
-            :disabled="audioIntelligence.settings.latestPilot?.status !== 'prepared'
-              || audioIntelligence.settings.analyzerStatus !== 'ready'"
-            :loading="audioIntelligence.startingPilot"
-            prepend-icon="mdi-play"
-            variant="tonal"
-            @click="audioIntelligence.settings.latestPilot
-              && audioIntelligence.startPilot(audioIntelligence.settings.latestPilot.id)"
-          >
-            {{ t('settings.runAudioPilot') }}
-          </v-btn>
-          <v-btn
-            v-if="audioIntelligence.settings.latestPilot
-              && ['fingerprinting', 'queued', 'running'].includes(
-                audioIntelligence.settings.latestPilot.status,
+            v-if="validationRun
+              && ['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(
+                validationRun.status,
               )"
             color="error"
-            :disabled="audioIntelligence.settings.latestPilot.cancelRequestedAt !== null"
-            :loading="audioIntelligence.cancellingPilot"
+            :disabled="validationRun.cancelRequestedAt !== null"
+            :loading="audioIntelligence.cancellingRun"
             prepend-icon="mdi-stop-circle-outline"
             variant="tonal"
-            @click="audioIntelligence.cancelPilot(audioIntelligence.settings.latestPilot.id)"
+            @click="audioIntelligence.cancelRun(validationRun.id)"
           >
-            {{ audioIntelligence.settings.latestPilot.cancelRequestedAt
-              ? t('settings.audioPilotCancelling')
-              : t('settings.cancelAudioPilot') }}
+            {{ validationRun.cancelRequestedAt
+              ? t('settings.audioAnalysisCancelling')
+              : t('settings.cancelAudioAnalysis') }}
           </v-btn>
           <v-btn
-            v-if="audioIntelligence.settings.latestPilot?.resumable"
+            v-if="validationRun
+              && ['fingerprinting', 'queued', 'running'].includes(validationRun.status)"
             color="primary"
-            :loading="audioIntelligence.resumingPilot"
-            prepend-icon="mdi-restart"
+            :disabled="validationRun.pauseRequestedAt !== null"
+            :loading="audioIntelligence.pausingRun"
+            prepend-icon="mdi-pause-circle-outline"
             variant="tonal"
-            @click="audioIntelligence.resumePilot(audioIntelligence.settings.latestPilot.id)"
+            @click="audioIntelligence.pauseRun(validationRun.id)"
           >
-            {{ t('settings.resumeAudioPilot') }}
+            {{ validationRun.pauseRequestedAt
+              ? t('settings.audioAnalysisPausing')
+              : t('settings.pauseAudioAnalysis') }}
           </v-btn>
+          <v-tooltip
+            v-if="validationRun?.resumable"
+            location="top"
+            :text="t('settings.resumeAudioAnalysisTooltip', {
+              scope: resumableValidationName,
+            })"
+          >
+            <template #activator="{ props }">
+              <span v-bind="props" class="d-inline-flex">
+                <v-btn
+                  color="primary"
+                  :loading="audioIntelligence.resumingRun"
+                  prepend-icon="mdi-restart"
+                  variant="tonal"
+                  @click="audioIntelligence.resumeRun(
+                    validationRun.id,
+                  )"
+                >
+                  {{ t('settings.resumeScopedAudioAnalysis', {
+                    scope: resumableValidationName,
+                  }) }}
+                </v-btn>
+              </span>
+            </template>
+          </v-tooltip>
         </div>
 
-        <v-alert
-          v-if="audioIntelligence.settings.latestPilot"
+        <AudioAnalysisRunStatus
+          v-if="validationRun"
           class="mt-5"
-          icon="mdi-check-decagram-outline"
-          :type="audioIntelligence.settings.latestPilot.status === 'failed'
-            ? 'error'
-            : ['fingerprinting', 'queued', 'running'].includes(
-              audioIntelligence.settings.latestPilot.status,
-            ) ? 'info' : 'success'"
-          variant="tonal"
-        >
-          <div class="font-weight-bold">
-            {{ t(`settings.audioPilotStatuses.${audioIntelligence.settings.latestPilot.status}`) }}
-          </div>
-          <div
-            v-if="audioIntelligence.settings.latestPilot.phase === 'preparation'
-              && audioIntelligence.settings.latestPilot.status === 'fingerprinting'"
-          >
-            {{ t('settings.audioPilotPreparationSummary', {
-              processed:
-                audioIntelligence.settings.latestPilot.summary.processedFingerprintTrackCount ?? 0,
-              candidates:
-                audioIntelligence.settings.latestPilot.summary.candidateTrackCount ?? 0,
-              selected: audioIntelligence.settings.latestPilot.selectedTrackCount,
-              requested: audioIntelligence.settings.latestPilot.requestedTrackCount,
-              failed:
-                audioIntelligence.settings.latestPilot.summary.fingerprintFailedTrackCount ?? 0,
-            }) }}
-          </div>
-          <div v-else>
-            {{ t('settings.audioPilotSummary', {
-              selected: audioIntelligence.settings.latestPilot.selectedTrackCount,
-              requested: audioIntelligence.settings.latestPilot.requestedTrackCount,
-              roots: audioIntelligence.settings.latestPilot.summary.selectedRootCount ?? 0,
-              genres: audioIntelligence.settings.latestPilot.summary.selectedGenreCount ?? 0,
-              artists: audioIntelligence.settings.latestPilot.summary.selectedArtistCount ?? 0,
-            }) }}
-          </div>
-          <div
-            v-if="audioIntelligence.settings.latestPilot.summary.analyzedTrackCount !== undefined"
-            class="mt-1"
-          >
-            {{ t('settings.audioPilotResultSummary', {
-              analyzed: audioIntelligence.settings.latestPilot.summary.analyzedTrackCount,
-              reused: audioIntelligence.settings.latestPilot.summary.reusedTrackCount ?? 0,
-              failed: audioIntelligence.settings.latestPilot.summary.failedTrackCount ?? 0,
-              stale: audioIntelligence.settings.latestPilot.summary.staleTrackCount ?? 0,
-              selected: audioIntelligence.settings.latestPilot.selectedTrackCount,
-            }) }}
-          </div>
-          <div class="text-caption mt-1">
-            {{ pilotDate(audioIntelligence.settings.latestPilot.createdAt) }}
-          </div>
-        </v-alert>
+          :run="validationRun"
+        />
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
 
         <v-divider class="my-6" />
 
-        <div class="d-flex flex-wrap align-start justify-space-between ga-3 mb-4">
-          <div>
-            <div class="text-subtitle-1 font-weight-bold">
-              {{ t('settings.audioSimilarityEvaluation') }}
-            </div>
-            <div class="text-body-2 text-medium-emphasis">
-              {{ t('settings.audioSimilarityEvaluationDescription') }}
-            </div>
-          </div>
-          <v-chip prepend-icon="mdi-music-box-multiple-outline" variant="tonal">
-            {{ t('settings.audioSimilarityAnalyzedTracks', {
-              count: audioIntelligence.evaluation.analyzedTrackCount,
-            }) }}
-          </v-chip>
-        </div>
+        <v-expansion-panels variant="accordion">
+          <v-expansion-panel>
+            <v-expansion-panel-title>
+              <div class="audio-expansion-title">
+                <div>
+                  <div class="text-subtitle-1 font-weight-bold">
+                    {{ t('settings.audioSimilarityEvaluation') }}
+                  </div>
+                  <div class="text-body-2 text-medium-emphasis">
+                    {{ t('settings.audioSimilarityEvaluationDescription') }}
+                  </div>
+                </div>
+                <v-chip
+                  prepend-icon="mdi-music-box-multiple-outline"
+                  size="small"
+                  variant="tonal"
+                >
+                  {{ t('settings.audioSimilarityAnalyzedTracks', {
+                    count: audioIntelligence.evaluation.analyzedTrackCount,
+                  }) }}
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            <v-expansion-panel-text>
 
         <v-alert
           v-if="audioIntelligence.evaluationError"
@@ -894,17 +1337,49 @@ async function toggleMatchFeedback(
             </v-list>
           </div>
         </template>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
       </template>
     </v-card-text>
   </v-card>
 </template>
 
 <style scoped>
-.audio-pilot-controls {
+.audio-validation-controls {
   align-items: center;
   display: grid;
   gap: 12px;
   grid-template-columns: minmax(180px, 280px) auto auto;
+}
+
+.audio-expansion-title {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding-right: 12px;
+}
+
+.audio-collection-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audio-collection-scope {
+  flex: 0 1 280px;
+  min-width: 220px;
+}
+
+.audio-collection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .audio-similarity-controls {
@@ -980,10 +1455,20 @@ async function toggleMatchFeedback(
 }
 
 @media (max-width: 760px) {
-  .audio-pilot-controls,
+  .audio-validation-controls,
   .audio-similarity-controls {
     align-items: stretch;
     grid-template-columns: 1fr;
+  }
+
+  .audio-collection-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .audio-collection-scope {
+    flex-basis: auto;
+    max-width: none;
   }
 
   .audio-similarity-match-meta {

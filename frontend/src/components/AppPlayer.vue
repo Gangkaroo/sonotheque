@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { apiRequest } from '@/api/client'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import MusicVisualizer from '@/components/MusicVisualizer.vue'
+import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore, type TrackPlayStatistics } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -14,11 +15,16 @@ import {
   type EnrichmentErrorCode,
   type EnrichmentStatus,
 } from '@/stores/onlineEnrichment'
-import { usePlayerStore } from '@/stores/player'
+import {
+  usePlayerStore,
+  type AlbumPlaybackSort,
+  type TrackPlaybackSort,
+} from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { openExternalUrl } from '@/utils/externalLinks'
 import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
 import { releaseMediaSource } from '@/utils/mediaPlayback'
+import { PlaybackListenAccumulator } from '@/utils/playbackListenAccumulator'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
 const { locale, t } = useI18n()
@@ -31,13 +37,17 @@ const favorites = useFavoritesStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
 const enrichment = useOnlineEnrichmentStore()
 const player = usePlayerStore()
+const listenedPlayback = new PlaybackListenAccumulator(player.listenedPlaybackMs)
 const playlists = usePlaylistsStore()
 const audio = ref<HTMLAudioElement | null>(null)
 const playerCollapsed = ref(false)
 const draggedQueueIndex = ref<number | null>(null)
 const addToPlaylistDialog = ref(false)
+const continueMoodDialog = ref(false)
 const playlistTracks = ref<typeof player.queue>([])
 const createQueuePlaylistDialog = ref(false)
+const artworkDialog = ref(false)
+const artworkLoading = ref(false)
 const queuePlaylistName = ref('')
 const queuePlaylistDescription = ref('')
 const queuePlaylistFolderId = ref<number | null>(null)
@@ -78,6 +88,12 @@ const progressPercent = computed(() => duration.value > 0 ? Math.min(100, Math.m
 const remainingTime = computed(() => duration.value > 0 ? `-${formatTime(Math.max(0, duration.value - currentTime.value))}` : '')
 const primaryArtist = computed(() => player.currentTrack?.artists[0] ?? null)
 const albumArtworkThumbnailUrl = computed(() => player.currentTrack?.album?.artworkThumbnailUrl ?? null)
+const albumArtworkUrl = computed(() => {
+  const album = player.currentTrack?.album
+  if (!album?.id || !album.artworkThumbnailUrl) return null
+
+  return album.artworkUrl ?? `/api/albums/${album.id}/artwork/original`
+})
 const artistNames = computed(() => player.currentTrack?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
 const albumReleaseYear = computed(() => player.currentTrack?.album?.originalReleaseYear ?? player.currentTrack?.year ?? null)
 const albumTitle = computed(() => {
@@ -118,6 +134,51 @@ const queuePlayingTime = computed(() => {
 
   return total > 0 ? formatTotalDuration(total) : null
 })
+const playbackScopeMode = computed(() => {
+  const scope = player.playbackScope
+  if (scope === null) return ''
+
+  const continuation = player.continuousPlay
+    ? t('player.playbackScopeContinuous')
+    : t(scope.type === 'albums' ? 'player.playbackScopeCurrentAlbum' : 'player.playbackScopeCurrentTrack')
+  const order = scope.type === 'albums'
+    ? t(player.randomPlay ? 'player.playbackScopeRandomAlbums' : 'player.playbackScopeSequentialAlbums')
+    : t(player.randomPlay ? 'player.playbackScopeRandomTracks' : 'player.playbackScopeSequentialTracks')
+
+  return `${continuation} · ${order}`
+})
+const playbackScopeLabels = computed(() => {
+  const scope = player.playbackScope
+  if (scope === null) return []
+
+  const labels = [
+    scope.libraryRootId === null
+      ? t('player.playbackScopeAllRoots')
+      : t('player.playbackScopeRoot', { name: scope.libraryRootName ?? `#${scope.libraryRootId}` }),
+  ]
+
+  if (scope.search) labels.push(t('player.playbackScopeSearch', { value: scope.search }))
+  if (scope.genreId !== null) {
+    labels.push(t('player.playbackScopeGenre', { value: scope.genreName || `#${scope.genreId}` }))
+  }
+  if (scope.type === 'albums') {
+    if (scope.initial) labels.push(t('player.playbackScopeInitial', { value: scope.initial }))
+    if (scope.year !== null) labels.push(t('player.playbackScopeYear', { value: scope.year }))
+  } else if (scope.playStatus === 'never') {
+    labels.push(t('player.playbackScopeNeverPlayed'))
+  }
+  if (scope.physicalCopy === 'owned') labels.push(t('player.playbackScopeOwned'))
+  if (scope.physicalCopy === 'not_owned') labels.push(t('player.playbackScopeNotOwned'))
+  if (!player.randomPlay) {
+    const sort = scope.type === 'albums' ? albumSortLabel(scope.sort) : trackSortLabel(scope.sort)
+    labels.push(t('player.playbackScopeSort', { value: sort }))
+  }
+
+  return labels
+})
+const playbackScopeIcon = computed(() => player.playbackScope?.type === 'tracks'
+  ? 'mdi-music-note-multiple'
+  : 'mdi-album-multiple')
 const nowPlayingQueueItem = computed(() => queueItems.value.find((item) => item.index === player.currentIndex) ?? null)
 const upcomingQueueItems = computed(() => queueItems.value.filter((item) => item.index > player.currentIndex))
 const previousQueueItems = computed(() => queueItems.value.filter((item) => item.index < player.currentIndex).reverse())
@@ -153,6 +214,7 @@ watch(
     clearSeekFeedback()
     restoredTrackId.value = null
     reportedPlayKey.value = null
+    listenedPlayback.reset(player.listenedPlaybackMs)
     currentTime.value = player.playbackPosition
     duration.value = 0
     isRestoringPosition.value = player.playbackPosition > 0
@@ -192,6 +254,34 @@ function enrichmentStateText(status: EnrichmentStatus | undefined, errorCode?: E
   if (status === 'error' && errorCode) return t(`player.enrichmentErrors.${errorCode}`)
 
   return status ? t(`player.enrichmentStates.${status}`) : ''
+}
+
+function albumSortLabel(sort: AlbumPlaybackSort) {
+  const labels = {
+    artist: t('albums.sortArtist'),
+    title: t('albums.sortTitle'),
+    year_asc: t('albums.sortYearOldest'),
+    year_desc: t('albums.sortYearNewest'),
+    plays: t('albums.sortMostPlayed'),
+    last_played: t('albums.sortLastPlayed'),
+    added: t('albums.sortRecentlyAdded'),
+  }
+
+  return labels[sort]
+}
+
+function trackSortLabel(sort: TrackPlaybackSort) {
+  const labels = {
+    album: t('tracks.sortAlbum'),
+    title: t('tracks.sortTitle'),
+    year_asc: t('tracks.sortYearOldest'),
+    year_desc: t('tracks.sortYearNewest'),
+    plays: t('tracks.sortMostPlayed'),
+    last_played: t('tracks.sortLastPlayed'),
+    added: t('tracks.sortRecentlyAdded'),
+  }
+
+  return labels[sort]
 }
 
 function identityMatchText(method?: 'search' | 'tag' | null, confidence?: number | null) {
@@ -321,7 +411,19 @@ function updateProgress(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
   syncAudioProgress(!isRestoringPosition.value)
+  observeListenedPlayback()
   maybeRecordCountedPlay()
+}
+
+function openArtwork() {
+  if (!albumArtworkUrl.value) return
+
+  artworkLoading.value = true
+  artworkDialog.value = true
+}
+
+function finishArtworkLoading() {
+  artworkLoading.value = false
 }
 
 function updateDuration(event?: Event) {
@@ -342,6 +444,7 @@ function syncAudioProgress(persist: boolean) {
 function seekTo(value: number) {
   if (!audio.value || !duration.value || !Number.isFinite(value)) return
 
+  suspendListenedPlayback()
   beginSeekFeedback()
   const target = Math.min(duration.value, Math.max(0, value))
   audio.value.currentTime = target
@@ -350,6 +453,7 @@ function seekTo(value: number) {
 }
 
 function onEnded() {
+  suspendListenedPlayback(audio.value?.currentTime)
   player.setPlaybackPosition(0)
   void player.next()
 }
@@ -385,6 +489,7 @@ function startRequestedPlayback() {
 function onError(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
+  suspendListenedPlayback(audio.value?.currentTime)
   clearPlaybackHandoffTimers()
   resumeAfterMetadata.value = false
   isRestoringPlayback.value = false
@@ -396,15 +501,18 @@ function onLoading(event: Event) {
   if (!isCurrentMediaEvent(event)) return
 
   if (event.type === 'waiting' && (isSeeking.value || audio.value?.seeking)) {
+    suspendListenedPlayback()
     beginSeekFeedback()
     return
   }
 
+  suspendListenedPlayback(audio.value?.currentTime)
   if (player.isPlaying) player.setPlaybackState('loading')
 }
 
 function onPause(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
+  suspendListenedPlayback(audio.value?.currentTime)
   if (!player.currentTrack || player.playbackState === 'ended' || player.playbackState === 'error') return
   if (player.playbackState === 'loading' && resumeAfterMetadata.value) return
 
@@ -418,12 +526,14 @@ function onPlaying(event?: Event) {
   clearPlaybackHandoffTimers()
   endSeekFeedback()
   player.setPlaybackState('playing')
+  listenedPlayback.resume(audio.value?.currentTime ?? currentTime.value)
   maybeRecordCountedPlay()
 }
 
 function onSeeking(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
+  suspendListenedPlayback()
   beginSeekFeedback()
 }
 
@@ -432,12 +542,31 @@ function onSeeked(event?: Event) {
 
   syncAudioProgress(true)
   endSeekFeedback()
+  if (player.isPlaying && audio.value && !audio.value.paused && !audio.value.seeking) {
+    listenedPlayback.resume(audio.value.currentTime)
+  }
 }
 
-function persistCurrentPlaybackPosition() {
+function persistCurrentPlaybackState() {
   if (!audio.value || !player.currentTrack) return
 
+  suspendListenedPlayback(audio.value.currentTime)
   player.setPlaybackPosition(audio.value.currentTime)
+}
+
+function observeListenedPlayback() {
+  if (
+    !audio.value
+    || audio.value.paused
+    || audio.value.seeking
+    || player.playbackState !== 'playing'
+  ) return
+
+  player.setListenedPlaybackMs(listenedPlayback.observe(audio.value.currentTime))
+}
+
+function suspendListenedPlayback(positionSeconds?: number) {
+  player.setListenedPlaybackMs(listenedPlayback.suspend(positionSeconds))
 }
 
 function formatTime(value: number) {
@@ -494,8 +623,12 @@ function maybeRecordCountedPlay() {
 
   if (duration.value <= MINIMUM_COUNTED_TRACK_SECONDS) return
 
-  const requiredSeconds = Math.min(duration.value / 2, MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS)
-  if (currentTime.value < requiredSeconds) return
+  const requiredMs = Math.min(
+    duration.value / 2,
+    MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS,
+  ) * 1000
+  const listenedMs = player.listenedPlaybackMs
+  if (listenedMs < requiredMs) return
 
   reportedPlayKey.value = playKey
   const trackId = player.currentTrack.id
@@ -503,9 +636,9 @@ function maybeRecordCountedPlay() {
   void apiRequest<TrackPlayResponse>(`/tracks/${trackId}/plays`, {
     method: 'POST',
     body: JSON.stringify({
-      listenedMs: Math.max(0, Math.round(currentTime.value * 1000)),
+      listenedMs,
       durationMs: Math.max(0, Math.round(duration.value * 1000)),
-      playedAt: new Date(Date.now() - (currentTime.value * 1000)).toISOString(),
+      playedAt: player.playbackStartedAt,
       context: player.playbackContext,
       sessionKey,
     }),
@@ -695,15 +828,15 @@ function isCurrentMediaEvent(event?: Event) {
 }
 
 onBeforeUnmount(() => {
-  persistCurrentPlaybackPosition()
-  window.removeEventListener('beforeunload', persistCurrentPlaybackPosition)
+  persistCurrentPlaybackState()
+  window.removeEventListener('beforeunload', persistCurrentPlaybackState)
   clearPlaybackHandoffTimers()
   clearSeekFeedback()
   if (audio.value) releasePlayerMediaSource(audio.value)
 })
 
 onMounted(() => {
-  window.addEventListener('beforeunload', persistCurrentPlaybackPosition)
+  window.addEventListener('beforeunload', persistCurrentPlaybackState)
 })
 </script>
 
@@ -798,10 +931,13 @@ onMounted(() => {
 
       <div class="player-content">
         <div class="player-now-playing">
-        <RouterLink
-          v-if="albumRoute && albumArtworkThumbnailUrl"
+        <button
+          v-if="albumArtworkUrl && albumArtworkThumbnailUrl"
+          :aria-label="t('player.expandArtwork')"
           class="player-artwork-link"
-          :to="albumRoute"
+          :title="t('player.expandArtwork')"
+          type="button"
+          @click="openArtwork"
         >
           <v-img
             :alt="albumTitle"
@@ -809,7 +945,7 @@ onMounted(() => {
             cover
             :src="albumArtworkThumbnailUrl"
           />
-        </RouterLink>
+        </button>
         <div class="player-meta">
           <RouterLink
             v-if="trackRoute"
@@ -991,6 +1127,33 @@ onMounted(() => {
     </div>
   </v-footer>
 
+  <v-dialog
+    v-model="artworkDialog"
+    class="player-artwork-dialog"
+    max-width="none"
+    @after-leave="artworkLoading = false"
+  >
+    <div class="player-artwork-overlay" @click="artworkDialog = false">
+      <v-progress-circular
+        v-if="artworkLoading"
+        class="player-artwork-loading"
+        color="primary"
+        indeterminate
+        size="52"
+        width="4"
+      />
+      <img
+        v-if="albumArtworkUrl"
+        :alt="albumTitle"
+        class="player-artwork-full"
+        :class="{ 'is-loading': artworkLoading }"
+        :src="albumArtworkUrl"
+        @error="finishArtworkLoading"
+        @load="finishArtworkLoading"
+      >
+    </div>
+  </v-dialog>
+
   <v-navigation-drawer
     v-model="nowPlayingDrawerOpen"
     class="now-playing-drawer"
@@ -999,14 +1162,16 @@ onMounted(() => {
     width="520"
   >
     <div class="now-playing-drawer-header pa-4">
-      <RouterLink
-        v-if="albumRoute && albumArtworkThumbnailUrl"
+      <button
+        v-if="albumArtworkUrl && albumArtworkThumbnailUrl"
+        :aria-label="t('player.expandArtwork')"
         class="now-playing-drawer-artwork"
-        :to="albumRoute"
-        @click="nowPlayingPanel.close"
+        :title="t('player.expandArtwork')"
+        type="button"
+        @click="openArtwork"
       >
         <v-img :alt="albumTitle" cover :src="albumArtworkThumbnailUrl" />
-      </RouterLink>
+      </button>
       <div v-else class="now-playing-drawer-artwork now-playing-drawer-artwork-placeholder">
         <v-icon icon="mdi-album" size="28" />
       </div>
@@ -1059,6 +1224,27 @@ onMounted(() => {
 
     <v-window v-model="nowPlayingPanel.activeTab">
       <v-window-item value="queue">
+        <div v-if="playbackScopeLabels.length" class="queue-playback-scope pa-4">
+          <div class="d-flex align-start ga-3">
+            <v-icon color="primary" :icon="playbackScopeIcon" />
+            <div>
+              <div class="text-subtitle-2">{{ t('player.playbackScopeTitle') }}</div>
+              <div class="text-caption text-medium-emphasis">{{ playbackScopeMode }}</div>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap ga-2 mt-3">
+            <v-chip
+              v-for="label in playbackScopeLabels"
+              :key="label"
+              color="primary"
+              size="small"
+              variant="tonal"
+            >
+              {{ label }}
+            </v-chip>
+          </div>
+        </div>
+        <v-divider v-if="playbackScopeLabels.length" />
         <div class="queue-toolbar pa-4">
           <div class="text-caption text-medium-emphasis">
             {{ t('player.queueCount', { count: player.queue.length }) }}<span v-if="queuePlayingTime"> · {{ t('catalog.playingTime', { duration: queuePlayingTime }) }}</span>
@@ -1086,7 +1272,18 @@ onMounted(() => {
 
     <v-list v-if="player.queue.length" lines="three" class="queue-list">
       <template v-if="nowPlayingQueueItem">
-        <v-list-subheader>{{ t('player.nowPlaying') }}</v-list-subheader>
+        <div class="queue-section-header">
+          <div class="text-overline text-medium-emphasis">{{ t('player.nowPlaying') }}</div>
+          <v-btn
+            density="comfortable"
+            prepend-icon="mdi-waveform"
+            size="small"
+            variant="tonal"
+            @click="continueMoodDialog = true"
+          >
+            {{ t('player.continueMoodAction') }}
+          </v-btn>
+        </div>
         <v-list-item
           :key="queueItemKey(nowPlayingQueueItem.track, nowPlayingQueueItem.index)"
           active
@@ -1703,6 +1900,12 @@ onMounted(() => {
     </v-window>
   </v-navigation-drawer>
 
+  <SimilarTracksDialog
+    v-model="continueMoodDialog"
+    mode="mood"
+    :track-id="player.currentTrack?.id ?? null"
+  />
+
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
 
   <v-dialog v-model="createQueuePlaylistDialog" max-width="560">
@@ -1893,16 +2096,52 @@ onMounted(() => {
 }
 
 .player-artwork-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
   border-radius: 8px;
+  cursor: zoom-in;
   flex: 0 0 56px;
   height: 56px;
   overflow: hidden;
+  padding: 0;
   width: 56px;
 }
 
 .player-artwork {
   height: 100%;
   width: 100%;
+}
+
+.player-artwork-overlay {
+  align-items: center;
+  cursor: zoom-out;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  position: relative;
+}
+
+.player-artwork-loading {
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.player-artwork-full {
+  display: block;
+  height: auto;
+  max-height: 92vh;
+  max-width: 92vw;
+  opacity: 1;
+  transition: opacity 160ms ease;
+  width: auto;
+}
+
+.player-artwork-full.is-loading {
+  opacity: 0;
 }
 
 .player-meta {
@@ -1975,9 +2214,14 @@ onMounted(() => {
 }
 
 .now-playing-drawer-artwork {
+  appearance: none;
+  background: transparent;
+  border: 0;
   border-radius: 10px;
+  cursor: zoom-in;
   height: 56px;
   overflow: hidden;
+  padding: 0;
   width: 56px;
 }
 
@@ -2010,6 +2254,10 @@ onMounted(() => {
   align-items: center;
   display: flex;
   justify-content: space-between;
+}
+
+.queue-playback-scope {
+  background: rgba(var(--v-theme-primary), 0.06);
 }
 
 .now-playing-tab-content {
@@ -2098,6 +2346,15 @@ onMounted(() => {
 
 .queue-list {
   padding: 8px;
+}
+
+.queue-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 4px 8px 8px;
 }
 
 .queue-item {

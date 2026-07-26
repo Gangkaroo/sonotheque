@@ -15,6 +15,10 @@ class FakeAudioAnalyzer implements AudioAnalyzer
     /** @var list<list<array<string, mixed>>> */
     public array $requests = [];
 
+    public int $shutdownCalls = 0;
+
+    public int $healthCalls = 0;
+
     public function __construct(
         public AudioAnalyzerHealth $health,
     ) {
@@ -44,6 +48,8 @@ class FakeAudioAnalyzer implements AudioAnalyzer
 
     public function health(): AudioAnalyzerHealth
     {
+        $this->healthCalls++;
+
         return $this->health;
     }
 
@@ -52,5 +58,10 @@ class FakeAudioAnalyzer implements AudioAnalyzer
         $this->requests[] = $requests;
 
         return $this->results;
+    }
+
+    public function shutdown(): void
+    {
+        $this->shutdownCalls++;
     }
 }

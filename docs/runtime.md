@@ -77,19 +77,28 @@ The packaged image installs FFmpeg automatically. `FFPROBE_BINARY` and
 used when getID3 cannot expose a safe audio-only byte range. Both external tools
 remain fallbacks, so normal scans retain their in-process fast path.
 
-## Optional Audio-Intelligence Pilot
+## Optional Audio Intelligence
 
 Audio intelligence is disabled by default. The standard Sonotheque runtime does
 not install Python packages, download a model, start an analyzer, or inspect
-audio for this feature.
+audio for this feature. Enabling the workspace only permits preparation; it
+does not dispatch analysis or reserve CPU, GPU, or memory.
 
-The experimental pilot adapter targets Essentia and the Discogs
+The representative validation sample accepts 50 through 500 tracks and
+defaults to 200. Sonotheque selects available tracks across enabled roots,
+genres, and artists. Preparation reuses current tag-independent fingerprints,
+keeps a small reserve for missing or changed files, and does not generate
+features or embeddings. Existing validation runs remain available for
+comparison. Files whose catalog size or modification time no longer matches are
+skipped until the library is rescanned.
+
+The local analyzer targets Essentia and the Discogs
 multi-similarity EffNet embedding model. Essentia's Python bindings are not
 available for native Windows Python, so the development setup uses an isolated
 Linux container. Build it explicitly:
 
 ```powershell
-docker build --tag sonotheque-audio-intelligence:pilot .\audio-intelligence
+docker build --tag sonotheque-audio-intelligence:analysis .\audio-intelligence
 ```
 
 Download and review the model separately, keep it beneath the ignored
@@ -98,9 +107,15 @@ Download and review the model separately, keep it beneath the ignored
 ```dotenv
 AUDIO_INTELLIGENCE_DRIVER=essentia_docker
 AUDIO_INTELLIGENCE_MODEL_PATH=C:/absolute/path/to/discogs-effnet.pb
-AUDIO_INTELLIGENCE_DOCKER_IMAGE=sonotheque-audio-intelligence:pilot
+AUDIO_INTELLIGENCE_DOCKER_IMAGE=sonotheque-audio-intelligence:analysis
+AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE=sonotheque-audio-intelligence:analysis
+AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE=sonotheque-audio-intelligence:cuda
+AUDIO_INTELLIGENCE_BENCHMARK_SAMPLE_SIZE=15
+AUDIO_INTELLIGENCE_ACCELERATOR=cpu
+AUDIO_INTELLIGENCE_PERSISTENT=false
 AUDIO_INTELLIGENCE_CPU_LIMIT=2
 AUDIO_INTELLIGENCE_MEMORY_LIMIT=4g
+AUDIO_INTELLIGENCE_PREPARATION_WORKERS=2
 ```
 
 The two-CPU default is conservative. On a machine with at least eight logical
@@ -116,13 +131,13 @@ created artifacts; existing reusable artifacts remain valid and are not
 recomputed merely to populate timing data.
 
 Restart the backend and queue worker after changing these values. In Settings,
-enable the Audio intelligence workspace, prepare the bounded sample, use
-**Check analyzer**, and explicitly start the pilot. Preparation selects
-catalog candidates first and calculates fingerprints only for that sample plus
-a small reserve. The analysis worker analyzes at
-most three representative 30-second windows per long track. Each window is
+enable the Audio intelligence workspace, prepare the bounded validation sample,
+use **Check analyzer**, and explicitly start the validation run. Preparation
+selects catalog candidates first and calculates fingerprints only for that
+sample plus a small reserve. The analysis worker analyzes at most three
+representative 30-second windows per long track. Each window is
 decoded directly rather than loading the entire track. The worker stores the
-exact analyzer/model versions, model checksum, licenses, features, pilot
+exact analyzer/model versions, model checksum, licenses, features,
 embedding, total runtime, decode/feature/embedding timings, hardware
 description, and per-file result.
 
@@ -133,17 +148,36 @@ while unstarted items are marked cancelled. Override
 `AUDIO_INTELLIGENCE_CHUNK_SIZE` only after measuring the tradeoff between model
 startup overhead and cancellation responsiveness.
 
+The remaining-time estimate uses actual wall-clock analyzer throughput from the
+latest 20 chunks. It deliberately does not sum per-track decode, feature, and
+embedding timings because CUDA preparation overlaps those stages. The rolling
+sample resets when the analyzer image, accelerator, resource limits, worker
+count, persistence mode, or chunk size changes.
+
+After validating the bounded pool, Settings can prepare collection analysis for
+all enabled library roots or one selected root. The work list is enumerated in
+database-sized chunks and stores its last catalog-track checkpoint. Preparing
+or analyzing a later overlapping scope reuses current fingerprints and matching
+artifacts rather than decoding the same audio again.
+
+Pause is distinct from cancellation. A pause request takes effect between
+fingerprint items or analyzer chunks, leaves unfinished items queued, and can be
+resumed immediately on the same run. Completed and reused items remain final.
+Cancelling releases the scope so another run can be prepared; a cancelled run
+can still be resumed deliberately.
+
 Analysis output is stored as a reusable artifact identified by the exact
 analyzer/model profile, audio-content fingerprint, and fingerprint version.
-Starting or resuming a pilot first links every matching artifact and sends only
-the remaining audio to the analyzer. Tag-only edits, file renames, and moves
-retain the audio fingerprint and therefore reuse the existing work. Changed
-audio, a changed fingerprint algorithm, or a different model profile creates
-new work instead of silently reusing an incompatible result.
+Starting or resuming an analysis run first links every matching artifact and
+sends only the remaining audio to the analyzer. Tag-only edits, file renames,
+and moves retain the audio fingerprint and therefore reuse the existing work.
+Changed audio, a changed fingerprint algorithm, or a different model profile
+creates new work instead of silently reusing an incompatible result.
 
-Failed, partial, and cancelled preparation or analysis runs can be resumed from
-Settings. Preparation reuses current fingerprints and continues with the first
-unfinished candidate. A fingerprinting, queued, or running pilot becomes
+Paused, failed, partial, and cancelled preparation or analysis runs can be
+resumed from Settings. Preparation reuses current fingerprints and continues
+after the last persisted enumeration checkpoint or with the first unfinished
+fingerprint. A fingerprinting, queued, or running run becomes
 resumable only after its heartbeat is older than
 `AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES` (10 minutes by default), which avoids
 starting the same job twice while a worker is healthy. Completed and reused
@@ -151,7 +185,7 @@ items are never submitted again. If a worker is forcibly stopped while an
 analyzer chunk is active, that one uncommitted chunk may run again; reducing the
 chunk size narrows that boundary but increases model startup overhead.
 
-After a pilot has results, Settings exposes a read-only similarity evaluator.
+After a validation run has results, Settings exposes a similarity evaluator.
 Choose an analyzed source track to calculate and display its ten nearest tracks
 using exact cosine similarity. The response includes measured calculation time,
 scores, BPM/key context, and catalog links, but never returns embeddings or
@@ -182,11 +216,87 @@ configured model. The model path should point to a manually reviewed, read-only
 file. Do not enable this experimental adapter before reviewing the analyzer and
 model licenses for the intended use.
 
-The CPU image does not include CUDA runtime libraries. Docker can expose a
-compatible NVIDIA GPU through `--gpus all`, but GPU execution requires a
-separate optional image with matching CUDA and cuDNN libraries. Keep that image
-disabled by default and benchmark it against the CPU image before adopting it;
-only the embedding portion is expected to move to the GPU.
+The CPU image does not include CUDA runtime libraries. A separate, optional
+image uses a TensorFlow runtime compatible with Pascal-generation NVIDIA cards
+and keeps Essentia's preprocessing and the configured EffNet graph unchanged:
+
+```powershell
+docker build --file .\audio-intelligence\Dockerfile.cuda `
+  --tag sonotheque-audio-intelligence:cuda .\audio-intelligence
+```
+
+Docker Desktop must expose a compatible NVIDIA GPU to Linux containers. Enable
+the image explicitly and restart the backend plus queue worker:
+
+```dotenv
+AUDIO_INTELLIGENCE_DOCKER_IMAGE=sonotheque-audio-intelligence:cuda
+AUDIO_INTELLIGENCE_ACCELERATOR=cuda
+AUDIO_INTELLIGENCE_PERSISTENT=true
+```
+
+CPU remains the default. The CUDA adapter refuses to report healthy when no GPU
+is visible, mounts the same files read-only, and does not change analyzer
+profile or artifact identity. Existing completed artifacts are therefore
+reused. On the development GTX 1070, an identical five-track chunk took 57.3
+seconds through CUDA and 70.1 seconds through the four-CPU image, an 18%
+end-to-end improvement. The GPU image is several gigabytes and TensorFlow
+startup remains significant, so the benefit depends on the GPU and chunk size.
+Return both settings to the CPU values above if health checks or measured
+throughput are worse on another machine.
+
+The CUDA worker batches model patches from every representative window in the
+current request into shared 64-patch TensorFlow calls. It also uses a bounded
+preparation pipeline so two CPU workers can decode audio and extract Essentia
+features while TensorFlow handles the preceding prepared group. Configure this
+with `AUDIO_INTELLIGENCE_PREPARATION_WORKERS`; values are limited to `1..4`,
+and `2` is the measured default.
+
+The pipeline is enabled only when the CUDA TensorFlow model is active. CPU
+analysis remains on its existing sequential path, never requests Docker GPU
+devices, and works without CUDA or an NVIDIA runtime. A machine without CUDA
+should retain `AUDIO_INTELLIGENCE_ACCELERATOR=cpu` and use the CPU image.
+
+Before the preparation pipeline, two identical five-track comparisons on the
+GTX 1070 reduced wall time from 76.0 to 59.8 seconds and from 63.2 to 54.2
+seconds through cross-window model batching. With the preparation pipeline,
+the controlled five-track comparison reduced wall time from 106.2 to 52.4
+seconds. All five normalized embeddings were byte-for-byte identical and all
+extracted features matched.
+
+The first sustained collection session after enabling the preparation pipeline
+processed 250 tracks at 7.77 tracks per minute. Comparable pre-pipeline sessions
+processed approximately 4.1 to 4.6 tracks per minute. Per-track stage totals
+were higher under contention, but those stages overlap and therefore are not a
+valid end-to-end throughput measurement.
+
+Advanced diagnostics provides an adaptive analyzer benchmark. It uses the same
+15 readable tracks for every configuration, records no analysis artifacts, and
+does not alter collection-run progress. The first stage compares CPU with CUDA
+preparation workers `1`, `2`, and `3` at chunk size `5`. It then benchmarks
+chunk sizes `10` and `15` with the first-stage winner, for six configurations
+in total. Results include wall time, tracks per minute, average stage timings,
+and CPU-reference output verification. Missing CUDA support is reported as
+unavailable while the CPU configurations continue. The benchmark may run while
+a collection analysis is paused, can be cancelled between chunks, and prevents
+analysis from resuming concurrently.
+
+Persistent mode starts a named analyzer container on the first analysis request
+and keeps the selected model loaded between chunks. The container has no Docker
+network, accepts framed JSON only through an internal Unix socket invoked with
+`docker exec`, and mounts the model plus encountered configured library roots
+read-only. A changed image, accelerator, model file, resource limit, or newly
+required root recreates the service deliberately. A failed persistent request
+is retried once with a fresh service and then falls back to the same
+accelerator's one-shot container; it never changes CPU/CUDA method silently.
+
+On the development GTX 1070, the first Laravel request including persistent
+service startup took 22.9 seconds. A separate request through the warmed service
+took 8.7 seconds, including about 0.7 seconds of Laravel/Docker communication
+around 8.0 seconds of recorded analysis. `scripts/stop.ps1` removes Sonotheque
+containers carrying the audio-analyzer label so stopping the local application
+also releases model memory and GPU resources. The analysis job itself removes
+its persistent analyzer when the run completes, fails, is paused, or is
+cancelled; the stop script is an additional cleanup safeguard.
 
 ## First-Time Setup
 
@@ -311,30 +421,6 @@ Set `ENRICHMENT_CA_BUNDLE` when PHP needs an explicit certificate authority
 bundle for outbound HTTPS. `LASTFM_CA_BUNDLE`, `MUSICBRAINZ_CA_BUNDLE`, and
 `LRCLIB_CA_BUNDLE` can override it per provider; LRCLIB also reuses an existing
 Last.fm bundle for compatibility.
-
-## Audio Intelligence Pilot
-
-Settings > Audio intelligence contains the disabled-by-default foundation for
-local audio analysis. Enabling the workspace does not download a model, start
-an analysis service, dispatch background work, read audio files, or reserve CPU,
-GPU, or memory. It only permits preparation of a representative pilot sample.
-
-The sample size accepts 50 through 500 tracks and defaults to 200. All available
-tracks in enabled roots are eligible; a full-library fingerprint backfill is not
-required. Sonotheque first chooses candidates proportionally across library
-roots while rotating through genres and preferring artists not already
-selected. A queued preparation job then reuses existing tag-independent audio
-fingerprints and reads only candidates whose fingerprint is missing. It stops
-as soon as the requested sample is ready, keeping a small reserve so missing or
-changed files do not leave the sample short. No feature vectors or embeddings
-are generated during preparation.
-
-Preparing a newer sample preserves earlier runs for comparison. Preparation is
-restart-safe and cancellable; completed fingerprints are retained and are not
-calculated again. A file that differs from its latest catalog size or modified
-time is skipped until the library is rescanned. Analysis also compares each
-stored fingerprint with the current media file before using or updating a
-result.
 
 To opt into LAN access, first configure a long admin token in `backend/.env`,
 stop any currently running local instance, and start LAN mode:

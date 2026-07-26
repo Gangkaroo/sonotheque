@@ -1,8 +1,13 @@
 import { createPinia, setActivePinia } from 'pinia'
+import { watch } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AlbumDetail, Track } from '@/stores/catalog'
-import { usePlayerStore } from '@/stores/player'
+import {
+  usePlayerStore,
+  type AlbumPlaybackScope,
+  type TrackPlaybackScope,
+} from '@/stores/player'
 
 const tracks: Track[] = [
   {
@@ -23,6 +28,7 @@ const tracks: Track[] = [
 
 describe('player store', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     setActivePinia(createPinia())
     localStorage.clear()
     vi.unstubAllGlobals()
@@ -70,6 +76,116 @@ describe('player store', () => {
     expect(player.playbackContext).toBe('album')
   })
 
+  it('keeps a frozen album filter scope for continuous random playback', async () => {
+    const nextTrack: Track = {
+      id: 3,
+      title: 'Scoped next',
+      streamUrl: '/api/tracks/3/stream',
+      album: { id: 11, title: 'Scoped next album' },
+      artists: [{ id: 100, name: 'Artist' }],
+    }
+    const firstAlbum: AlbumDetail = {
+      id: 10,
+      title: 'Album',
+      primaryArtist: { id: 100, name: 'Artist' },
+      trackCount: 1,
+      personalMetadata: { hasPhysicalCopy: true },
+      genres: [],
+      tracks: [tracks[0]],
+    }
+    const nextAlbum: AlbumDetail = {
+      id: 11,
+      title: 'Scoped next album',
+      primaryArtist: { id: 100, name: 'Artist' },
+      trackCount: 1,
+      personalMetadata: { hasPhysicalCopy: true },
+      genres: [],
+      tracks: [nextTrack],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(firstAlbum), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(nextAlbum), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const player = usePlayerStore()
+    const scope: AlbumPlaybackScope = {
+      type: 'albums',
+      libraryRootId: 7,
+      libraryRootName: 'Archive',
+      search: 'Alpha Artist',
+      initial: 'A',
+      year: 2001,
+      genreId: 12,
+      genreName: 'Rock',
+      physicalCopy: 'owned',
+      sort: 'year_desc',
+    }
+
+    await player.playRandomAlbum(scope)
+    player.setContinuousPlay(true)
+    player.setRandomPlay(true)
+    await player.next()
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/catalog/playback/albums/random?libraryRoot=7&search=Alpha+Artist&genre=12&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
+      expect.any(Object),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/catalog/playback/albums/random?exclude=10&libraryRoot=7&search=Alpha+Artist&genre=12&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
+      expect.any(Object),
+    )
+    expect(player.currentTrack?.title).toBe('Scoped next')
+    expect(player.playbackScope).toEqual(scope)
+
+    setActivePinia(createPinia())
+    expect(usePlayerStore().playbackScope).toEqual(scope)
+  })
+
+  it('keeps a frozen track filter scope for continuous random playback', async () => {
+    const nextTrack: Track = {
+      id: 3,
+      title: 'Scoped random track',
+      streamUrl: '/api/tracks/3/stream',
+      album: { id: 11, title: 'Other Album' },
+      artists: [{ id: 101, name: 'Other Artist' }],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(tracks[0]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(nextTrack), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const player = usePlayerStore()
+    const scope: TrackPlaybackScope = {
+      type: 'tracks',
+      libraryRootId: 7,
+      libraryRootName: 'Archive',
+      search: 'Alpha Track',
+      genreId: 12,
+      genreName: 'Rock',
+      playStatus: 'never',
+      physicalCopy: 'owned',
+      sort: 'year_desc',
+    }
+
+    await player.playRandomTrack(scope)
+    player.setContinuousPlay(true)
+    player.setRandomPlay(true)
+    await player.next()
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/catalog/playback/tracks/random?libraryRoot=7&search=Alpha+Track&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
+      expect.any(Object),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/catalog/playback/tracks/random?exclude=1&libraryRoot=7&search=Alpha+Track&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
+      expect.any(Object),
+    )
+    expect(player.currentTrack?.title).toBe('Scoped random track')
+    expect(player.playbackScope).toEqual(scope)
+  })
+
   it('loads a random next track when continuous random track-list playback is enabled', async () => {
     const nextTrack: Track = {
       id: 3,
@@ -109,6 +225,44 @@ describe('player store', () => {
     expect(player.queue.map((track) => track.title)).toEqual(['First', 'Second', 'Queued'])
     expect(player.currentTrack?.title).toBe('First')
     expect(player.playbackState).toBe('playing')
+  })
+
+  it('continues with reviewed tracks without interrupting the current track', () => {
+    const player = usePlayerStore()
+    const matches: Track[] = [
+      {
+        id: 3,
+        title: 'First match',
+        streamUrl: '/api/tracks/3/stream',
+        album: { id: 11, title: 'Other Album' },
+        artists: [{ id: 101, name: 'Other Artist' }],
+      },
+      {
+        id: 4,
+        title: 'Second match',
+        streamUrl: '/api/tracks/4/stream',
+        album: { id: 12, title: 'Another Album' },
+        artists: [{ id: 102, name: 'Another Artist' }],
+      },
+    ]
+
+    player.playTrack(tracks[1], tracks, 'album')
+    player.setPlaybackState('playing')
+    const playbackSessionKey = player.playbackSessionKey
+
+    player.continueWithTracks(matches)
+
+    expect(player.queue.map((track) => track.title)).toEqual([
+      'First',
+      'Second',
+      'First match',
+      'Second match',
+    ])
+    expect(player.currentTrack?.title).toBe('Second')
+    expect(player.currentIndex).toBe(1)
+    expect(player.playbackState).toBe('playing')
+    expect(player.playbackSessionKey).toBe(playbackSessionKey)
+    expect(player.playbackContext).toBe('track-list')
   })
 
   it('prepares queued tracks paused when the queue is empty', () => {
@@ -209,6 +363,8 @@ describe('player store', () => {
   })
 
   it('persists player settings, queue, context, position, and active playback between store instances', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-23T10:00:00Z'))
     const player = usePlayerStore()
 
     player.setVolume(0.42)
@@ -216,7 +372,10 @@ describe('player store', () => {
     player.setRandomPlay(true)
     player.setVisualizerEnabled(false)
     player.playTrack(tracks[1], tracks, 'album')
+    vi.advanceTimersByTime(45_000)
     player.setPlaybackPosition(73)
+    player.setListenedPlaybackMs(42_500)
+    const playbackStartedAt = player.playbackStartedAt
 
     setActivePinia(createPinia())
     const restoredPlayer = usePlayerStore()
@@ -229,8 +388,33 @@ describe('player store', () => {
     expect(restoredPlayer.queue).toHaveLength(2)
     expect(restoredPlayer.playbackContext).toBe('album')
     expect(restoredPlayer.playbackPosition).toBe(73)
+    expect(restoredPlayer.listenedPlaybackMs).toBe(42_500)
+    expect(restoredPlayer.playbackStartedAt).toBe(playbackStartedAt)
     expect(restoredPlayer.isPlaying).toBe(true)
     expect(restoredPlayer.playbackState).toBe('loading')
+  })
+
+  it('resets accumulated listening time for a new playback session', () => {
+    const player = usePlayerStore()
+    const listenedTimeAtPlaybackChange: number[] = []
+    watch(
+      () => `${player.currentTrack?.id ?? 'none'}:${player.playbackSessionKey}`,
+      () => listenedTimeAtPlaybackChange.push(player.listenedPlaybackMs),
+      { flush: 'sync' },
+    )
+
+    player.playTrack(tracks[0], tracks)
+    player.setListenedPlaybackMs(42_500)
+    const firstSessionKey = player.playbackSessionKey
+    listenedTimeAtPlaybackChange.length = 0
+
+    player.playQueueIndex(1)
+
+    expect(player.playbackSessionKey).not.toBe(firstSessionKey)
+    expect(player.listenedPlaybackMs).toBe(0)
+    expect(listenedTimeAtPlaybackChange.length).toBeGreaterThan(0)
+    expect(listenedTimeAtPlaybackChange.every(value => value === 0)).toBe(true)
+    expect(player.playbackStartedAt).not.toBeNull()
   })
 
   it('restores paused playback as paused between store instances', () => {
@@ -247,6 +431,25 @@ describe('player store', () => {
     expect(restoredPlayer.playbackPosition).toBe(73)
     expect(restoredPlayer.isPlaying).toBe(false)
     expect(restoredPlayer.playbackState).toBe('paused')
+  })
+
+  it('discards an impossible persisted listening duration', () => {
+    localStorage.setItem('sonotheque.player', JSON.stringify({
+      queue: tracks,
+      currentIndex: 0,
+      isPlaying: true,
+      playbackSessionKey: 'corrupted-session',
+      countedPlaySessionKey: 'corrupted-session',
+      listenedPlaybackMs: 9_000_000,
+      playbackStartedAt: new Date(Date.now() - 2000).toISOString(),
+    }))
+
+    const player = usePlayerStore()
+
+    expect(player.currentTrack?.title).toBe('First')
+    expect(player.listenedPlaybackMs).toBe(0)
+    expect(player.playbackSessionKey).not.toBe('corrupted-session')
+    expect(player.countedPlaySessionKey).toBeNull()
   })
 
   it('clears the persisted queue on stop without resetting player settings', () => {

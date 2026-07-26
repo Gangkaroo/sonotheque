@@ -4,12 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import PlaylistFileExportDialog from '@/components/PlaylistFileExportDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
+import type { PlaylistFileExportResult } from '@/types/playlistExport'
 import { formatDuration as duration, formatTotalDuration } from '@/utils/formatters'
 
 const { t } = useI18n()
@@ -38,6 +40,9 @@ const dropTargetIndex = ref<number | null>(null)
 const removeSelectedDialog = ref(false)
 const removeItemDialog = ref(false)
 const itemToRemove = ref<PlaylistItem | null>(null)
+const exportDialog = ref(false)
+const exportMessage = ref('')
+const exportMessageVisible = ref(false)
 const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [])
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
@@ -52,6 +57,14 @@ function playPlaylist() {
 
 function queuePlaylist() {
   player.queueTracks(tracks.value, 'track-list')
+}
+
+function handlePlaylistExported(result: PlaylistFileExportResult) {
+  exportMessage.value = t('playlists.fileExportSaved', {
+    filename: result.filename,
+    location: result.location.name,
+  })
+  exportMessageVisible.value = true
 }
 
 function toggleTrack(track: Track) {
@@ -114,23 +127,6 @@ async function removeSingleItem() {
   selectedItemIds.value = selectedItemIds.value.filter((id) => id !== itemId)
   removeItemDialog.value = false
   itemToRemove.value = null
-}
-
-async function moveItem(itemId: number, direction: -1 | 1) {
-  if (!canReorder.value) return
-
-  const currentIds = [...itemIds.value]
-  const index = currentIds.indexOf(itemId)
-  const nextIndex = index + direction
-
-  if (!playlist.value || index < 0 || nextIndex < 0 || nextIndex >= currentIds.length) return
-
-  const item = currentIds[index]
-  if (item === undefined) return
-
-  currentIds.splice(index, 1)
-  currentIds.splice(nextIndex, 0, item)
-  await playlists.reorderItems(playlist.value.id, currentIds)
 }
 
 function startDragging(itemId: number, event: DragEvent) {
@@ -258,6 +254,14 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
         <v-btn color="primary" variant="tonal" prepend-icon="mdi-playlist-plus" :disabled="!tracks.length" @click="queuePlaylist">
           {{ t('playlists.queuePlaylist') }}
         </v-btn>
+        <v-btn
+          prepend-icon="mdi-file-music-outline"
+          :disabled="!tracks.length"
+          variant="tonal"
+          @click="exportDialog = true"
+        >
+          {{ t('playlists.fileExportAction') }}
+        </v-btn>
       </v-card-actions>
     </v-card>
 
@@ -339,7 +343,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           @drop="dropItem"
         >
           <template #prepend>
-            <div class="playlist-prepend">
+            <div class="playlist-prepend" :class="{ 'with-drag-handle': !selectionMode }">
               <v-checkbox-btn
                 v-if="selectionMode"
                 class="playlist-selection-checkbox"
@@ -360,7 +364,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
                     :class="{ 'playlist-drag-handle': canReorder }"
                     :disabled="!canReorder"
                     icon="mdi-drag"
-                    size="small"
+                    size="default"
                   />
                 </template>
               </v-tooltip>
@@ -402,22 +406,6 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           <template v-if="!selectionMode" #append>
             <div class="playlist-actions">
               <span class="text-caption text-medium-emphasis">{{ duration(item.track.durationMs) }}</span>
-              <TooltipIconButton
-                :text="t('playlists.moveTrackUp')"
-                :aria-label="t('playlists.moveTrackUp')"
-                :disabled="!canReorder || index === 0 || playlists.saving"
-                icon="mdi-arrow-up"
-                variant="text"
-                @click="moveItem(item.id, -1)"
-              />
-              <TooltipIconButton
-                :text="t('playlists.moveTrackDown')"
-                :aria-label="t('playlists.moveTrackDown')"
-                :disabled="!canReorder || index === playlist.items.length - 1 || playlists.saving"
-                icon="mdi-arrow-down"
-                variant="text"
-                @click="moveItem(item.id, 1)"
-              />
               <TooltipIconButton
                 :text="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                 :aria-label="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
@@ -463,7 +451,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
       <v-card-text>
         {{ t('playlists.removeSelectedWarning', { count: selectedCount }) }}
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions class="flex-wrap">
         <v-spacer />
         <v-btn variant="text" @click="removeSelectedDialog = false">
           {{ t('settings.cancel') }}
@@ -492,6 +480,17 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <PlaylistFileExportDialog
+    v-if="playlist"
+    v-model="exportDialog"
+    :playlist-id="playlist.id"
+    @saved="handlePlaylistExported"
+  />
+
+  <v-snackbar v-model="exportMessageVisible" color="success" timeout="3000">
+    {{ exportMessage }}
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -557,6 +556,10 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
   min-height: 1.75rem;
 }
 
+.playlist-prepend.with-drag-handle {
+  margin-inline-end: 1rem;
+}
+
 .playlist-selection-checkbox {
   flex: 0 0 auto;
   margin-inline-end: 0.125rem;
@@ -580,7 +583,9 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
 }
 
 .playlist-drag-handle {
+  height: 2rem;
   cursor: grab;
+  width: 2rem;
 }
 
 .playlist-actions {

@@ -13,7 +13,8 @@ import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
-import { usePlayerStore } from '@/stores/player'
+import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { usePlayerStore, type TrackPlaybackScope } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { formatDateTime, formatDuration } from '@/utils/formatters'
 import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
@@ -37,6 +38,7 @@ const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
+const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
 const storageKey = 'sonotheque:track-filters'
@@ -271,6 +273,24 @@ function load() {
   })
 }
 
+function playRandomTrack() {
+  const filters = currentFilters()
+  const selectedRoot = libraryRoots.roots.find(root => root.id === libraryRootScope.selectedRootId)
+  const scope: TrackPlaybackScope = {
+    type: 'tracks',
+    libraryRootId: libraryRootScope.selectedRootId,
+    libraryRootName: selectedRoot?.name ?? null,
+    search: filters.search.trim(),
+    genreId: filters.genre,
+    genreName: filters.genreName,
+    playStatus: filters.playStatus === 'never' ? 'never' : null,
+    physicalCopy: filters.physicalCopy === 'all' ? null : filters.physicalCopy,
+    sort: filters.sort,
+  }
+
+  void player.playRandomTrack(scope)
+}
+
 function toggleTrack(track: Track) {
   if (player.currentTrack?.id === track.id) {
     if (player.isPlaying) {
@@ -357,7 +377,7 @@ onUnmounted(() => {
     <v-btn color="primary" prepend-icon="mdi-album" variant="flat" @click="void player.playRandomAlbum()">
       {{ t('player.playRandomAlbum') }}
     </v-btn>
-    <v-btn color="primary" prepend-icon="mdi-shuffle-variant" variant="tonal" @click="void player.playRandomTrack()">
+    <v-btn color="primary" prepend-icon="mdi-shuffle-variant" variant="tonal" @click="playRandomTrack">
       {{ t('player.playRandomTrack') }}
     </v-btn>
   </div>

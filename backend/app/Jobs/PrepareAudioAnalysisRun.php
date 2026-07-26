@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\AudioAnalysisRun;
 use App\Models\AudioAnalysisRunItem;
-use App\Music\Intelligence\AudioIntelligencePilotSampler;
+use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Scanning\AudioContentFingerprinter;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
 
-class PrepareAudioIntelligencePilot implements ShouldQueue
+class PrepareAudioAnalysisRun implements ShouldQueue
 {
     use Queueable;
 
@@ -28,7 +28,7 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
     public function handle(
         AudioContentFingerprinter $fingerprinter,
         LibraryPathGuard $pathGuard,
-        AudioIntelligencePilotSampler $sampler,
+        AudioAnalysisRunPlanner $planner,
     ): void {
         $run = AudioAnalysisRun::findOrFail($this->audioAnalysisRunId);
         if ($run->phase !== 'preparation'
@@ -48,16 +48,41 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
         ]);
 
         try {
+            if ($run->kind === 'collection'
+                && ! ($run->summary['candidatesEnumerated'] ?? false)
+                && ! $planner->populateCollectionRun($run)) {
+                $run->refresh();
+                if ($run->cancel_requested_at !== null) {
+                    $this->cancel($run);
+                } else {
+                    $this->pause($run);
+                }
+
+                return;
+            }
+
             $items = $run->items()
                 ->with('track.mediaFile.libraryRoot')
                 ->whereIn('status', ['pending_fingerprint', 'fingerprint_failed', 'cancelled'])
-                ->orderBy('position')
-                ->get();
+                ->lazyById(
+                    max(
+                        1,
+                        min(
+                            50,
+                            (int) config(
+                                'sonotheque.audio_intelligence.preparation_chunk_size',
+                                10,
+                            ),
+                        ),
+                    ),
+                );
             $chunkSize = max(
                 1,
                 min(50, (int) config('sonotheque.audio_intelligence.preparation_chunk_size', 10)),
             );
-            $selectedCount = $run->items()->where('status', 'selected')->count();
+            $selectedCount = $run->items()
+                ->whereIn('status', ['selected', 'reused'])
+                ->count();
 
             foreach ($items->chunk($chunkSize) as $chunk) {
                 foreach ($chunk as $item) {
@@ -67,11 +92,16 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
 
                         return;
                     }
+                    if ($run->pause_requested_at !== null) {
+                        $this->pause($run);
+
+                        return;
+                    }
                     if ($selectedCount >= $run->requested_track_count) {
                         $run->items()
                             ->whereIn('status', ['pending_fingerprint', 'cancelled'])
                             ->update(['status' => 'not_selected', 'error' => null]);
-                        $this->finish($run, $sampler);
+                        $this->finish($run, $planner);
 
                         return;
                     }
@@ -85,7 +115,19 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
                 $run->update(['heartbeat_at' => now()]);
             }
 
-            $this->finish($run, $sampler);
+            $run->refresh();
+            if ($run->cancel_requested_at !== null) {
+                $this->cancel($run);
+
+                return;
+            }
+            if ($run->pause_requested_at !== null) {
+                $this->pause($run);
+
+                return;
+            }
+
+            $this->finish($run, $planner);
         } catch (Throwable $exception) {
             $message = mb_substr($exception->getMessage(), 0, 4000);
             $run->update([
@@ -174,7 +216,7 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
 
     private function finish(
         AudioAnalysisRun $run,
-        AudioIntelligencePilotSampler $sampler,
+        AudioAnalysisRunPlanner $planner,
     ): void {
         $summary = $this->progressSummary($run);
         $selected = $summary['fingerprintedTrackCount'];
@@ -185,7 +227,7 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
             'finished_at' => now(),
             'heartbeat_at' => now(),
         ]);
-        $sampler->forgetCoverage();
+        $planner->forgetCoverage();
     }
 
     private function cancel(AudioAnalysisRun $run): void
@@ -197,6 +239,19 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
         $run->update([
             'status' => 'cancelled',
             'finished_at' => now(),
+            'heartbeat_at' => now(),
+        ]);
+    }
+
+    private function pause(AudioAnalysisRun $run): void
+    {
+        $run->items()
+            ->where('status', 'fingerprinting')
+            ->update(['status' => 'pending_fingerprint', 'error' => null]);
+        $this->updateProgress($run);
+        $run->update([
+            'status' => 'paused',
+            'finished_at' => null,
             'heartbeat_at' => now(),
         ]);
     }
@@ -213,6 +268,7 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
     /**
      * @return array{
      *     fingerprintedTrackCount: int,
+     *     reusedTrackCount: int,
      *     fingerprintFailedTrackCount: int,
      *     processedFingerprintTrackCount: int,
      *     selectedRootCount: int,
@@ -225,12 +281,14 @@ class PrepareAudioIntelligencePilot implements ShouldQueue
     {
         $selectedQuery = DB::table('audio_analysis_run_items')
             ->where('audio_analysis_run_id', $run->id)
-            ->where('status', 'selected');
+            ->whereIn('status', ['selected', 'reused']);
         $selected = (clone $selectedQuery)->count();
+        $reused = $run->items()->where('status', 'reused')->count();
         $failed = $run->items()->where('status', 'fingerprint_failed')->count();
 
         return [
             'fingerprintedTrackCount' => $selected,
+            'reusedTrackCount' => $reused,
             'fingerprintFailedTrackCount' => $failed,
             'processedFingerprintTrackCount' => $selected + $failed,
             'selectedRootCount' => (clone $selectedQuery)

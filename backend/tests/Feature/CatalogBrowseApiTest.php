@@ -591,6 +591,7 @@ class CatalogBrowseApiTest extends TestCase
             'sort_title' => 'Alpha Album',
             'relative_path' => 'Alpha Artist/Alpha Album',
             'relative_path_hash' => hash('sha256', 'alpha artist/alpha album'),
+            'original_release_year' => 2001,
         ]);
         $betaAlbum = Album::create([
             'library_root_id' => $root->id,
@@ -599,9 +600,12 @@ class CatalogBrowseApiTest extends TestCase
             'sort_title' => 'Beta Album',
             'relative_path' => 'Beta Artist/Beta Album',
             'relative_path_hash' => hash('sha256', 'beta artist/beta album'),
+            'original_release_year' => 2002,
         ]);
         $alphaTrack = $this->createTrackForAlbum($root, $alphaAlbum);
         $betaTrack = $this->createTrackForAlbum($root, $betaAlbum);
+        $genre = Genre::create(['name' => 'Scoped Genre']);
+        $alphaTrack->genres()->attach($genre);
 
         $this->getJson("/api/catalog/playback/albums/{$alphaAlbum->id}/next")
             ->assertOk()
@@ -616,6 +620,27 @@ class CatalogBrowseApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('id', $betaAlbum->id);
 
+        $albumScope = [
+            'search' => 'Alpha',
+            'initial' => 'A',
+            'year' => 2001,
+            'genre' => $genre->id,
+            'sort' => 'year_desc',
+        ];
+        $this->getJson('/api/catalog/albums?'.http_build_query($albumScope))
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $alphaAlbum->id);
+        $this->getJson('/api/catalog/playback/albums/random?'.http_build_query([
+            'exclude' => $alphaAlbum->id,
+            ...$albumScope,
+        ]))
+            ->assertOk()
+            ->assertJsonPath('id', $alphaAlbum->id);
+        $this->getJson("/api/catalog/playback/albums/{$alphaAlbum->id}/next?".http_build_query($albumScope))
+            ->assertOk()
+            ->assertJsonPath('id', $alphaAlbum->id);
+
         $this->getJson("/api/catalog/playback/tracks/{$alphaTrack->id}/next")
             ->assertOk()
             ->assertJsonPath('id', $betaTrack->id)
@@ -624,6 +649,26 @@ class CatalogBrowseApiTest extends TestCase
         $this->getJson("/api/catalog/playback/tracks/random?exclude={$alphaTrack->id}")
             ->assertOk()
             ->assertJsonPath('id', $betaTrack->id);
+
+        $trackScope = [
+            'search' => 'Alpha',
+            'genre' => $genre->id,
+            'playStatus' => 'never',
+            'sort' => 'title',
+        ];
+        $this->getJson('/api/catalog/tracks?'.http_build_query($trackScope))
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $alphaTrack->id);
+        $this->getJson('/api/catalog/playback/tracks/random?'.http_build_query([
+            'exclude' => $alphaTrack->id,
+            ...$trackScope,
+        ]))
+            ->assertOk()
+            ->assertJsonPath('id', $alphaTrack->id);
+        $this->getJson("/api/catalog/playback/tracks/{$alphaTrack->id}/next?".http_build_query($trackScope))
+            ->assertOk()
+            ->assertJsonPath('id', $alphaTrack->id);
     }
 
     /** @return array{Artist, Album, Track, Genre} */

@@ -470,6 +470,27 @@ function Invoke-DockerCompose {
     }
 }
 
+function Stop-AudioAnalyzerContainers {
+    $containerIds = @(
+        & docker ps --all --quiet --filter 'label=sonotheque.audio-analyzer=true' 2>$null
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker could not list Sonotheque audio analyzer containers."
+    }
+
+    foreach ($containerId in $containerIds) {
+        $normalizedId = ([string]$containerId).Trim()
+        if ($normalizedId -notmatch '^[a-f0-9]{12,64}$') {
+            throw "Docker returned an invalid audio analyzer container identifier."
+        }
+
+        & docker rm --force $normalizedId | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Docker could not remove audio analyzer container $normalizedId."
+        }
+    }
+}
+
 function Get-PostgresStatus {
     try {
         $running = (& docker inspect --format '{{.State.Running}}' sonotheque-postgres 2>$null | Out-String).Trim()

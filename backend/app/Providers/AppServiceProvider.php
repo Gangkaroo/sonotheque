@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\Intelligence\AudioAnalyzer;
+use App\Music\Intelligence\AudioBenchmarkAnalyzerFactory;
+use App\Music\Intelligence\DockerAudioBenchmarkAnalyzerFactory;
 use App\Music\Intelligence\EssentiaCliAudioAnalyzer;
 use App\Music\Intelligence\EssentiaDockerAudioAnalyzer;
 use App\Music\Intelligence\UnavailableAudioAnalyzer;
@@ -43,10 +45,25 @@ class AppServiceProvider extends ServiceProvider
                     timeoutSeconds: (int) config('sonotheque.audio_intelligence.timeout_seconds'),
                     cpuLimit: (float) config('sonotheque.audio_intelligence.cpu_limit'),
                     memoryLimit: (string) config('sonotheque.audio_intelligence.memory_limit'),
+                    preparationWorkers: (int) config(
+                        'sonotheque.audio_intelligence.preparation_workers',
+                    ),
+                    accelerator: (string) config('sonotheque.audio_intelligence.accelerator'),
+                    persistent: (bool) config('sonotheque.audio_intelligence.persistent'),
+                    persistentContainerName: (string) config(
+                        'sonotheque.audio_intelligence.persistent_container_name',
+                    ),
+                    persistentStartupTimeoutSeconds: (int) config(
+                        'sonotheque.audio_intelligence.persistent_startup_timeout_seconds',
+                    ),
                 ),
                 default => new UnavailableAudioAnalyzer(),
             };
         });
+        $this->app->bind(
+            AudioBenchmarkAnalyzerFactory::class,
+            DockerAudioBenchmarkAnalyzerFactory::class,
+        );
 
         $this->app->bind(AudioMetadataReader::class, GetId3MetadataReader::class);
         $this->app->bind(AudioMetadataProbe::class, FfprobeAudioMetadataProbe::class);

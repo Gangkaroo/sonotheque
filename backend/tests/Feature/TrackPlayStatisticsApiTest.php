@@ -101,6 +101,33 @@ class TrackPlayStatisticsApiTest extends TestCase
         ]);
     }
 
+    public function test_it_rejects_impossible_listening_durations(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update([
+            'lastfm_scrobbling_enabled' => true,
+            'lastfm_api_key' => str_repeat('a', 32),
+            'lastfm_api_secret' => str_repeat('b', 32),
+            'lastfm_session_key' => 'session-key',
+            'lastfm_username' => 'listener',
+        ]);
+        $track = $this->createTrack(durationMs: 120_000);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 60_000,
+            'durationMs' => 120_000,
+            'playedAt' => now()->subSeconds(2)->toIso8601String(),
+            'sessionKey' => 'corrupted-session',
+        ])
+            ->assertAccepted()
+            ->assertJsonPath('counted', false)
+            ->assertJsonPath('lastFmQueued', false)
+            ->assertJsonPath('statistics.playCount', 0);
+
+        $this->assertDatabaseMissing('track_play_statistics', ['track_id' => $track->id]);
+        Queue::assertNotPushed(ScrobbleTrackPlayEvent::class);
+    }
+
     public function test_it_does_not_count_tracks_that_are_thirty_seconds_or_shorter(): void
     {
         $track = $this->createTrack(durationMs: 10_000);

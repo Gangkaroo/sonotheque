@@ -17,6 +17,7 @@ try {
     }
 
     Remove-RuntimeModeState
+    Stop-AudioAnalyzerContainers
 
     if ($KeepDatabase) {
         Write-Host 'PostgreSQL left running because -KeepDatabase was specified.'

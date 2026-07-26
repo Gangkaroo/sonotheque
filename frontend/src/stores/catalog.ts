@@ -149,6 +149,7 @@ export interface Track {
     title: string
     originalReleaseYear?: number | null
     artworkThumbnailUrl?: string | null
+    artworkUrl?: string | null
     personalMetadata?: AlbumPersonalMetadata
   } | null
   artists: NamedCatalogItem[]

@@ -26,7 +26,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_similarity_feedback'] as $table) {
+        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -41,7 +41,11 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
-        $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_sample_size'));
+        $this->assertTrue(Schema::hasColumn('application_settings', 'playlist_export_format'));
+        $this->assertTrue(Schema::hasColumn(
+            'application_settings',
+            'audio_intelligence_validation_sample_size',
+        ));
         $this->assertTrue(Schema::hasColumn('audio_similarity_feedback', 'configuration'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_run_items', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'audio_analysis_profile_id'));
@@ -74,6 +78,9 @@ class SonothequeSchemaTest extends TestCase
             ['audio_analysis_artifacts', 'embedding'],
             ['audio_analysis_artifacts', 'timings'],
             ['audio_analysis_artifacts', 'hardware'],
+            ['audio_analyzer_benchmarks', 'sample_track_ids'],
+            ['audio_analyzer_benchmarks', 'results'],
+            ['audio_analyzer_benchmarks', 'recommendation'],
         ] as [$table, $column]) {
             $this->assertTrue(
                 DB::table('information_schema.columns')

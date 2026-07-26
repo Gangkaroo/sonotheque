@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'playlist_folder_id',
     'name',
     'description',
+    'playlist_export_location_id',
+    'playlist_export_root_path',
+    'playlist_export_relative_path',
+    'playlist_export_synced_at',
+    'playlist_export_sync_pending_at',
+    'playlist_export_sync_error',
 ])]
 class Playlist extends Model
 {
@@ -24,5 +30,13 @@ class Playlist extends Model
     public function items(): HasMany
     {
         return $this->hasMany(PlaylistItem::class)->orderBy('position');
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'playlist_export_synced_at' => 'immutable_datetime',
+            'playlist_export_sync_pending_at' => 'immutable_datetime',
+        ];
     }
 }

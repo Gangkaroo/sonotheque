@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Jobs\RunAudioIntelligencePilot;
+use App\Jobs\RunAudioAnalysis;
 use App\Models\Album;
 use App\Models\AudioAnalysisProfile;
 use App\Models\AudioAnalysisRun;
@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\File;
 use Tests\Fakes\FakeAudioAnalyzer;
 use Tests\TestCase;
 
-class RunAudioIntelligencePilotTest extends TestCase
+class RunAudioAnalysisTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -39,7 +39,7 @@ class RunAudioIntelligencePilotTest extends TestCase
     {
         config()->set('sonotheque.audio_intelligence.chunk_size', 1);
 
-        $library = Library::create(['name' => 'Pilot']);
+        $library = Library::create(['name' => 'Analysis']);
         $root = $library->roots()->create([
             'name' => 'Root',
             'path' => $this->libraryPath,
@@ -115,7 +115,7 @@ class RunAudioIntelligencePilotTest extends TestCase
             ),
         ];
 
-        (new RunAudioIntelligencePilot($run->id))->handle($analyzer, new LibraryPathGuard());
+        (new RunAudioAnalysis($run->id))->handle($analyzer, new LibraryPathGuard());
 
         $this->assertDatabaseHas('audio_analysis_run_items', [
             'id' => $firstItem->id,
@@ -139,7 +139,11 @@ class RunAudioIntelligencePilotTest extends TestCase
         $this->assertSame(1, $run->summary['analyzedTrackCount']);
         $this->assertSame(1, $run->summary['staleTrackCount']);
         $this->assertSame(2, $run->summary['processedTrackCount']);
+        $this->assertSame(1, $run->summary['analysisMeasuredTrackCount']);
+        $this->assertGreaterThan(0, $run->summary['analysisElapsedMs']);
+        $this->assertCount(1, $run->summary['analysisTimingSamples']);
         $this->assertCount(1, $analyzer->requests);
+        $this->assertSame(1, $analyzer->shutdownCalls);
 
         $secondRun = AudioAnalysisRun::create([
             'audio_analysis_profile_id' => $profile->id,
@@ -159,7 +163,7 @@ class RunAudioIntelligencePilotTest extends TestCase
         ]);
         $reuseAnalyzer = FakeAudioAnalyzer::ready();
 
-        (new RunAudioIntelligencePilot($secondRun->id))
+        (new RunAudioAnalysis($secondRun->id))
             ->handle($reuseAnalyzer, new LibraryPathGuard());
 
         $reusedItem->refresh();
@@ -169,6 +173,7 @@ class RunAudioIntelligencePilotTest extends TestCase
         $this->assertSame('completed', $secondRun->status);
         $this->assertSame(1, $secondRun->summary['reusedTrackCount']);
         $this->assertSame([], $reuseAnalyzer->requests);
+        $this->assertSame(1, $reuseAnalyzer->shutdownCalls);
     }
 
     private function createTrack(int $rootId, Album $album, string $relativePath, string $fingerprint): Track

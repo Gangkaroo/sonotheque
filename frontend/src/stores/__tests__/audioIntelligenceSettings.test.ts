@@ -9,24 +9,27 @@ describe('audio intelligence settings store', () => {
     vi.unstubAllGlobals()
   })
 
-  it('loads, enables, and prepares a pilot without starting analysis', async () => {
+  it('loads, enables, and prepares a validation sample without starting analysis', async () => {
     const disabled = {
       enabled: false,
-      sampleSize: 200,
+      validationSampleSize: 200,
       eligibleTrackCount: 1200,
       fingerprintedTrackCount: 50,
+      eligibleRoots: [],
       analyzerStatus: 'not_configured',
       analyzer: {
         status: 'not_configured',
         message: null,
         profile: null,
       },
-      latestPilot: null,
+      latestCollectionRun: null,
+      latestValidationRun: null,
+      activeRun: null,
     }
     const enabled = { ...disabled, enabled: true }
     const prepared = {
       ...enabled,
-      latestPilot: {
+      latestValidationRun: {
         id: 3,
         phase: 'preparation',
         status: 'prepared',
@@ -56,27 +59,27 @@ describe('audio intelligence settings store', () => {
 
     await store.load()
     await store.save(true, 200)
-    await store.preparePilot()
+    await store.prepareValidationSample()
 
-    expect(store.settings.latestPilot?.selectedTrackCount).toBe(200)
+    expect(store.settings.latestValidationRun?.selectedTrackCount).toBe(200)
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/settings/audio-intelligence', expect.objectContaining({
       method: 'PATCH',
-      body: JSON.stringify({ enabled: true, sampleSize: 200 }),
+      body: JSON.stringify({ enabled: true, validationSampleSize: 200 }),
     }))
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/settings/audio-intelligence/pilots', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/settings/audio-intelligence/validation-runs', expect.objectContaining({
       method: 'POST',
     }))
   })
 
-  it('requests cancellation for a running pilot', async () => {
+  it('requests cancellation for a running analysis', async () => {
     const running = {
       enabled: true,
-      sampleSize: 50,
+      validationSampleSize: 50,
       eligibleTrackCount: 111,
       fingerprintedTrackCount: 111,
       analyzerStatus: 'ready',
       analyzer: { status: 'ready', message: 'Ready', profile: null },
-      latestPilot: {
+      latestValidationRun: {
         id: 4,
         phase: 'analysis',
         status: 'running',
@@ -100,8 +103,8 @@ describe('audio intelligence settings store', () => {
     }
     const cancelling = {
       ...running,
-      latestPilot: {
-        ...running.latestPilot,
+      latestValidationRun: {
+        ...running.latestValidationRun,
         cancelRequestedAt: '2026-07-17T10:02:00+00:00',
       },
     }
@@ -110,24 +113,184 @@ describe('audio intelligence settings store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useAudioIntelligenceSettingsStore()
 
-    await store.cancelPilot(4)
+    await store.cancelRun(4)
 
-    expect(store.settings.latestPilot?.cancelRequestedAt).not.toBeNull()
+    expect(store.settings.latestValidationRun?.cancelRequestedAt).not.toBeNull()
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/settings/audio-intelligence/pilots/4/cancel',
+      '/api/settings/audio-intelligence/runs/4/cancel',
       expect.objectContaining({ method: 'POST' }),
     )
   })
 
-  it('resumes an interrupted pilot without preparing a replacement run', async () => {
+  it('prepares an analyzed-pool expansion with an explicit target', async () => {
+    const expansion = {
+      enabled: true,
+      validationSampleSize: 200,
+      eligibleTrackCount: 1200,
+      fingerprintedTrackCount: 275,
+      analyzerStatus: 'ready',
+      analyzer: { status: 'ready', message: 'Ready', profile: null },
+      latestValidationRun: {
+        id: 8,
+        phase: 'preparation',
+        status: 'fingerprinting',
+        requestedTrackCount: 500,
+        selectedTrackCount: 0,
+        summary: {
+          mode: 'expansion',
+          baselineAnalyzedTrackCount: 250,
+          newTrackTargetCount: 250,
+        },
+        resumable: false,
+        profile: null,
+        startedAt: null,
+        finishedAt: null,
+        cancelRequestedAt: null,
+        createdAt: '2026-07-22T20:00:00+00:00',
+      },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(expansion), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAudioIntelligenceSettingsStore()
+
+    await store.expandPool(500)
+
+    expect(store.settings.latestValidationRun?.summary.baselineAnalyzedTrackCount).toBe(250)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/settings/audio-intelligence/expansions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ targetTrackCount: 500 }),
+      }),
+    )
+  })
+
+  it('prepares a root-scoped collection run and can pause it', async () => {
+    const collection = {
+      enabled: true,
+      validationSampleSize: 200,
+      eligibleTrackCount: 1200,
+      fingerprintedTrackCount: 900,
+      eligibleRoots: [
+        {
+          id: 7,
+          name: 'Archive',
+          eligibleTrackCount: 800,
+          fingerprintedTrackCount: 600,
+        },
+      ],
+      analyzerStatus: 'ready',
+      analyzer: { status: 'ready', message: 'Ready', profile: null },
+      latestCollectionRun: {
+        id: 12,
+        kind: 'collection',
+        phase: 'preparation',
+        status: 'fingerprinting',
+        requestedTrackCount: 800,
+        selectedTrackCount: 600,
+        summary: {
+          mode: 'collection',
+          baselineAnalyzedTrackCount: 500,
+          candidateTrackCount: 800,
+        },
+        resumable: false,
+        libraryRoot: { id: 7, name: 'Archive' },
+        profile: null,
+        startedAt: '2026-07-23T20:00:00+00:00',
+        finishedAt: null,
+        cancelRequestedAt: null,
+        pauseRequestedAt: null,
+        createdAt: '2026-07-23T19:59:00+00:00',
+      },
+    }
+    const pausing = {
+      ...collection,
+      latestCollectionRun: {
+        ...collection.latestCollectionRun,
+        pauseRequestedAt: '2026-07-23T20:05:00+00:00',
+      },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(collection), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(pausing), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAudioIntelligenceSettingsStore()
+
+    await store.prepareCollection(7)
+    await store.pauseRun(12)
+
+    expect(store.settings.latestCollectionRun?.libraryRoot?.id).toBe(7)
+    expect(store.settings.latestCollectionRun?.pauseRequestedAt).not.toBeNull()
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/settings/audio-intelligence/collections',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ libraryRootId: 7 }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/settings/audio-intelligence/runs/12/pause',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('refreshes active analysis progress without showing the initial loader', async () => {
+    const running = {
+      enabled: true,
+      validationSampleSize: 200,
+      eligibleTrackCount: 1200,
+      fingerprintedTrackCount: 500,
+      analyzerStatus: 'ready',
+      analyzer: { status: 'ready', message: 'Ready', profile: null },
+      latestValidationRun: {
+        id: 8,
+        phase: 'analysis',
+        status: 'running',
+        requestedTrackCount: 500,
+        selectedTrackCount: 500,
+        summary: {
+          mode: 'expansion',
+          baselineAnalyzedTrackCount: 250,
+          newTrackTargetCount: 250,
+          processedTrackCount: 325,
+        },
+        resumable: false,
+        profile: null,
+        startedAt: '2026-07-23T10:00:00+00:00',
+        finishedAt: null,
+        cancelRequestedAt: null,
+        createdAt: '2026-07-23T09:59:00+00:00',
+      },
+    }
+    let resolveRequest: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => {
+      resolveRequest = resolve
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAudioIntelligenceSettingsStore()
+
+    const refresh = store.load({ silent: true })
+
+    expect(store.loading).toBe(false)
+    resolveRequest?.(new Response(JSON.stringify(running), { status: 200 }))
+    await refresh
+
+    expect(store.loading).toBe(false)
+    expect(store.settings.latestValidationRun?.summary.processedTrackCount).toBe(325)
+  })
+
+  it('resumes an interrupted analysis without preparing a replacement run', async () => {
     const resumed = {
       enabled: true,
-      sampleSize: 50,
+      validationSampleSize: 50,
       eligibleTrackCount: 111,
       fingerprintedTrackCount: 111,
       analyzerStatus: 'ready',
       analyzer: { status: 'ready', message: 'Ready', profile: null },
-      latestPilot: {
+      latestValidationRun: {
         id: 7,
         phase: 'analysis',
         status: 'queued',
@@ -151,12 +314,71 @@ describe('audio intelligence settings store', () => {
     vi.stubGlobal('fetch', fetchMock)
     const store = useAudioIntelligenceSettingsStore()
 
-    await store.resumePilot(7)
+    await store.resumeRun(7)
 
-    expect(store.settings.latestPilot?.id).toBe(7)
-    expect(store.settings.latestPilot?.summary.reusedTrackCount).toBe(10)
+    expect(store.settings.latestValidationRun?.id).toBe(7)
+    expect(store.settings.latestValidationRun?.summary.reusedTrackCount).toBe(10)
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/settings/audio-intelligence/pilots/7/resume',
+      '/api/settings/audio-intelligence/runs/7/resume',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('starts and cancels an analyzer benchmark', async () => {
+    const running = {
+      enabled: true,
+      validationSampleSize: 200,
+      eligibleTrackCount: 1200,
+      fingerprintedTrackCount: 1200,
+      eligibleRoots: [],
+      analyzerStatus: 'ready',
+      analyzer: { status: 'ready', message: 'Ready', profile: null },
+      latestCollectionRun: null,
+      latestValidationRun: null,
+      activeRun: null,
+      latestBenchmark: {
+        id: 4,
+        status: 'running',
+        sampleSize: 15,
+        sampleTrackIds: [],
+        results: [],
+        recommendation: null,
+        completedConfigurationCount: 0,
+        totalConfigurationCount: 6,
+        error: null,
+        cancelRequestedAt: null,
+        startedAt: '2026-07-24T10:00:00+00:00',
+        finishedAt: null,
+        createdAt: '2026-07-24T10:00:00+00:00',
+      },
+    }
+    const cancelled = {
+      ...running,
+      latestBenchmark: {
+        ...running.latestBenchmark,
+        status: 'cancelled',
+        cancelRequestedAt: '2026-07-24T10:01:00+00:00',
+        finishedAt: '2026-07-24T10:01:00+00:00',
+      },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(running), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(cancelled), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useAudioIntelligenceSettingsStore()
+
+    await store.startBenchmark()
+    await store.cancelBenchmark(4)
+
+    expect(store.settings.latestBenchmark?.status).toBe('cancelled')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/settings/audio-intelligence/benchmarks',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/settings/audio-intelligence/benchmarks/4/cancel',
       expect.objectContaining({ method: 'POST' }),
     )
   })

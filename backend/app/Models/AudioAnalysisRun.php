@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'audio_analysis_profile_id',
+    'library_root_id',
     'phase',
+    'kind',
     'status',
     'selection_seed',
     'requested_track_count',
@@ -18,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'started_at',
     'finished_at',
     'cancel_requested_at',
+    'pause_requested_at',
     'heartbeat_at',
 ])]
 class AudioAnalysisRun extends Model
@@ -26,6 +29,12 @@ class AudioAnalysisRun extends Model
     public function profile(): BelongsTo
     {
         return $this->belongsTo(AudioAnalysisProfile::class, 'audio_analysis_profile_id');
+    }
+
+    /** @return BelongsTo<LibraryRoot, $this> */
+    public function libraryRoot(): BelongsTo
+    {
+        return $this->belongsTo(LibraryRoot::class);
     }
 
     /** @return HasMany<AudioAnalysisRunItem, $this> */
@@ -43,6 +52,7 @@ class AudioAnalysisRun extends Model
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'cancel_requested_at' => 'immutable_datetime',
+            'pause_requested_at' => 'immutable_datetime',
             'heartbeat_at' => 'immutable_datetime',
         ];
     }

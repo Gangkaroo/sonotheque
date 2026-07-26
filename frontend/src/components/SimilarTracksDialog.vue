@@ -13,6 +13,7 @@ import { similarityTrackToPlayableTrack } from '@/utils/audioSimilarity'
 const props = defineProps<{
   modelValue: boolean
   trackId: number | null
+  mode?: 'mood' | 'similar'
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -30,6 +31,18 @@ const open = computed({
 const playableMatches = computed(() => (
   result.value?.matches.map(similarityTrackToPlayableTrack) ?? []
 ))
+const moodMode = computed(() => props.mode === 'mood')
+const dialogTitle = computed(() => t(
+  moodMode.value ? 'player.continueMood' : 'tracks.similarTracks',
+))
+const dialogDescription = computed(() => {
+  const source = result.value?.source.label ?? ''
+
+  return t(
+    moodMode.value ? 'player.continueMoodDescription' : 'tracks.similarTracksDescription',
+    { track: source },
+  )
+})
 
 watch(
   [() => props.modelValue, () => props.trackId],
@@ -101,11 +114,21 @@ function queueMatches() {
   player.queueTracks(playableMatches.value, 'track-list')
   open.value = false
 }
+
+function continueWithMatches() {
+  if (!playableMatches.value.length) return
+
+  player.continueWithTracks(playableMatches.value)
+  open.value = false
+}
 </script>
 
 <template>
   <v-dialog v-model="open" max-width="760" scrollable>
-    <v-card prepend-icon="mdi-vector-link" :title="t('tracks.similarTracks')">
+    <v-card
+      :prepend-icon="moodMode ? 'mdi-waveform' : 'mdi-vector-link'"
+      :title="dialogTitle"
+    >
       <template #append>
         <v-btn
           :aria-label="t('tracks.close')"
@@ -123,7 +146,7 @@ function queueMatches() {
         </v-alert>
         <template v-else-if="result">
           <div class="text-body-2 text-medium-emphasis mb-3">
-            {{ t('tracks.similarTracksDescription', { track: result.source.label }) }}
+            {{ dialogDescription }}
           </div>
           <v-list v-if="result.matches.length" border lines="two" rounded="lg">
             <v-list-item
@@ -205,6 +228,7 @@ function queueMatches() {
         <v-spacer />
         <v-btn variant="text" @click="open = false">{{ t('tracks.close') }}</v-btn>
         <v-btn
+          v-if="!moodMode"
           :disabled="!playableMatches.length"
           prepend-icon="mdi-playlist-plus"
           variant="tonal"
@@ -213,13 +237,23 @@ function queueMatches() {
           {{ t('tracks.queueSimilarTracks') }}
         </v-btn>
         <v-btn
-          color="primary"
+          :color="moodMode ? undefined : 'primary'"
           :disabled="!playableMatches.length"
           prepend-icon="mdi-play"
-          variant="flat"
+          :variant="moodMode ? 'tonal' : 'flat'"
           @click="playMatches"
         >
-          {{ t('tracks.playSimilarTracks') }}
+          {{ moodMode ? t('player.playMoodNow') : t('tracks.playSimilarTracks') }}
+        </v-btn>
+        <v-btn
+          v-if="moodMode"
+          color="primary"
+          :disabled="!playableMatches.length"
+          prepend-icon="mdi-playlist-play"
+          variant="flat"
+          @click="continueWithMatches"
+        >
+          {{ t('player.continueWithMatches') }}
         </v-btn>
       </v-card-actions>
     </v-card>

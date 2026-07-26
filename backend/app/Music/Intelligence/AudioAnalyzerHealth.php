@@ -6,6 +6,7 @@ final readonly class AudioAnalyzerHealth
 {
     public const STATUSES = [
         'not_configured',
+        'unchecked',
         'dependency_missing',
         'model_missing',
         'ready',

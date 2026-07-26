@@ -6,6 +6,7 @@ use App\Models\Playlist;
 use App\Models\PlaylistFolder;
 use App\Models\PlaylistItem;
 use App\Models\Track;
+use App\Music\Playlists\PlaylistFileSynchronizationDispatcher;
 use App\Support\CatalogPayloads;
 use App\Support\LibraryRootScope;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,6 +21,7 @@ class PlaylistsController extends Controller
     public function __construct(
         private readonly CatalogPayloads $payloads,
         private readonly LibraryRootScope $libraryRootScope,
+        private readonly PlaylistFileSynchronizationDispatcher $synchronizationDispatcher,
     ) {
     }
 
@@ -58,15 +60,20 @@ class PlaylistsController extends Controller
         ]);
 
         $parentId = array_key_exists('parentId', $validated) ? $validated['parentId'] : $folder->parent_id;
+        $this->ensureFolderCanMoveTo($folder, $parentId);
         $this->ensureUniqueFolderName($validated['name'], $parentId, $folder->id);
+        $playlistIds = $this->playlistIdsInFolderTree($folder);
         $folder->update($this->folderAttributes($validated));
+        $this->synchronizationDispatcher->playlists($playlistIds);
 
         return response()->json($this->folderPayload($folder->loadCount('playlists')));
     }
 
     public function deleteFolder(PlaylistFolder $folder): JsonResponse
     {
+        $playlistIds = $this->playlistIdsInFolderTree($folder);
         $folder->delete();
+        $this->synchronizationDispatcher->playlists($playlistIds);
 
         return response()->json(null, 204);
     }
@@ -194,6 +201,7 @@ class PlaylistsController extends Controller
 
             return $playlist->load(['folder:id,name'])->loadCount('items');
         });
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return response()->json($this->playlistPayload($playlist), 201);
     }
@@ -203,13 +211,17 @@ class PlaylistsController extends Controller
         $validated = $request->validate($this->playlistRules(requiredName: false));
         $playlist->update($this->playlistAttributes($validated));
         $playlist->load(['folder:id,name'])->loadCount('items');
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return response()->json($this->playlistPayload($playlist));
     }
 
     public function deletePlaylist(Playlist $playlist): JsonResponse
     {
+        $rootPath = $playlist->playlist_export_root_path;
+        $relativePath = $playlist->playlist_export_relative_path;
         $playlist->delete();
+        $this->synchronizationDispatcher->delete($rootPath, $relativePath);
 
         return response()->json(null, 204);
     }
@@ -222,6 +234,7 @@ class PlaylistsController extends Controller
 
         $items = $this->createPlaylistItems($playlist, [$track->id], $validated['position'] ?? null);
         $item = $items->firstOrFail();
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return response()->json($this->itemPayload($item), 201);
     }
@@ -235,6 +248,7 @@ class PlaylistsController extends Controller
         ]);
 
         $items = $this->createPlaylistItems($playlist, $validated['trackIds'], $validated['position'] ?? null);
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return response()->json([
             'items' => $items->map(fn (PlaylistItem $item) => $this->itemPayload($item))->values(),
@@ -247,6 +261,7 @@ class PlaylistsController extends Controller
 
         $item->delete();
         $this->normalizeItemPositions($playlist);
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return response()->json(null, 204);
     }
@@ -271,6 +286,7 @@ class PlaylistsController extends Controller
             $playlist->items()->whereKey($itemIds->all())->delete();
             $this->normalizeItemPositions($playlist);
         });
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return $this->playlist($request, $playlist);
     }
@@ -296,6 +312,7 @@ class PlaylistsController extends Controller
                 PlaylistItem::query()->whereKey($id)->update(['position' => $position]);
             });
         });
+        $this->synchronizationDispatcher->playlist($playlist);
 
         return $this->playlist($request, $playlist);
     }
@@ -446,5 +463,53 @@ class PlaylistsController extends Controller
                 'name' => 'A playlist folder with this name already exists in the selected parent folder.',
             ]);
         }
+    }
+
+    private function ensureFolderCanMoveTo(PlaylistFolder $folder, ?int $parentId): void
+    {
+        if ($parentId === null) {
+            return;
+        }
+
+        $descendantIds = $this->descendantFolderIds($folder);
+        if (in_array($parentId, $descendantIds, true)) {
+            throw ValidationException::withMessages([
+                'parentId' => 'A playlist folder cannot be moved into one of its descendants.',
+            ]);
+        }
+    }
+
+    /** @return list<int> */
+    private function playlistIdsInFolderTree(PlaylistFolder $folder): array
+    {
+        return Playlist::query()
+            ->whereIn('playlist_folder_id', [$folder->id, ...$this->descendantFolderIds($folder)])
+            ->pluck('id')
+            ->map(fn (int $id): int => $id)
+            ->all();
+    }
+
+    /** @return list<int> */
+    private function descendantFolderIds(PlaylistFolder $folder): array
+    {
+        $descendantIds = [];
+        $parentIds = [$folder->id];
+
+        while ($parentIds !== []) {
+            $childIds = PlaylistFolder::query()
+                ->whereIn('parent_id', $parentIds)
+                ->pluck('id')
+                ->map(fn (int $id): int => $id)
+                ->all();
+            $newIds = array_values(array_diff($childIds, $descendantIds));
+            if ($newIds === []) {
+                break;
+            }
+
+            $descendantIds = [...$descendantIds, ...$newIds];
+            $parentIds = $newIds;
+        }
+
+        return $descendantIds;
     }
 }

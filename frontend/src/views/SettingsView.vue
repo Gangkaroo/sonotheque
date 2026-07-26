@@ -13,6 +13,7 @@ import LastFmSettings from '@/components/LastFmSettings.vue'
 import MetadataSettings from '@/components/MetadataSettings.vue'
 import OnlineEnrichmentSettings from '@/components/OnlineEnrichmentSettings.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import PlaylistExportSettings from '@/components/PlaylistExportSettings.vue'
 import SystemHealthSettings from '@/components/SystemHealthSettings.vue'
 import { useAdminAccessStore } from '@/stores/adminAccess'
 import { useCatalogStore } from '@/stores/catalog'
@@ -33,8 +34,8 @@ const libraryRoots = useLibraryRootsStore()
 const scanRuns = useScanRunsStore()
 const localBrowser = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname)
 const canAccessProtectedSettings = computed(() => localBrowser || adminAccess.hasToken)
-const settingsTabs = new Set(['general', 'media-library', 'metadata', 'connections', 'intelligence', 'system', 'security'])
-const protectedSettingsTabs = new Set(['media-library', 'metadata', 'connections', 'intelligence', 'system'])
+const settingsTabs = new Set(['general', 'media-library', 'metadata', 'playlists', 'connections', 'intelligence', 'system', 'security'])
+const protectedSettingsTabs = new Set(['media-library', 'metadata', 'playlists', 'connections', 'intelligence', 'system'])
 const activeSettingsTab = computed({
   get: () => availableSettingsTab(route.query.tab),
   set: (tab) => {
@@ -281,6 +282,9 @@ async function removeRoot() {
     <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-tag-multiple-outline" value="metadata">
       {{ t('settings.metadataTab') }}
     </v-tab>
+    <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-playlist-music-outline" value="playlists">
+      {{ t('settings.playlistsTab') }}
+    </v-tab>
     <v-tab :disabled="!canAccessProtectedSettings" prepend-icon="mdi-connection" value="connections">
       {{ t('settings.connectionsTab') }}
     </v-tab>
@@ -412,6 +416,11 @@ async function removeRoot() {
 
   <MetadataSettings
     v-if="activeSettingsTab === 'metadata' && canAccessProtectedSettings"
+    :key="adminAccess.revision"
+  />
+
+  <PlaylistExportSettings
+    v-if="activeSettingsTab === 'playlists' && canAccessProtectedSettings"
     :key="adminAccess.revision"
   />
 
