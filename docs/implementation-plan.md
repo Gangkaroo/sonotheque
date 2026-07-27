@@ -48,6 +48,8 @@ The implemented release baseline and active roadmap include:
 
 - Configuration of one or more local music folders
 - Manual and incremental library scans
+- Optional per-root filesystem monitoring with targeted scans, periodic full
+  reconciliation, and a consolidated cross-root activity log
 - Removal of stale catalog records after scans, including deleted and newly
   excluded files, while preserving records beneath unreadable paths
 - Identity-preserving reconciliation of unambiguous externally moved files by
@@ -75,7 +77,8 @@ The implemented release baseline and active roadmap include:
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
 - Custom playlists, playlist folders, ordered playlist items, queue-to-playlist
-  actions, M3U/M3U8 export, and optional background file synchronization
+  actions, M3U/M3U8 import and export, and optional background file
+  synchronization
 - Personal album information, including purchase source, purchase date,
   physical-copy state, physical format, and sanitized rich-text notes
 - Optional Discogs connection for matching albums to exact owned physical
@@ -102,7 +105,6 @@ The following longer-term features remain deferred:
 
 - User accounts and permissions
 - Audio transcoding
-- External M3U/M3U8 playlist import
 - Last.fm history import and now-playing updates
 - Mobile applications
 
@@ -548,7 +550,15 @@ Completed:
 
 - Laravel/API Platform backend and PostgreSQL development environment
 - Database schema, relationships, browse/search indexes, and read-only catalog APIs
-- Incremental filesystem scanner with queued execution and error isolation
+- Incremental filesystem scanner with queued execution, error isolation,
+  disk-backed single-pass discovery manifests, and versioned playback-tag
+  import checkpoints that avoid repeated work for unchanged files
+- Optional per-root portable filesystem monitoring with configurable checks,
+  targeted subtree scans, periodic full reconciliation, disconnected-root
+  preservation, and no overlapping scans
+- Persistent cross-root library activity log for watcher events, scan lifecycle
+  entries, warnings, and errors, with root/scan links, filters, pagination, and
+  bounded retention
 - getID3 metadata extraction and normalized artist, album, track, and genre records
 - Folder-cover discovery, embedded-artwork fallback, artwork caching, and thumbnail generation
 - Vue/Vuetify application shell with responsive navigation, Pinia, routing, and English/German translations
@@ -587,6 +597,10 @@ Completed:
 - M3U/M3U8 export for albums and custom playlists, reusable export locations,
   a dedicated playlist-settings tab, and optional asynchronous synchronization
   that mirrors playlist folders and reports live progress
+- M3U/M3U8 import from a server-visible file picker with relative and absolute
+  path resolution across enabled library roots, preserved order and duplicate
+  entries, optional playlist-folder assignment, and complete unmatched-entry
+  reporting
 - Playback robustness for fast playlist switching, seeking, stale media events,
   and page refresh restoration
 - Frozen album and track playback scopes that preserve the active root and
@@ -686,8 +700,9 @@ Open roadmap work:
   of listener controls from advanced diagnostics
 - Explicit persisted CPU/CUDA analyzer selection based on availability and
   benchmark results, plus remaining zero-overhead and failure-path coverage
-- Optional alternate configured destination for album playlist exports and,
-  later, external M3U/M3U8 playlist import
+- Resumable low-priority fingerprint backfill for legacy media rows, kept
+  outside normal scans and independent of optional audio intelligence
+- Optional alternate configured destination for album playlist exports
 - Local collection assistant over guarded Sonotheque tools
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
@@ -817,6 +832,16 @@ into a general-purpose file manager.
   history consistently from both the folder view and Settings. (Complete)
 - Protect subtree rescans with the existing scan-management admin-token rules.
   (Complete)
+- Add optional per-root filesystem monitoring without relying on
+  platform-specific notification delivery. Persist compact per-directory
+  signatures, group changes into the smallest safe subtree, retain pending work
+  while another scan is active, and periodically run a full reconciliation.
+  Keep it disabled by default and expose conservative polling controls for
+  large HDD collections. (Complete)
+- Add a consolidated activity log across all library roots. Record automatic
+  monitoring events, scan lifecycle entries, and every scan warning/error;
+  retain optional root and scan-run links, and expose server-side filtering,
+  pagination, and bounded retention in Settings. (Complete)
 - Add same-parent rename actions for visible files and folders. Reject unsafe
   names, extension changes, overwrites, symbolic links, excluded paths, and
   active scans; update descendant media-file and album paths transactionally
@@ -825,7 +850,13 @@ into a general-purpose file manager.
   reconcile unambiguous old/new paths without replacing track IDs. Do not infer
   identity from file size, timestamps, or tags alone because duplicate releases
   are common. Fingerprint encoded audio payloads rather than mutable ID3/APEv2
-  data, and decline ambiguous duplicate matches. (Complete)
+  data, and decline ambiguous duplicate matches. New and changed files receive
+  fingerprints during normal scans; missing legacy fingerprints are not
+  backfilled inline because doing so makes routine scans prohibitively slow.
+  (Complete for fingerprinted files)
+- Add a separately resumable, low-priority legacy fingerprint backfill that is
+  independent of optional audio intelligence and never delays a normal scan.
+  (Pending)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
   (Complete with PostgreSQL-backed API coverage, frontend store coverage, and
@@ -939,8 +970,10 @@ This phase was pulled forward after the queue model became stable. It builds on 
   polls only while synchronization work remains. (Complete)
 - Let album exports optionally use a configured playlist destination instead
   of the album folder. (Next)
-- Consider importing external M3U/M3U8 playlists after the custom-playlist
-  export workflow is stable.
+- Import external M3U/M3U8 playlists from a server-visible file picker. Resolve
+  relative and absolute entries across enabled roots, preserve order and
+  duplicates, allow folder assignment, and report every unmatched entry.
+  (Complete)
 
 ### 5b. Metadata Editing
 
@@ -1309,11 +1342,11 @@ networkless service, CPU-preparation pipeline, and benchmark are complete; they
 preserve artifact identity and do not force completed audio to be analyzed
 again.
 
-Playlist file export and custom-playlist synchronization are complete. The next
-optional playlist-file refinement is allowing album exports to target one of the
-configured export folders instead of only the album directory. External
-M3U/M3U8 import remains a later feature rather than part of the completed export
-workflow.
+Playlist file import, export, and custom-playlist synchronization are complete.
+Imports accept simple and extended M3U/M3U8 files, resolve paths relative to the
+source playlist, preserve matched order, and report every unmatched entry. The
+next optional playlist-file refinement is allowing album exports to target one
+of the configured export folders instead of only the album directory.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every
@@ -1390,8 +1423,12 @@ filesystem write: they preserve catalog identity and reject collisions, unsafe
 names, extension changes, excluded paths, and active scans. Full-root scans now
 reconcile unique external moves by a versioned audio-payload fingerprint while
 ignoring mutable ID3/APEv2 data; ambiguous duplicate matches remain conservative.
-The first post-migration scan establishes fingerprints for existing files, and
-subtree scans can only reconcile moves wholly inside their scope. Moving between
+Normal scans fingerprint new and changed files but deliberately do not backfill
+missing legacy fingerprints inline. A separate resumable legacy backfill remains
+pending, while subtree scans can only reconcile moves wholly inside their scope.
+Discovery now writes a validated temporary manifest during counting and reuses
+it for processing, avoiding a second filesystem walk; playback-tag imports are
+versioned so unchanged cached metadata is not parsed repeatedly. Moving between
 parents inside the UI, deletion, and folder creation remain deferred.
 Last.fm delivery visibility is complete, while the browsable metadata-backup
 audit remains deferred. Packaged upgrade preservation from `v0.1.0` and real

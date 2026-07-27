@@ -11,8 +11,10 @@ use App\Models\ScanRunIssue;
 
 class ScanDispatcher
 {
-    public function __construct(private readonly LibraryDirectoryResolver $directoryResolver)
-    {
+    public function __construct(
+        private readonly LibraryDirectoryResolver $directoryResolver,
+        private readonly LibraryActivityLogger $activityLogger,
+    ) {
     }
 
     public function dispatch(
@@ -56,6 +58,17 @@ class ScanDispatcher
         ]);
 
         ScanLibraryRootJob::dispatch($scanRun->id);
+        $this->activityLogger->record(
+            source: $trigger === ScanTrigger::Watcher ? 'watcher' : 'scan',
+            severity: 'info',
+            code: 'scan_queued',
+            message: $subtreePath === null
+                ? 'A complete library scan was queued.'
+                : 'A library subtree scan was queued.',
+            libraryRoot: $root,
+            scanRun: $scanRun,
+            path: $subtreePath,
+        );
 
         return $scanRun->refresh();
     }
@@ -67,7 +80,7 @@ class ScanDispatcher
         $root->scanRuns()
             ->where('status', ScanStatus::Running->value)
             ->where('updated_at', '<', $staleBefore)
-            ->each(function (ScanRun $scanRun): void {
+            ->each(function (ScanRun $scanRun) use ($root): void {
                 $summary = $scanRun->summary ?? [];
                 $issues = $summary['issues'] ?? [];
                 $message = 'The scan worker stopped before the scan could finish.';
@@ -85,6 +98,15 @@ class ScanDispatcher
                     'message' => $issue['message'],
                     'occurrence_count' => $issue['count'],
                 ]);
+                $this->activityLogger->record(
+                    source: 'scan',
+                    severity: $issue['severity'],
+                    code: $issue['code'],
+                    message: $issue['message'],
+                    libraryRoot: $root,
+                    scanRun: $scanRun,
+                    count: $issue['count'],
+                );
 
                 $scanRun->update([
                     'status' => ScanStatus::Failed,

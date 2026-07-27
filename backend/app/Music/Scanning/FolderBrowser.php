@@ -16,22 +16,25 @@ class FolderBrowser
      *     path: ?string,
      *     parent: ?string,
      *     directories: list<array{name: string, path: string}>,
+     *     files: list<array{name: string, path: string}>,
      *     volumes: list<array{name: string, path: string}>
      * }
      */
-    public function browse(?string $path): array
+    public function browse(?string $path, bool $includePlaylistFiles = false): array
     {
         if ($path === null || trim($path) === '') {
             return [
                 'path' => null,
                 'parent' => null,
                 'directories' => [],
+                'files' => [],
                 'volumes' => $this->volumes(),
             ];
         }
 
         $directory = $this->pathGuard->canonicalizeDirectory($path);
         $directories = [];
+        $files = [];
 
         try {
             $iterator = new FilesystemIterator($directory, FilesystemIterator::SKIP_DOTS);
@@ -39,6 +42,13 @@ class FolderBrowser
             foreach ($iterator as $entry) {
                 try {
                     if (! $entry->isDir() || $entry->isLink()) {
+                        if ($includePlaylistFiles && $entry->isFile() && $this->isPlaylistFile($entry->getFilename())) {
+                            $files[] = [
+                                'name' => $entry->getFilename(),
+                                'path' => $this->normalize($entry->getPathname()),
+                            ];
+                        }
+
                         continue;
                     }
 
@@ -58,13 +68,23 @@ class FolderBrowser
             $directories,
             static fn (array $left, array $right): int => strnatcasecmp($left['name'], $right['name']),
         );
+        usort(
+            $files,
+            static fn (array $left, array $right): int => strnatcasecmp($left['name'], $right['name']),
+        );
 
         return [
             'path' => $directory,
             'parent' => $this->parent($directory),
             'directories' => $directories,
+            'files' => $files,
             'volumes' => [],
         ];
+    }
+
+    private function isPlaylistFile(string $filename): bool
+    {
+        return in_array(mb_strtolower(pathinfo($filename, PATHINFO_EXTENSION)), ['m3u', 'm3u8'], true);
     }
 
     /** @return list<array{name: string, path: string}> */

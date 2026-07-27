@@ -7,6 +7,8 @@ use Throwable;
 
 class PlaybackStatisticsTagReader
 {
+    public const IMPORT_VERSION = 1;
+
     private const FILETIME_UNIX_EPOCH_TICKS = 116_444_736_000_000_000;
 
     private const FILETIME_TICKS_PER_SECOND = 10_000_000;

@@ -11,6 +11,15 @@ export interface LibraryRoot {
   excludedDirectories: string[]
   enabled: boolean
   lastScannedAt: string | null
+  watchEnabled: boolean
+  watchPollIntervalMinutes: number
+  watchReconcileIntervalMinutes: number
+  watchStatus: 'disabled' | 'pending' | 'watching' | 'scanning' | 'unavailable' | 'error'
+  watchCheckedAt: string | null
+  watchLastEventAt: string | null
+  watchLastScanAt: string | null
+  watchLastPath: string | null
+  watchError: string | null
 }
 
 interface HydraCollection<T> { member: T[] }
@@ -20,12 +29,18 @@ export interface CreateLibraryRootInput {
   path: string
   coverImagePaths: string[]
   excludedDirectories: string[]
+  watchEnabled?: boolean
+  watchPollIntervalMinutes?: number
+  watchReconcileIntervalMinutes?: number
 }
 
 export interface UpdateLibraryRootInput {
   name: string
   coverImagePaths: string[]
   excludedDirectories: string[]
+  watchEnabled?: boolean
+  watchPollIntervalMinutes?: number
+  watchReconcileIntervalMinutes?: number
 }
 
 export const useLibraryRootsStore = defineStore('libraryRoots', () => {
@@ -35,15 +50,15 @@ export const useLibraryRootsStore = defineStore('libraryRoots', () => {
   const error = ref<string | null>(null)
   const hasRoots = computed(() => roots.value.length > 0)
 
-  async function load() {
-    loading.value = true
+  async function load({ silent = false } = {}) {
+    if (!silent) loading.value = true
     error.value = null
     try {
       roots.value = (await apiRequest<HydraCollection<LibraryRoot>>('/library_roots')).member
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : 'Unable to load library roots.'
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 

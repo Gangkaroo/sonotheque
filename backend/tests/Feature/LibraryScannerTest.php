@@ -29,6 +29,7 @@ use App\Music\Scanning\AudioMetadata;
 use App\Music\Scanning\AudioMetadataReader;
 use App\Music\Scanning\DiscoveryDiagnostics;
 use App\Music\Scanning\LibraryScanner;
+use App\Music\Scanning\ScanMediaFileState;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,8 @@ class LibraryScannerTest extends TestCase
     private string $musicPath;
 
     private FakeAudioMetadataReader $metadataReader;
+
+    private FakeAudioContentFingerprinter $contentFingerprinter;
 
     protected function setUp(): void
     {
@@ -84,7 +87,8 @@ class LibraryScannerTest extends TestCase
         ));
 
         $this->app->instance(AudioMetadataReader::class, $this->metadataReader);
-        $this->app->instance(AudioContentFingerprinter::class, new FakeAudioContentFingerprinter());
+        $this->contentFingerprinter = new FakeAudioContentFingerprinter();
+        $this->app->instance(AudioContentFingerprinter::class, $this->contentFingerprinter);
     }
 
     protected function tearDown(): void
@@ -128,26 +132,40 @@ class LibraryScannerTest extends TestCase
 
         $cache = (new \ReflectionProperty($scanner, 'existingFiles'))->getValue($scanner);
         $cachedFile = array_values($cache)[0];
-        $this->assertIsArray($cachedFile);
-        $this->assertSame(
-            [
-                'id',
-                'album_id',
-                'status',
-                'file_size',
-                'modified_at',
-                'metadata_parser_version',
-                'content_fingerprint',
-                'content_fingerprint_version',
-            ],
-            array_keys($cachedFile),
-        );
+        $this->assertInstanceOf(ScanMediaFileState::class, $cachedFile);
+        $this->assertSame(MediaFileStatus::Available, $cachedFile->status);
+        $this->assertSame(LibraryScanner::METADATA_PARSER_VERSION, $cachedFile->metadataParserVersion);
 
         $this->assertSame(ScanStatus::Completed, $secondScan->fresh()->status);
         $this->assertSame(0, $secondScan->fresh()->files_added);
         $this->assertSame(0, $secondScan->fresh()->files_updated);
         $this->assertSame(1, $secondScan->fresh()->files_processed);
         $this->assertSame(1, $this->metadataReader->calls);
+    }
+
+    public function test_scanner_does_not_backfill_a_missing_fingerprint_for_an_unchanged_file(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+
+        $scanner->scan($this->createScan($root));
+        $this->assertSame(1, $this->contentFingerprinter->calls);
+
+        MediaFile::query()->update([
+            'content_fingerprint' => null,
+            'content_fingerprint_version' => null,
+        ]);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $scan = $this->createScan($root);
+        $scanner->scan($scan);
+
+        $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
+        $this->assertSame(0, $scan->fresh()->files_updated);
+        $this->assertSame(1, $this->contentFingerprinter->calls);
+        $this->assertNull(MediaFile::sole()->content_fingerprint);
     }
 
     public function test_scanner_persists_issue_details_beyond_the_summary_limit(): void
@@ -242,6 +260,15 @@ class LibraryScannerTest extends TestCase
         $this->assertSame('2021-02-03T04:05:06.000000Z', $statistics->last_played_at->toJSON());
         $this->assertSame(7, $statistics->source_metadata['file_tags']['play_count']);
         $this->assertSame(1, $importScan->fresh()->summary['playStatisticsImported']);
+        $this->assertSame(1, MediaFile::firstOrFail()->play_statistics_import_version);
+
+        MediaFile::firstOrFail()->update([
+            'raw_metadata' => [
+                'comments' => [
+                    'PLAY_COUNT' => ['999'],
+                ],
+            ],
+        ]);
 
         CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
         $repeatScan = $this->createScan($root);
@@ -249,6 +276,7 @@ class LibraryScannerTest extends TestCase
 
         $this->assertSame(1, $this->metadataReader->calls);
         $this->assertArrayNotHasKey('playStatisticsImported', $repeatScan->fresh()->summary);
+        $this->assertSame(10, $track->playStatistic()->firstOrFail()->play_count);
     }
 
     public function test_incremental_scan_batches_progress_and_cancellation_queries(): void
@@ -305,6 +333,39 @@ class LibraryScannerTest extends TestCase
             'processed' => 0,
             'phase' => 'scanning',
         ], $observedProgress);
+    }
+
+    public function test_scanner_reuses_the_discovery_manifest_instead_of_walking_the_root_twice(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $delegate = $this->app->make(AudioFileDiscoverer::class);
+        $discoverer = new class ($delegate) extends AudioFileDiscoverer {
+            public int $calls = 0;
+
+            public function __construct(private readonly AudioFileDiscoverer $delegate)
+            {
+            }
+
+            /** @return \Generator<int, \App\Music\Scanning\DiscoveredAudioFile> */
+            public function discover(
+                LibraryRoot $libraryRoot,
+                ?DiscoveryDiagnostics $diagnostics = null,
+                ?string $subtreePath = null,
+            ): \Generator {
+                $this->calls++;
+
+                yield from $this->delegate->discover($libraryRoot, $diagnostics, $subtreePath);
+            }
+        };
+        $this->app->instance(AudioFileDiscoverer::class, $discoverer);
+        $scan = $this->createScan($this->createRoot());
+
+        $this->app->make(LibraryScanner::class)->scan($scan);
+
+        $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
+        $this->assertSame(1, $discoverer->calls);
+        $this->assertSame(1, $scan->fresh()->files_processed);
     }
 
     public function test_scanner_removes_files_and_tracks_when_they_disappear(): void
@@ -913,7 +974,7 @@ class LibraryScannerTest extends TestCase
         $realDiscoverer = $this->app->make(AudioFileDiscoverer::class);
         $discoverer = \Mockery::mock(AudioFileDiscoverer::class);
         $discoverer->shouldReceive('discover')
-            ->twice()
+            ->once()
             ->andReturnUsing(function (LibraryRoot $libraryRoot, ?DiscoveryDiagnostics $diagnostics) use ($realDiscoverer, $relativePath, $skipContents): \Generator {
                 $diagnostics?->record(
                     'unreadable_directory',

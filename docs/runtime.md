@@ -590,6 +590,40 @@ The first successful scan after installing the fingerprint migration builds the
 baseline for existing files. A file moved before its old record has a baseline
 fingerprint cannot be reconciled retroactively.
 
+### Automatic Library Monitoring
+
+Filesystem monitoring is optional and disabled separately for every library
+root. Enable it while editing a root in Settings > Media Library. The poll
+interval controls how often Sonotheque reads compact directory signatures; the
+reconciliation interval controls how often it queues a complete scan even when
+those signatures have not changed.
+
+The scheduler performs the lightweight checks. When supported audio files or
+common cover-image files are added, changed, moved, renamed, or removed, it
+queues one scan for the smallest common directory that can reconcile the
+change safely. Changes in several artists, top-level folder renames, artwork
+changes with uncertain ownership, and periodic reconciliations intentionally
+use a full-root scan. Active scans are never overlapped: detected changes remain
+pending and are checked again after the current scan finishes.
+
+This implementation uses portable polling instead of depending on Windows,
+Linux, Docker Desktop, or network-share notification semantics. A five-minute
+default avoids continuously waking large HDD collections; one-minute checks
+are available for roots where faster detection matters. The check reads names,
+sizes, and modification times for supported audio and common artwork files but
+does not parse tags or fingerprint audio. Only a queued scan performs catalog
+updates. Files whose contents change while both size and modification time are
+deliberately preserved cannot be distinguished cheaply and are not detected by
+the current incremental scanner.
+
+Both the scheduler and queue listener must be running. A disconnected drive is
+reported without removing catalog data. Settings displays monitoring state,
+the most recently affected subtree, and a consolidated Library activity log.
+That log spans every root and records watcher events, scan lifecycle entries,
+and scan warnings/errors while retaining optional links to the original root
+and scan. Entries are retained for 90 days by default; override
+`LIBRARY_ACTIVITY_RETENTION_DAYS` when a different diagnostic window is needed.
+
 ## Playback Statistics Synchronization
 
 Listening-statistics synchronization is disabled by default in Settings. When

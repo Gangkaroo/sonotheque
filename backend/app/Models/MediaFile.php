@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'metadata_parser_version',
     'content_fingerprint',
     'content_fingerprint_version',
+    'play_statistics_import_version',
 ])]
 class MediaFile extends Model
 {
@@ -59,6 +60,7 @@ class MediaFile extends Model
             'raw_metadata' => 'array',
             'metadata_parser_version' => 'integer',
             'content_fingerprint_version' => 'integer',
+            'play_statistics_import_version' => 'integer',
         ];
     }
 }

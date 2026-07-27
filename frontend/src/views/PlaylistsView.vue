@@ -1,22 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import PlaylistImportDialog from '@/components/PlaylistImportDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import type { PlaylistFolder, PlaylistSummary } from '@/stores/playlists'
+import type { PlaylistFolder, PlaylistImportResult, PlaylistSummary } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 
 type PlaylistSort = 'name' | 'updated' | 'track_count'
 
 const { t, locale } = useI18n()
+const router = useRouter()
 const playlists = usePlaylistsStore()
 const activeTab = ref<'playlists' | 'folders'>('playlists')
 const playlistSearch = ref('')
 const playlistSort = ref<PlaylistSort>(readPlaylistSort())
 const folderDialog = ref(false)
 const playlistDialog = ref(false)
+const importDialog = ref(false)
+const importResultDialog = ref(false)
+const importResult = ref<PlaylistImportResult | null>(null)
 const deleteFolderDialog = ref(false)
 const deletePlaylistDialog = ref(false)
 const folderToEdit = ref<PlaylistFolder | null>(null)
@@ -101,6 +107,29 @@ function openCreatePlaylistDialog() {
   editPlaylistDescription.value = ''
   editPlaylistFolderId.value = null
   playlistDialog.value = true
+}
+
+function importedPlaylist(result: PlaylistImportResult) {
+  importResult.value = result
+  importResultDialog.value = true
+}
+
+function importWarningMessage(warning: PlaylistImportResult['warnings'][number]) {
+  if (warning.code === 'outside_or_missing') {
+    return t('playlists.importWarningOutsideOrMissing')
+  }
+  if (warning.code === 'not_in_collection') {
+    return t('playlists.importWarningNotInCollection')
+  }
+
+  return warning.message
+}
+
+async function openImportedPlaylist() {
+  if (!importResult.value) return
+
+  importResultDialog.value = false
+  await router.push({ name: 'playlist-detail', params: { id: importResult.value.playlist.id } })
 }
 
 function openFolderDialog(folder: PlaylistFolder) {
@@ -242,6 +271,9 @@ onMounted(() => {
           <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreatePlaylistDialog">
             {{ t('playlists.createPlaylist') }}
           </v-btn>
+          <v-btn prepend-icon="mdi-playlist-plus" variant="tonal" @click="importDialog = true">
+            {{ t('playlists.importAction') }}
+          </v-btn>
         </v-card-text>
 
         <v-skeleton-loader v-if="playlists.loading" type="list-item-two-line@5" />
@@ -352,6 +384,45 @@ onMounted(() => {
         </v-card-text>
     </div>
   </v-card>
+
+  <PlaylistImportDialog v-model="importDialog" @imported="importedPlaylist" />
+
+  <v-dialog v-model="importResultDialog" max-width="680">
+    <v-card :title="t('playlists.importCompleteTitle')" prepend-icon="mdi-check-circle-outline">
+      <v-card-text>
+        <v-alert
+          class="mb-4"
+          :type="importResult?.unresolvedCount ? 'warning' : 'success'"
+          variant="tonal"
+        >
+          {{ t('playlists.importCompleteSummary', {
+            imported: importResult?.importedCount ?? 0,
+            total: importResult?.totalEntries ?? 0,
+            unresolved: importResult?.unresolvedCount ?? 0,
+          }) }}
+        </v-alert>
+        <div v-if="importResult?.warnings.length">
+          <h3 class="text-subtitle-2 mb-2">{{ t('playlists.importWarnings') }}</h3>
+          <v-list border class="import-warning-list rounded-lg" density="compact">
+            <v-list-item
+              v-for="warning in importResult.warnings"
+              :key="`${warning.line}:${warning.path}`"
+              prepend-icon="mdi-alert-outline"
+              :subtitle="t('playlists.importWarningLine', { line: warning.line, message: importWarningMessage(warning) })"
+              :title="warning.path"
+            />
+          </v-list>
+        </div>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn @click="importResultDialog = false">{{ t('settings.close') }}</v-btn>
+        <v-btn color="primary" variant="flat" @click="openImportedPlaylist">
+          {{ t('playlists.openImportedPlaylist') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 
   <v-dialog v-model="folderDialog" max-width="460">
     <v-card :title="folderDialogTitle" :prepend-icon="folderToEdit ? 'mdi-folder-edit-outline' : 'mdi-folder-plus-outline'">
@@ -471,5 +542,10 @@ onMounted(() => {
 
 .playlist-group-header {
   min-height: 28px;
+}
+
+.import-warning-list {
+  max-height: 320px;
+  overflow-y: auto;
 }
 </style>

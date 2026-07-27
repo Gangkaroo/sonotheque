@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DiscogsSettings from '@/components/DiscogsSettings.vue'
 import AudioIntelligenceSettings from '@/components/AudioIntelligenceSettings.vue'
 import GeneralSettings from '@/components/GeneralSettings.vue'
+import LibraryActivityLog from '@/components/LibraryActivityLog.vue'
 import LibraryRootDialog from '@/components/LibraryRootDialog.vue'
 import LanAccessSettings from '@/components/LanAccessSettings.vue'
 import LastFmDeliveryLog from '@/components/LastFmDeliveryLog.vue'
@@ -51,6 +52,7 @@ const rootRows = computed(() => libraryRoots.roots.map((root) => ({
   root,
   scan: scanRuns.latestForRoot(root.id),
 })))
+const hasWatchedRoots = computed(() => libraryRoots.roots.some((root) => root.watchEnabled))
 const rootDialog = ref(false)
 const deleteDialog = ref(false)
 const scanDetailsDialog = ref(false)
@@ -92,7 +94,11 @@ onUnmounted(() => {
 
 function schedulePolling() {
   if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = scanRuns.hasActiveScans ? setTimeout(pollScans, 2000) : null
+  pollTimer = scanRuns.hasActiveScans
+    ? setTimeout(pollScans, 2000)
+    : hasWatchedRoots.value
+      ? setTimeout(pollScans, 30000)
+      : null
 }
 
 async function loadProtectedSettings() {
@@ -122,7 +128,10 @@ async function pollScans() {
   const activeScanIds = new Set(
     scanRuns.scans.filter((scan) => isActive(scan)).map((scan) => scan.id),
   )
-  await scanRuns.load({ silent: true })
+  await Promise.all([
+    scanRuns.load({ silent: true }),
+    libraryRoots.load({ silent: true }),
+  ])
   const completedScanWithIssues = scanRuns.scans.find((scan) =>
     activeScanIds.has(scan.id)
     && !isActive(scan)
@@ -179,6 +188,18 @@ function formatDate(value) {
   return formatDateTime(value, locale.value, '—')
 }
 
+/** @param {LibraryRoot['watchStatus']} status */
+function watchStatusColor(status) {
+  return {
+    disabled: 'default',
+    pending: 'warning',
+    watching: 'success',
+    scanning: 'primary',
+    unavailable: 'error',
+    error: 'error',
+  }[status]
+}
+
 /** @param {unknown} value */
 function availableSettingsTab(value) {
   const tab = typeof value === 'string' && settingsTabs.has(value) ? value : 'general'
@@ -226,6 +247,11 @@ async function openScanDetails(scan) {
   } finally {
     if (selectedScan.value?.id === scan.id) scanIssuesLoading.value = false
   }
+}
+
+/** @param {number} scanId */
+async function openActivityScan(scanId) {
+  openScanDetails(await scanRuns.loadOne(scanId))
 }
 
 /** @param {ScanIssue} issue */
@@ -336,6 +362,31 @@ async function removeRoot() {
           <v-list-item-subtitle v-if="row.root.excludedDirectories?.length">
             {{ t('settings.excludedFolders') }}: {{ row.root.excludedDirectories.join(', ') }}
           </v-list-item-subtitle>
+          <div v-if="row.root.watchEnabled" class="d-flex flex-wrap align-center ga-2 mt-2">
+            <v-chip
+              :color="watchStatusColor(row.root.watchStatus)"
+              prepend-icon="mdi-folder-sync-outline"
+              size="small"
+              variant="tonal"
+            >
+              {{ t(`settings.watchStatuses.${row.root.watchStatus}`) }}
+            </v-chip>
+            <span v-if="row.root.watchCheckedAt" class="text-caption text-medium-emphasis">
+              {{ t('settings.watchLastChecked', { date: formatDate(row.root.watchCheckedAt) }) }}
+            </span>
+            <span v-if="row.root.watchLastPath" class="text-caption text-medium-emphasis">
+              {{ t('settings.watchLastPath', { path: row.root.watchLastPath }) }}
+            </span>
+          </div>
+          <v-alert
+            v-if="row.root.watchEnabled && row.root.watchError"
+            class="mt-2"
+            density="compact"
+            type="error"
+            variant="tonal"
+          >
+            {{ row.root.watchError }}
+          </v-alert>
           <div v-if="row.scan" class="mt-2">
             <div class="d-flex flex-wrap align-center ga-2">
               <v-chip :color="statusColor(row.scan.status)" size="small" variant="tonal">
@@ -413,6 +464,12 @@ async function removeRoot() {
       />
     </v-card-text>
   </v-card>
+
+  <LibraryActivityLog
+    v-if="activeSettingsTab === 'media-library' && canAccessProtectedSettings"
+    :roots="libraryRoots.roots"
+    @scan="openActivityScan"
+  />
 
   <MetadataSettings
     v-if="activeSettingsTab === 'metadata' && canAccessProtectedSettings"
@@ -505,7 +562,7 @@ async function removeRoot() {
     </v-card-text>
   </v-card>
 
-  <LibraryRootDialog v-model="rootDialog" :root="rootToEdit" />
+  <LibraryRootDialog v-model="rootDialog" :root="rootToEdit" @saved="schedulePolling" />
 
   <v-dialog v-model="scanDetailsDialog" max-width="760" scrollable>
     <v-card>

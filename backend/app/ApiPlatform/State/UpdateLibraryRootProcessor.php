@@ -37,11 +37,39 @@ class UpdateLibraryRootProcessor implements ProcessorInterface
             ),
         );
 
+        $watchWasEnabled = $root->watch_enabled;
+        $watchConfigurationChanged = $root->cover_image_paths !== $coverImagePaths
+            || ($root->excluded_directories ?? []) !== $excludedDirectories;
+
         $root->updateOrFail([
             'name' => trim($data->name),
             'cover_image_paths' => $coverImagePaths,
             'excluded_directories' => $excludedDirectories ?: null,
+            'watch_enabled' => (bool) ($data->watch_enabled ?? $root->watch_enabled),
+            'watch_poll_interval_minutes' => (int) (
+                $data->watch_poll_interval_minutes ?? $root->watch_poll_interval_minutes
+            ),
+            'watch_reconcile_interval_minutes' => (int) (
+                $data->watch_reconcile_interval_minutes ?? $root->watch_reconcile_interval_minutes
+            ),
         ]);
+
+        if (! $root->watch_enabled) {
+            $root->watchDirectories()->delete();
+            $root->update([
+                'watch_status' => 'disabled',
+                'watch_checked_at' => null,
+                'watch_last_path' => null,
+                'watch_error' => null,
+            ]);
+        } elseif (! $watchWasEnabled || $watchConfigurationChanged) {
+            $root->watchDirectories()->delete();
+            $root->update([
+                'watch_status' => 'pending',
+                'watch_checked_at' => null,
+                'watch_error' => null,
+            ]);
+        }
 
         return $root->refresh();
     }

@@ -26,7 +26,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
+        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -37,9 +37,12 @@ class SonothequeSchemaTest extends TestCase
         $this->assertFalse(Schema::hasColumn('library_roots', 'cover_image_path'));
         $this->assertTrue(Schema::hasColumn('scan_runs', 'files_removed'));
         $this->assertTrue(Schema::hasColumn('scan_runs', 'subtree_path'));
+        $this->assertTrue(Schema::hasColumn('library_roots', 'watch_enabled'));
+        $this->assertTrue(Schema::hasColumn('library_roots', 'watch_status'));
         $this->assertTrue(Schema::hasColumn('media_files', 'metadata_parser_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
+        $this->assertTrue(Schema::hasColumn('media_files', 'play_statistics_import_version'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'playlist_export_format'));
         $this->assertTrue(Schema::hasColumn(

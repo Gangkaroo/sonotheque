@@ -50,7 +50,7 @@ class LibraryScanner
     /** @var array<string, Artist> */
     private array $artistCache = [];
 
-    /** @var array<string, array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics}> */
+    /** @var array<string, ScanMediaFileState> */
     private array $existingFiles = [];
 
     /** @var array<string, ?string> */
@@ -65,7 +65,7 @@ class LibraryScanner
     /** @var list<DiscoveredAudioFile> */
     private array $newFiles = [];
 
-    /** @var array<string, list<array{path_hash: string, state: array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics>}>> */
+    /** @var array<string, list<array{pathHash: string, state: ScanMediaFileState}>> */
     private array $staleFilesByFingerprint = [];
 
     /** @var array<string, true> */
@@ -92,11 +92,17 @@ class LibraryScanner
 
     private ?string $subtreePath = null;
 
+    private ?int $pendingLibraryRootId = null;
+
     /** @var array<int, array{trackId: int, statistics: ImportedPlayStatistics}> */
     private array $pendingPlayStatisticsImports = [];
 
+    /** @var array<int, true> */
+    private array $pendingPlayStatisticsImportMediaFileIds = [];
+
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
+        private readonly ScanDiscoveryManifest $discoveryManifest,
         private readonly AudioMetadataReader $metadataReader,
         private readonly AudioContentFingerprinter $contentFingerprinter,
         private readonly ArtistName $artistName,
@@ -104,6 +110,7 @@ class LibraryScanner
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
         private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
+        private readonly LibraryActivityLogger $activityLogger,
     ) {
     }
 
@@ -126,6 +133,7 @@ class LibraryScanner
         }
 
         $scanRun->refresh()->loadMissing('libraryRoot');
+        $this->pendingLibraryRootId = $scanRun->library_root_id;
         $this->subtreePath = $scanRun->subtree_path;
         $this->prepareScanCaches($scanRun);
         $issues = [];
@@ -140,14 +148,16 @@ class LibraryScanner
         $existingFileCount = count($this->existingFiles);
 
         try {
-            $countDiagnostics = new DiscoveryDiagnostics();
+            $diagnostics = new DiscoveryDiagnostics();
+            $this->discoveryManifest->start($scanRun->id);
 
-            foreach ($this->discover($scanRun, $countDiagnostics) as $file) {
+            foreach ($this->discover($scanRun, $diagnostics) as $file) {
+                $this->discoveryManifest->append($file);
                 $progress['files_discovered']++;
                 $pathHash = $this->pathHash($file->relativePath);
                 $this->discoveredPathHashes[$pathHash] = true;
 
-                if (! isset($this->existingFiles[$pathHash]) && $this->hasStoredFingerprints()) {
+                if (! isset($this->existingFiles[$pathHash]) && $this->storedFingerprintsAvailable) {
                     $this->newFiles[] = $file;
                 }
 
@@ -174,13 +184,10 @@ class LibraryScanner
 
                 return;
             }
-            $diagnostics = new DiscoveryDiagnostics();
-
-            foreach ($this->discover($scanRun, $diagnostics) as $file) {
+            foreach ($this->discoveryManifest->files($scanRun->id) as $file) {
                 if ($progress['files_processed'] % self::CANCELLATION_CHECK_INTERVAL === 0
                     && $this->cancellationRequested($scanRun)) {
-                    $this->flushUnchangedFiles($startedAt);
-                    $this->flushPlayStatisticsImports();
+                    $this->flushPendingFileChanges($startedAt);
                     $this->cancelScan($scanRun, $progress, $issues);
 
                     return;
@@ -232,8 +239,7 @@ class LibraryScanner
                 }
             }
 
-            $this->flushUnchangedFiles($startedAt);
-            $this->flushPlayStatisticsImports();
+            $this->flushPendingFileChanges($startedAt);
 
             foreach ($diagnostics->issues() as $issue) {
                 $this->addIssue(
@@ -330,8 +336,7 @@ class LibraryScanner
                 'summary' => $this->summary('completed', $issues),
             ]));
         } catch (Throwable $exception) {
-            $this->flushUnchangedFiles($startedAt);
-            $this->flushPlayStatisticsImports();
+            $this->flushPendingFileChanges($startedAt);
             $this->addIssue($issues, 'scan_failed', 'error', $exception->getMessage());
             $progress['error_count']++;
             $this->flushScanIssues();
@@ -342,6 +347,8 @@ class LibraryScanner
             ]));
 
             throw $exception;
+        } finally {
+            $this->discoveryManifest->delete($scanRun->id);
         }
     }
 
@@ -356,28 +363,23 @@ class LibraryScanner
         }
 
         if ($existing !== null
-            && ! ($existing['moved'] ?? false)
-            && $existing['status'] === MediaFileStatus::Available
-            && $existing['file_size'] === $file->fileSize
-            && $existing['modified_at'] === $file->modifiedAt
-            && $existing['metadata_parser_version'] === self::METADATA_PARSER_VERSION) {
-            $album = $this->findAlbumById($existing['album_id']);
+            && ! $existing->moved
+            && $existing->status === MediaFileStatus::Available
+            && $existing->fileSize === $file->fileSize
+            && $existing->modifiedAt === $file->modifiedAt
+            && $existing->metadataParserVersion === self::METADATA_PARSER_VERSION) {
+            $album = $this->findAlbumById($existing->albumId);
 
             if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
-                if ($existing['content_fingerprint'] === null
-                    || $existing['content_fingerprint_version'] !== AudioContentFingerprinter::VERSION) {
-                    MediaFile::query()->whereKey($existing['id'])->update([
-                        'content_fingerprint' => $this->fingerprint($file),
-                        'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
-                    ]);
-                }
-
-                $this->unchangedFileIds[] = $existing['id'];
+                $this->unchangedFileIds[] = $existing->id;
                 $warnings = $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
-                $trackId = $existing['track_id'] ?? null;
-                $imported = $existing['play_statistics'] ?? null;
+                $trackId = $existing->trackId;
+                $imported = $existing->playStatistics;
                 if ($trackId !== null && $imported !== null) {
-                    $warnings = array_merge($warnings, $this->importPlayStatistics(Track::find($trackId), $imported));
+                    $warnings = array_merge(
+                        $warnings,
+                        $this->importPlayStatistics($trackId, $imported, $existing->id),
+                    );
                 }
 
                 return ['created' => false, 'changed' => false, 'warnings' => $warnings];
@@ -435,6 +437,7 @@ class LibraryScanner
                         'metadata_parser_version' => self::METADATA_PARSER_VERSION,
                         'content_fingerprint' => $contentFingerprint,
                         'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
+                        'play_statistics_import_version' => null,
                     ],
                 );
 
@@ -476,6 +479,7 @@ class LibraryScanner
 
                 return [
                     'album' => $album,
+                    'mediaFile' => $mediaFile,
                     'track' => $track,
                     'created' => $existing === null,
                 ];
@@ -490,6 +494,7 @@ class LibraryScanner
         $importWarnings = $this->importPlayStatistics(
             $processed['track'],
             $this->playStatisticsTagReader->read($metadata->rawMetadata),
+            $processed['mediaFile']->id,
         );
 
         return [
@@ -633,8 +638,7 @@ class LibraryScanner
         array $issues,
         CarbonImmutable $seenAt,
     ): void {
-        $this->flushUnchangedFiles($seenAt);
-        $this->flushPlayStatisticsImports();
+        $this->flushPendingFileChanges($seenAt);
         $this->flushScanIssues();
         $scanRun->update(array_merge($progress, [
             'summary' => $this->summary('scanning', $issues),
@@ -651,6 +655,12 @@ class LibraryScanner
             ->whereIn('id', $this->unchangedFileIds)
             ->update(['last_seen_at' => $seenAt]);
         $this->unchangedFileIds = [];
+    }
+
+    private function flushPendingFileChanges(CarbonImmutable $seenAt): void
+    {
+        $this->flushUnchangedFiles($seenAt);
+        $this->flushPlayStatisticsImports();
     }
 
     private function deleteAlbumsWithoutMediaFiles(ScanRun $scanRun): void
@@ -720,6 +730,7 @@ class LibraryScanner
         ScanRunIssue::query()->where('scan_run_id', $scanRun->id)->delete();
         $this->playStatisticsImported = 0;
         $this->pendingPlayStatisticsImports = [];
+        $this->pendingPlayStatisticsImportMediaFileIds = [];
         $this->importPlayStatisticsFromTags = ApplicationSetting::current()->import_play_statistics_from_tags;
         $this->existingFiles = [];
         $query = $scanRun->libraryRoot->mediaFiles()
@@ -737,40 +748,72 @@ class LibraryScanner
             ]);
         $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
 
-        if ($this->importPlayStatisticsFromTags) {
-            $query->leftJoin('tracks', 'tracks.media_file_id', '=', 'media_files.id')
-                ->addSelect(['media_files.raw_metadata', 'tracks.id as track_id']);
-        }
+        foreach ($query->lazyById(1000, 'media_files.id', 'id') as $mediaFile) {
+            $state = $this->mediaFileState($mediaFile);
 
-        foreach ($query->lazyById(250, 'media_files.id', 'id') as $mediaFile) {
-            $state = $this->compactFileState($mediaFile);
-            if ($this->importPlayStatisticsFromTags) {
-                $state['track_id'] = $mediaFile->track_id === null ? null : (int) $mediaFile->track_id;
-                $state['play_statistics'] = $this->playStatisticsTagReader->read($mediaFile->raw_metadata ?? []);
-            }
-
-            if ($state['content_fingerprint'] !== null
-                && $state['content_fingerprint_version'] === AudioContentFingerprinter::VERSION) {
+            if ($state->contentFingerprint !== null
+                && $state->contentFingerprintVersion === AudioContentFingerprinter::VERSION) {
                 $this->storedFingerprintsAvailable = true;
             }
 
             $this->existingFiles[$mediaFile->relative_path_hash] = $state;
         }
+
+        if ($this->importPlayStatisticsFromTags) {
+            $this->preparePendingPlayStatisticsImports($scanRun);
+        }
     }
 
-    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int} */
-    private function compactFileState(MediaFile $mediaFile): array
+    private function preparePendingPlayStatisticsImports(ScanRun $scanRun): void
     {
-        return [
-            'id' => $mediaFile->id,
-            'album_id' => $mediaFile->album_id,
-            'status' => $mediaFile->status,
-            'file_size' => $mediaFile->file_size,
-            'modified_at' => $mediaFile->modified_at->getTimestamp(),
-            'metadata_parser_version' => $mediaFile->metadata_parser_version,
-            'content_fingerprint' => $mediaFile->content_fingerprint,
-            'content_fingerprint_version' => $mediaFile->content_fingerprint_version,
-        ];
+        $query = $scanRun->libraryRoot->mediaFiles()
+            ->getQuery()
+            ->leftJoin('tracks', 'tracks.media_file_id', '=', 'media_files.id')
+            ->select([
+                'media_files.id',
+                'media_files.relative_path_hash',
+                'media_files.raw_metadata',
+                'tracks.id as track_id',
+            ])
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('media_files.play_statistics_import_version')
+                    ->orWhere(
+                        'media_files.play_statistics_import_version',
+                        '!=',
+                        PlaybackStatisticsTagReader::IMPORT_VERSION,
+                    );
+            });
+        $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
+
+        foreach ($query->lazyById(1000, 'media_files.id', 'id') as $mediaFile) {
+            $pathHash = $mediaFile->relative_path_hash;
+
+            if (! isset($this->existingFiles[$pathHash])) {
+                continue;
+            }
+
+            $this->existingFiles[$pathHash]->trackId = $mediaFile->track_id === null
+                ? null
+                : (int) $mediaFile->track_id;
+            $this->existingFiles[$pathHash]->playStatistics = $this->playStatisticsTagReader->read(
+                $mediaFile->raw_metadata ?? [],
+            );
+        }
+    }
+
+    private function mediaFileState(MediaFile $mediaFile): ScanMediaFileState
+    {
+        return new ScanMediaFileState(
+            id: $mediaFile->id,
+            albumId: $mediaFile->album_id,
+            status: $mediaFile->status,
+            fileSize: $mediaFile->file_size,
+            modifiedAt: $mediaFile->modified_at->getTimestamp(),
+            metadataParserVersion: $mediaFile->metadata_parser_version,
+            contentFingerprint: $mediaFile->content_fingerprint,
+            contentFingerprintVersion: $mediaFile->content_fingerprint_version,
+        );
     }
 
     private function fingerprint(DiscoveredAudioFile $file): ?string
@@ -792,15 +835,15 @@ class LibraryScanner
     private function prepareMoveCandidates(): void
     {
         foreach ($this->existingFiles as $pathHash => $state) {
-            $fingerprint = $state['content_fingerprint'];
+            $fingerprint = $state->contentFingerprint;
             if (isset($this->discoveredPathHashes[$pathHash])
                 || $fingerprint === null
-                || $state['content_fingerprint_version'] !== AudioContentFingerprinter::VERSION) {
+                || $state->contentFingerprintVersion !== AudioContentFingerprinter::VERSION) {
                 continue;
             }
 
             $this->staleFilesByFingerprint[$fingerprint][] = [
-                'path_hash' => $pathHash,
+                'pathHash' => $pathHash,
                 'state' => $state,
             ];
         }
@@ -833,17 +876,11 @@ class LibraryScanner
         return true;
     }
 
-    private function hasStoredFingerprints(): bool
-    {
-        return $this->storedFingerprintsAvailable;
-    }
-
-    /** @return array{id: int, album_id: ?int, status: MediaFileStatus, file_size: int, modified_at: int, metadata_parser_version: int, content_fingerprint: ?string, content_fingerprint_version: ?int, moved?: bool, track_id?: ?int, play_statistics?: ImportedPlayStatistics}|null */
     private function reconcileMovedFile(
         ScanRun $scanRun,
         DiscoveredAudioFile $file,
         string $pathHash,
-    ): ?array {
+    ): ?ScanMediaFileState {
         $fingerprint = $this->fingerprint($file);
         if ($fingerprint === null
             || ($this->newFingerprintCounts[$fingerprint] ?? 0) !== 1
@@ -853,9 +890,9 @@ class LibraryScanner
 
         $candidate = $this->staleFilesByFingerprint[$fingerprint][0];
         $updated = MediaFile::query()
-            ->whereKey($candidate['state']['id'])
+            ->whereKey($candidate['state']->id)
             ->where('library_root_id', $scanRun->library_root_id)
-            ->where('relative_path_hash', $candidate['path_hash'])
+            ->where('relative_path_hash', $candidate['pathHash'])
             ->update([
                 'relative_path' => $file->relativePath,
                 'relative_path_hash' => $pathHash,
@@ -870,31 +907,37 @@ class LibraryScanner
         }
 
         $state = $candidate['state'];
-        $state['content_fingerprint'] = $fingerprint;
-        $state['content_fingerprint_version'] = AudioContentFingerprinter::VERSION;
-        $state['moved'] = true;
+        $state->contentFingerprint = $fingerprint;
+        $state->contentFingerprintVersion = AudioContentFingerprinter::VERSION;
+        $state->moved = true;
         unset(
-            $this->existingFiles[$candidate['path_hash']],
+            $this->existingFiles[$candidate['pathHash']],
             $this->staleFilesByFingerprint[$fingerprint],
         );
         $this->existingFiles[$pathHash] = $state;
-        if (($state['track_id'] ?? null) !== null) {
-            $this->playlistSynchronizationDispatcher->tracks([$state['track_id']]);
+        if ($state->trackId !== null) {
+            $this->playlistSynchronizationDispatcher->tracks([$state->trackId]);
         }
 
         return $state;
     }
 
     /** @return list<string> */
-    private function importPlayStatistics(?Track $track, ImportedPlayStatistics $imported): array
-    {
+    private function importPlayStatistics(
+        Track|int|null $track,
+        ImportedPlayStatistics $imported,
+        int $mediaFileId,
+    ): array {
         if (! $this->importPlayStatisticsFromTags) {
             return [];
         }
 
-        if ($track !== null && $imported->hasValues()) {
-            $this->pendingPlayStatisticsImports[$track->id] = [
-                'trackId' => $track->id,
+        $this->pendingPlayStatisticsImportMediaFileIds[$mediaFileId] = true;
+        $trackId = $track instanceof Track ? $track->id : $track;
+
+        if ($trackId !== null && $imported->hasValues()) {
+            $this->pendingPlayStatisticsImports[$trackId] = [
+                'trackId' => $trackId,
                 'statistics' => $imported,
             ];
         }
@@ -904,14 +947,27 @@ class LibraryScanner
 
     private function flushPlayStatisticsImports(): void
     {
-        if ($this->pendingPlayStatisticsImports === []) {
+        if ($this->pendingPlayStatisticsImports === []
+            && $this->pendingPlayStatisticsImportMediaFileIds === []) {
             return;
         }
 
-        $this->playStatisticsImported += $this->playStatisticsImporter->mergeMany(
-            array_values($this->pendingPlayStatisticsImports),
-        );
+        if ($this->pendingPlayStatisticsImports !== []) {
+            $this->playStatisticsImported += $this->playStatisticsImporter->mergeMany(
+                array_values($this->pendingPlayStatisticsImports),
+            );
+        }
+
+        if ($this->pendingPlayStatisticsImportMediaFileIds !== []) {
+            MediaFile::query()
+                ->whereKey(array_keys($this->pendingPlayStatisticsImportMediaFileIds))
+                ->update([
+                    'play_statistics_import_version' => PlaybackStatisticsTagReader::IMPORT_VERSION,
+                ]);
+        }
+
         $this->pendingPlayStatisticsImports = [];
+        $this->pendingPlayStatisticsImportMediaFileIds = [];
     }
 
     private function findAlbumById(?int $albumId): ?Album
@@ -923,9 +979,12 @@ class LibraryScanner
         return $this->albumIdCache[$albumId] ??= Album::with('artwork')->find($albumId);
     }
 
-    private function albumForFile(ScanRun $scanRun, ?array $existing, string $albumHash): Album
-    {
-        $existingAlbum = $existing === null ? null : $this->findAlbumById($existing['album_id']);
+    private function albumForFile(
+        ScanRun $scanRun,
+        ?ScanMediaFileState $existing,
+        string $albumHash,
+    ): Album {
+        $existingAlbum = $existing === null ? null : $this->findAlbumById($existing->albumId);
 
         if ($existingAlbum !== null
             && $existingAlbum->library_root_id === $scanRun->library_root_id
@@ -1001,6 +1060,10 @@ class LibraryScanner
         }
 
         ScanRunIssue::query()->insert($this->pendingScanIssues);
+        $this->activityLogger->scanIssues(
+            $this->libraryRootId(),
+            $this->pendingScanIssues,
+        );
         $this->pendingScanIssues = [];
     }
 
@@ -1011,6 +1074,15 @@ class LibraryScanner
         }
 
         return $this->pendingScanRunId;
+    }
+
+    private function libraryRootId(): int
+    {
+        if ($this->pendingLibraryRootId === null) {
+            throw new \LogicException('A scan issue cannot be recorded before a library root is known.');
+        }
+
+        return $this->pendingLibraryRootId;
     }
 
     /**

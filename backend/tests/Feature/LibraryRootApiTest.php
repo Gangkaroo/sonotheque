@@ -37,6 +37,9 @@ class LibraryRootApiTest extends TestCase
             'path' => $this->musicPath,
             'coverImagePaths' => ['artwork\\front.jpg', '..\\Cover\\Front.jpg', 'Disc 1\\Front.jpg'],
             'excludedDirectories' => ['Incoming', 'Downloads\\Incomplete'],
+            'watchEnabled' => true,
+            'watchPollIntervalMinutes' => 10,
+            'watchReconcileIntervalMinutes' => 720,
         ], ['Accept' => 'application/ld+json'])->assertCreated();
 
         $rootId = $response->json('id');
@@ -47,6 +50,10 @@ class LibraryRootApiTest extends TestCase
             ->assertJsonPath('coverImagePaths.1', '../Cover/Front.jpg')
             ->assertJsonPath('coverImagePaths.2', 'Disc 1/Front.jpg')
             ->assertJsonPath('excludedDirectories.1', 'Downloads/Incomplete')
+            ->assertJsonPath('watchEnabled', true)
+            ->assertJsonPath('watchPollIntervalMinutes', 10)
+            ->assertJsonPath('watchReconcileIntervalMinutes', 720)
+            ->assertJsonPath('watchStatus', 'pending')
             ->assertJsonMissingPath('pathHash');
 
         $this->get('/api/library_roots', ['Accept' => 'application/ld+json'])
@@ -155,12 +162,18 @@ class LibraryRootApiTest extends TestCase
                 'name' => 'Archive',
                 'coverImagePaths' => ['artwork\\front.jpg', 'Disc 1\\Front.jpg'],
                 'excludedDirectories' => ['Incoming'],
+                'watchEnabled' => true,
+                'watchPollIntervalMinutes' => 15,
+                'watchReconcileIntervalMinutes' => 1440,
             ], JSON_THROW_ON_ERROR),
         )
             ->assertOk()
             ->assertJsonPath('name', 'Archive')
             ->assertJsonPath('coverImagePaths.1', 'Disc 1/Front.jpg')
             ->assertJsonPath('excludedDirectories.0', 'Incoming')
+            ->assertJsonPath('watchEnabled', true)
+            ->assertJsonPath('watchPollIntervalMinutes', 15)
+            ->assertJsonPath('watchStatus', 'pending')
             ->assertJsonPath('path', str_replace('\\', '/', realpath($this->musicPath)));
     }
 

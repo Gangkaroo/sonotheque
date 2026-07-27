@@ -22,6 +22,8 @@ use App\Music\Scanning\FfprobeAudioMetadataProbe;
 use App\Music\Scanning\GetId3MetadataReader;
 use App\Music\Scanning\LibraryEntryRenamer;
 use App\Music\Scanning\LibraryFolderBrowser;
+use App\Music\Scanning\ScanDiscoveryManifest;
+use App\Music\Scanning\LibraryWatchSnapshotter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -80,6 +82,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->when(LibraryEntryRenamer::class)
             ->needs('$extensions')
             ->giveConfig('sonotheque.audio_extensions');
+        $this->app->when(LibraryWatchSnapshotter::class)
+            ->needs('$audioExtensions')
+            ->giveConfig('sonotheque.audio_extensions');
+        $this->app->when(ScanDiscoveryManifest::class)
+            ->needs('$directory')
+            ->giveConfig('sonotheque.scan_manifest_directory');
 
         $this->app->when(FfprobeAudioMetadataProbe::class)
             ->needs('$binary')

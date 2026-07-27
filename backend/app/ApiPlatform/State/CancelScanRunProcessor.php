@@ -8,10 +8,15 @@ use ApiPlatform\State\ProcessorInterface;
 use App\Enums\ScanStatus;
 use App\Models\ScanRun;
 use App\Models\ScanRunIssue;
+use App\Music\Scanning\LibraryActivityLogger;
 
 /** @implements ProcessorInterface<ScanRun, ScanRun> */
 class CancelScanRunProcessor implements ProcessorInterface
 {
+    public function __construct(private readonly LibraryActivityLogger $activityLogger)
+    {
+    }
+
     public function process(mixed $data, Operation $operation, array $uriVariables = [], array $context = []): ScanRun
     {
         $scanRun = ScanRun::findOrFail($data->id);
@@ -47,6 +52,14 @@ class CancelScanRunProcessor implements ProcessorInterface
                 'message' => $issue['message'],
                 'occurrence_count' => $issue['count'],
             ]);
+            $this->activityLogger->record(
+                source: 'scan',
+                severity: $issue['severity'],
+                code: $issue['code'],
+                message: $issue['message'],
+                scanRun: $scanRun,
+                count: $issue['count'],
+            );
             $scanRun->update([
                 'status' => ScanStatus::Failed,
                 'error_count' => $scanRun->error_count + 1,

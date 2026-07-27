@@ -27,7 +27,16 @@ const form = reactive({
   path: '',
   coverImagePaths: ['cover.jpg'],
   excludedDirectories: [] as string[],
+  watchEnabled: false,
+  watchPollIntervalMinutes: 5,
+  watchReconcileIntervalMinutes: 1440,
 })
+const watchPollIntervals = [1, 5, 15, 30, 60]
+const watchReconcileIntervals = [
+  { title: t('settings.watchReconcileSixHours'), value: 360 },
+  { title: t('settings.watchReconcileDaily'), value: 1440 },
+  { title: t('settings.watchReconcileWeekly'), value: 10080 },
+]
 
 watch(
   () => props.modelValue,
@@ -38,6 +47,9 @@ watch(
       path: props.root?.path ?? '',
       coverImagePaths: props.root?.coverImagePaths?.length ? [...props.root.coverImagePaths] : ['cover.jpg'],
       excludedDirectories: [...(props.root?.excludedDirectories ?? [])],
+      watchEnabled: props.root?.watchEnabled ?? false,
+      watchPollIntervalMinutes: props.root?.watchPollIntervalMinutes ?? 5,
+      watchReconcileIntervalMinutes: props.root?.watchReconcileIntervalMinutes ?? 1440,
     })
     clearErrors()
   },
@@ -64,6 +76,9 @@ async function save() {
     name: form.name,
     coverImagePaths: form.coverImagePaths.map((path) => path.trim()).filter(Boolean),
     excludedDirectories: [...form.excludedDirectories],
+    watchEnabled: form.watchEnabled,
+    watchPollIntervalMinutes: form.watchPollIntervalMinutes,
+    watchReconcileIntervalMinutes: form.watchReconcileIntervalMinutes,
   }
 
   try {
@@ -196,6 +211,33 @@ function removeExcludedFolder(path: string) {
         <div v-if="fieldErrors.excludedDirectories?.length" class="text-caption text-error mt-1">
           {{ fieldErrors.excludedDirectories.join(' ') }}
         </div>
+
+        <v-divider class="my-5" />
+        <v-switch
+          v-model="form.watchEnabled"
+          color="primary"
+          :label="t('settings.watchLibraryRoot')"
+          :hint="t('settings.watchLibraryRootHint')"
+          persistent-hint
+        />
+        <div v-if="form.watchEnabled" class="watch-settings mt-3">
+          <v-select
+            v-model="form.watchPollIntervalMinutes"
+            :items="watchPollIntervals"
+            :error-messages="fieldErrors.watchPollIntervalMinutes"
+            :label="t('settings.watchPollInterval')"
+            :hint="t('settings.watchPollIntervalHint')"
+            persistent-hint
+          />
+          <v-select
+            v-model="form.watchReconcileIntervalMinutes"
+            :items="watchReconcileIntervals"
+            :error-messages="fieldErrors.watchReconcileIntervalMinutes"
+            :label="t('settings.watchReconcileInterval')"
+            :hint="t('settings.watchReconcileIntervalHint')"
+            persistent-hint
+          />
+        </div>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
@@ -215,3 +257,17 @@ function removeExcludedFolder(path: string) {
     @select="selectExcludedFolder"
   />
 </template>
+
+<style scoped>
+.watch-settings {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 600px) {
+  .watch-settings {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -37,6 +37,21 @@ export interface PlaylistDetail extends PlaylistSummary {
   items: PlaylistItem[]
 }
 
+export interface PlaylistImportWarning {
+  line: number
+  path: string
+  code: 'outside_or_missing' | 'not_in_collection'
+  message: string
+}
+
+export interface PlaylistImportResult {
+  playlist: PlaylistSummary
+  totalEntries: number
+  importedCount: number
+  unresolvedCount: number
+  warnings: PlaylistImportWarning[]
+}
+
 export interface TrackPlaylistMembership {
   id: number
   name: string
@@ -399,6 +414,34 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       : playlist)
   }
 
+  async function importPlaylist(payload: {
+    path: string
+    name: string
+    folderId?: number | null
+  }) {
+    saving.value = true
+    error.value = null
+    try {
+      const result = await apiRequest<PlaylistImportResult>('/playlists/import', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      playlists.value = sortPlaylists([...playlists.value, result.playlist])
+      if (result.playlist.folder) {
+        folders.value = folders.value.map((folder) => folder.id === result.playlist.folder?.id
+          ? { ...folder, playlistCount: folder.playlistCount + 1 }
+          : folder)
+      }
+
+      return result
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   function addMembership(item: PlaylistItem, playlistId: number) {
     const trackId = item.track.id
     if (! (trackId in trackMemberships.value)) return
@@ -458,6 +501,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     createFolder,
     updateFolder,
     createPlaylist,
+    importPlaylist,
     updatePlaylist,
     deleteFolder,
     deletePlaylist,

@@ -58,6 +58,12 @@ class CreateLibraryRootProcessor implements ProcessorInterface
             'cover_image_paths' => $coverImagePaths,
             'excluded_directories' => $excludedDirectories ?: null,
             'enabled' => true,
+            'watch_enabled' => (bool) ($data->watch_enabled ?? false),
+            'watch_poll_interval_minutes' => (int) ($data->watch_poll_interval_minutes ?? 5),
+            'watch_reconcile_interval_minutes' => (int) (
+                $data->watch_reconcile_interval_minutes ?? 1440
+            ),
+            'watch_status' => ($data->watch_enabled ?? false) ? 'pending' : 'disabled',
         ]);
         $data->saveOrFail();
 

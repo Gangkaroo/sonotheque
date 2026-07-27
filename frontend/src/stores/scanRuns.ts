@@ -122,6 +122,10 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     return apiRequest<ScanIssueCollection>(`/scan_runs/${scanId}/issues`)
   }
 
+  async function loadOne(scanId: number) {
+    return normalize(await apiRequest<ScanRun>(`/scan_runs/${scanId}`))
+  }
+
   function latestForRoot(rootId: number) {
     return scans.value.find((scan) => scan.libraryRootId === rootId) ?? null
   }
@@ -149,6 +153,7 @@ export const useScanRunsStore = defineStore('scanRuns', () => {
     start,
     cancel,
     loadIssues,
+    loadOne,
     latestForRoot,
     activeForRoot,
     clear,

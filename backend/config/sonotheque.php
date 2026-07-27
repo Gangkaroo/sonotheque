@@ -8,7 +8,12 @@ $enrichmentCaBundle = env('ENRICHMENT_CA_BUNDLE') ?: env('LASTFM_CA_BUNDLE');
 
 return [
     'scan_memory_limit' => env('SCAN_MEMORY_LIMIT', '1024M'),
+    'scan_manifest_directory' => env(
+        'SCAN_MANIFEST_DIRECTORY',
+        storage_path('app/private/scan-manifests'),
+    ),
     'scan_stale_after_minutes' => (int) env('SCAN_STALE_AFTER_MINUTES', 15),
+    'library_activity_retention_days' => (int) env('LIBRARY_ACTIVITY_RETENTION_DAYS', 90),
     'counted_play_minimum_track_seconds' => (int) env('PLAY_STATISTICS_MINIMUM_TRACK_SECONDS', 30),
     'counted_play_maximum_threshold_seconds' => (int) env('PLAY_STATISTICS_MAXIMUM_THRESHOLD_SECONDS', 240),
     'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
@@ -169,6 +174,7 @@ return [
         'protected_paths' => [
             'api/folders*',
             'api/library_roots*',
+            'api/library-activity*',
             'api/scan_runs*',
             'api/settings*',
             'api/tracks/*/metadata*',
