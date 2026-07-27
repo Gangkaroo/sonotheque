@@ -23,7 +23,7 @@ Schedule::call(
 )
     ->name('sonotheque:library-watch')
     ->everyMinute()
-    ->withoutOverlapping(10);
+    ->withoutOverlapping(120);
 
 Schedule::call(static function (): void {
     $retentionDays = max(1, (int) config('sonotheque.library_activity_retention_days', 90));

@@ -586,9 +586,14 @@ imported. A subtree scan can only reconcile a move
 when both its old and new paths are inside that subtree; use a full-root scan for
 moves across subtree boundaries.
 
-The first successful scan after installing the fingerprint migration builds the
-baseline for existing files. A file moved before its old record has a baseline
-fingerprint cannot be reconciled retroactively.
+Normal scans fingerprint new and changed files but do not hash every unchanged
+legacy file because that would make routine scans unnecessarily expensive. The
+one-time legacy backfill uses the same audio-content fingerprinter and stores
+each completed result immediately, so it can be stopped and restarted without
+repeating finished work. The current development catalog has completed this
+maintenance pass; files whose audio stream cannot be identified remain
+unfingerprinted and are handled conservatively. A file moved before its old
+record receives a baseline fingerprint cannot be reconciled retroactively.
 
 ### Automatic Library Monitoring
 
@@ -605,6 +610,14 @@ change safely. Changes in several artists, top-level folder renames, artwork
 changes with uncertain ownership, and periodic reconciliations intentionally
 use a full-root scan. Active scans are never overlapped: detected changes remain
 pending and are checked again after the current scan finishes.
+
+The first check after monitoring is enabled establishes a directory snapshot
+and queues one complete reconciliation. A successful watcher scan then changes
+the root to Monitoring. Per-root database locking prevents concurrent scheduler
+passes from dispatching duplicate scans, and the scheduler overlap lock allows
+large snapshots up to two hours. Disabling monitoring while a watcher scan is
+being cancelled remains authoritative; completion cannot change the root back
+to Pending.
 
 This implementation uses portable polling instead of depending on Windows,
 Linux, Docker Desktop, or network-share notification semantics. A five-minute

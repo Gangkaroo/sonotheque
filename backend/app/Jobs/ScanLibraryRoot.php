@@ -40,11 +40,7 @@ class ScanLibraryRoot implements ShouldQueue
 
         if ($scanRun->status === ScanStatus::Completed) {
             if ($scanRun->trigger === ScanTrigger::Watcher) {
-                $scanRun->libraryRoot->update([
-                    'watch_status' => 'watching',
-                    'watch_last_scan_at' => now(),
-                    'watch_error' => null,
-                ]);
+                $this->completeWatcher($scanRun);
             }
 
             $activityLogger->record(
@@ -108,7 +104,19 @@ class ScanLibraryRoot implements ShouldQueue
             return;
         }
 
-        $scanRun->libraryRoot->watchDirectories()->delete();
+        $root = $scanRun->libraryRoot->refresh();
+        if (! $root->watch_enabled) {
+            $root->update([
+                'watch_status' => 'disabled',
+                'watch_checked_at' => null,
+                'watch_last_path' => null,
+                'watch_error' => null,
+            ]);
+
+            return;
+        }
+
+        $root->watchDirectories()->delete();
         $attributes = [
             'watch_status' => 'pending',
             'watch_checked_at' => null,
@@ -118,6 +126,27 @@ class ScanLibraryRoot implements ShouldQueue
             $attributes['watch_error'] = $error;
         }
 
-        $scanRun->libraryRoot->update($attributes);
+        $root->update($attributes);
+    }
+
+    private function completeWatcher(ScanRun $scanRun): void
+    {
+        $root = $scanRun->libraryRoot->refresh();
+        if (! $root->watch_enabled) {
+            $root->update([
+                'watch_status' => 'disabled',
+                'watch_checked_at' => null,
+                'watch_last_path' => null,
+                'watch_error' => null,
+            ]);
+
+            return;
+        }
+
+        $root->update([
+            'watch_status' => 'watching',
+            'watch_last_scan_at' => now(),
+            'watch_error' => null,
+        ]);
     }
 }

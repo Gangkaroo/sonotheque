@@ -8,6 +8,7 @@ use App\Jobs\ScanLibraryRoot as ScanLibraryRootJob;
 use App\Models\LibraryRoot;
 use App\Models\ScanRun;
 use App\Models\ScanRunIssue;
+use Illuminate\Support\Facades\DB;
 
 class ScanDispatcher
 {
@@ -36,26 +37,36 @@ class ScanDispatcher
             $subtreePath = null;
         }
 
-        $this->failStaleScans($root);
+        $scanRun = DB::transaction(function () use ($root, $trigger, $subtreePath): ScanRun {
+            $lockedRoot = LibraryRoot::query()
+                ->lockForUpdate()
+                ->findOrFail($root->id);
 
-        $active = $root->scanRuns()
-            ->whereIn('status', [ScanStatus::Pending->value, ScanStatus::Running->value])
-            ->latest('id')
-            ->first();
+            if (! $lockedRoot->enabled) {
+                throw new ScanDispatchException('The requested library root is disabled.');
+            }
 
-        if ($active !== null) {
-            throw new ScanDispatchException("Scan {$active->id} is already active for this library root.");
-        }
+            $this->failStaleScans($lockedRoot);
 
-        $scanRun = $root->scanRuns()->create([
-            'status' => ScanStatus::Pending,
-            'trigger' => $trigger,
-            'subtree_path' => $subtreePath,
-            'summary' => array_filter([
-                'phase' => 'queued',
-                'subtreePath' => $subtreePath,
-            ]),
-        ]);
+            $active = $lockedRoot->scanRuns()
+                ->whereIn('status', [ScanStatus::Pending->value, ScanStatus::Running->value])
+                ->latest('id')
+                ->first();
+
+            if ($active !== null) {
+                throw new ScanDispatchException("Scan {$active->id} is already active for this library root.");
+            }
+
+            return $lockedRoot->scanRuns()->create([
+                'status' => ScanStatus::Pending,
+                'trigger' => $trigger,
+                'subtree_path' => $subtreePath,
+                'summary' => array_filter([
+                    'phase' => 'queued',
+                    'subtreePath' => $subtreePath,
+                ]),
+            ]);
+        });
 
         ScanLibraryRootJob::dispatch($scanRun->id);
         $this->activityLogger->record(

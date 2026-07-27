@@ -8,6 +8,9 @@ use App\Jobs\ScanLibraryRoot;
 use App\Models\Library;
 use App\Models\LibraryActivityLog;
 use App\Models\LibraryRoot;
+use App\Models\ScanRun;
+use App\Music\Scanning\LibraryActivityLogger;
+use App\Music\Scanning\LibraryScanner;
 use App\Music\Scanning\LibraryWatchMonitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -92,6 +95,72 @@ class LibraryWatchMonitorTest extends TestCase
 
         $this->assertSame('pending', $root->fresh()->watch_status);
         $this->assertSame(1, $root->scanRuns()->count());
+    }
+
+    public function test_successful_initial_reconciliation_transitions_to_watching(): void
+    {
+        $root = $this->createRoot();
+        $monitor = $this->app->make(LibraryWatchMonitor::class);
+        $monitor->run();
+        $scan = $root->scanRuns()->sole();
+        $scanner = \Mockery::mock(LibraryScanner::class);
+        $scanner->shouldReceive('scan')
+            ->once()
+            ->andReturnUsing(function (ScanRun $scanRun) use ($root): void {
+                $scanRun->update([
+                    'status' => ScanStatus::Completed,
+                    'finished_at' => now(),
+                ]);
+                $root->update(['last_scanned_at' => now()]);
+            });
+
+        (new ScanLibraryRoot($scan->id))->handle(
+            $scanner,
+            $this->app->make(LibraryActivityLogger::class),
+        );
+
+        $this->assertSame('watching', $root->fresh()->watch_status);
+        $this->assertNotNull($root->fresh()->watch_last_scan_at);
+
+        $root->update(['watch_checked_at' => now()->subMinutes(10)]);
+        $monitor->run();
+
+        $this->assertSame(1, $root->scanRuns()->count());
+        $this->assertSame('watching', $root->fresh()->watch_status);
+    }
+
+    public function test_cancelled_watcher_scan_does_not_reenable_a_disabled_watcher(): void
+    {
+        $root = $this->createRoot();
+        $this->app->make(LibraryWatchMonitor::class)->run();
+        $scan = $root->scanRuns()->sole();
+        $root->watchDirectories()->delete();
+        $root->update([
+            'watch_enabled' => false,
+            'watch_status' => 'disabled',
+            'watch_checked_at' => null,
+        ]);
+        $scanner = \Mockery::mock(LibraryScanner::class);
+        $scanner->shouldReceive('scan')
+            ->once()
+            ->andReturnUsing(function (ScanRun $scanRun): void {
+                $scanRun->update([
+                    'status' => ScanStatus::Cancelled,
+                    'cancel_requested_at' => now(),
+                    'finished_at' => now(),
+                ]);
+            });
+
+        (new ScanLibraryRoot($scan->id))->handle(
+            $scanner,
+            $this->app->make(LibraryActivityLogger::class),
+        );
+
+        $root->refresh();
+        $this->assertFalse($root->watch_enabled);
+        $this->assertSame('disabled', $root->watch_status);
+        $this->assertNull($root->watch_checked_at);
+        $this->assertSame(0, $root->watchDirectories()->count());
     }
 
     private function createRoot(): LibraryRoot

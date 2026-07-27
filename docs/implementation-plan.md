@@ -555,7 +555,8 @@ Completed:
   import checkpoints that avoid repeated work for unchanged files
 - Optional per-root portable filesystem monitoring with configurable checks,
   targeted subtree scans, periodic full reconciliation, disconnected-root
-  preservation, and no overlapping scans
+  preservation, serialized per-root scan dispatch, durable disabled-state
+  handling, and no overlapping scans
 - Persistent cross-root library activity log for watcher events, scan lifecycle
   entries, warnings, and errors, with root/scan links, filters, pagination, and
   bounded retention
@@ -700,8 +701,6 @@ Open roadmap work:
   of listener controls from advanced diagnostics
 - Explicit persisted CPU/CUDA analyzer selection based on availability and
   benchmark results, plus remaining zero-overhead and failure-path coverage
-- Resumable low-priority fingerprint backfill for legacy media rows, kept
-  outside normal scans and independent of optional audio intelligence
 - Optional alternate configured destination for album playlist exports
 - Local collection assistant over guarded Sonotheque tools
 
@@ -854,9 +853,11 @@ into a general-purpose file manager.
   fingerprints during normal scans; missing legacy fingerprints are not
   backfilled inline because doing so makes routine scans prohibitively slow.
   (Complete for fingerprinted files)
-- Add a separately resumable, low-priority legacy fingerprint backfill that is
-  independent of optional audio intelligence and never delays a normal scan.
-  (Pending)
+- Run a one-time, restartable maintenance backfill for legacy media rows using
+  the existing audio-content fingerprinter. Completed rows are the checkpoint,
+  so restarting skips finished work. Do not add a permanent UI or normal-scan
+  behavior for this migration-only task. (Complete for the current catalog;
+  seven malformed files remain conservatively unfingerprinted)
 - Add backend path/scope/cleanup tests, frontend navigation/action tests, and an
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
   (Complete with PostgreSQL-backed API coverage, frontend store coverage, and
@@ -1424,8 +1425,11 @@ names, extension changes, excluded paths, and active scans. Full-root scans now
 reconcile unique external moves by a versioned audio-payload fingerprint while
 ignoring mutable ID3/APEv2 data; ambiguous duplicate matches remain conservative.
 Normal scans fingerprint new and changed files but deliberately do not backfill
-missing legacy fingerprints inline. A separate resumable legacy backfill remains
-pending, while subtree scans can only reconcile moves wholly inside their scope.
+missing legacy fingerprints inline. The one-time restartable maintenance
+backfill for the current catalog is complete; seven malformed files could not
+be fingerprinted and therefore remain ineligible for external move
+reconciliation. Subtree scans can only reconcile moves wholly inside their
+scope.
 Discovery now writes a validated temporary manifest during counting and reuses
 it for processing, avoiding a second filesystem walk; playback-tag imports are
 versioned so unchanged cached metadata is not parsed repeatedly. Moving between

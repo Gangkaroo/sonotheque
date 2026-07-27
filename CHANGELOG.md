@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Add optional per-root filesystem monitoring with consolidated activity logs,
+  targeted reconciliation scans, serialized dispatch, and durable watcher
+  state transitions.
+- Add resilient single-pass scan discovery manifests, versioned metadata
+  import checkpoints, and a one-time restartable fingerprint baseline for
+  reliable external move detection without slowing routine scans.
+- Add M3U/M3U8 playlist import, configurable export destinations, and optional
+  asynchronous playlist-file synchronization that mirrors playlist folders.
+- Add owned-copy records and exact Discogs release matching with cached edition
+  details and artwork.
+- Add disabled-by-default local audio intelligence with resumable collection
+  analysis, similarity review, CPU/CUDA benchmarking, and reusable
+  content-addressed analysis artifacts.
 - Add a root-scoped folder view with lazy directory navigation, virtualized
   large-folder rendering, file/folder playback and playlist actions, and safe
   subtree rescans.
