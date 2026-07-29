@@ -7,7 +7,14 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'runtime-common.ps1')
 
 try {
-    foreach ($service in @('frontend', 'scheduler', 'queue-worker', 'api')) {
+    foreach ($service in @(
+        'frontend',
+        'scheduler',
+        'queue-analysis',
+        'queue-scans',
+        'queue-default',
+        'api'
+    )) {
         if (Stop-ManagedProcess -Name $service) {
             Write-Host "Stopped managed service: $service"
         }

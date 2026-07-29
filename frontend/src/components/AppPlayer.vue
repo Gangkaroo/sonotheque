@@ -21,6 +21,7 @@ import {
   type TrackPlaybackSort,
 } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
+import { useStatisticsStore } from '@/stores/statistics'
 import { openExternalUrl } from '@/utils/externalLinks'
 import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
 import { releaseMediaSource } from '@/utils/mediaPlayback'
@@ -39,6 +40,7 @@ const enrichment = useOnlineEnrichmentStore()
 const player = usePlayerStore()
 const listenedPlayback = new PlaybackListenAccumulator(player.listenedPlaybackMs)
 const playlists = usePlaylistsStore()
+const statistics = useStatisticsStore()
 const audio = ref<HTMLAudioElement | null>(null)
 const playerCollapsed = ref(false)
 const draggedQueueIndex = ref<number | null>(null)
@@ -65,6 +67,7 @@ const lyricsContainer = ref<HTMLElement | null>(null)
 const artistDescriptionExpanded = ref(false)
 const albumDescriptionExpanded = ref(false)
 const reportedPlayKey = ref<string | null>(null)
+let nextPlayReportListenedMs = 0
 let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackHandoffRetryTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -214,6 +217,7 @@ watch(
     clearSeekFeedback()
     restoredTrackId.value = null
     reportedPlayKey.value = null
+    nextPlayReportListenedMs = 0
     listenedPlayback.reset(player.listenedPlaybackMs)
     currentTime.value = player.playbackPosition
     duration.value = 0
@@ -226,7 +230,6 @@ watch(
       void nextTick().then(() => schedulePlaybackHandoff(playKey))
     }
   },
-  { flush: 'sync' },
 )
 
 watch(
@@ -628,7 +631,7 @@ function maybeRecordCountedPlay() {
     MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS,
   ) * 1000
   const listenedMs = player.listenedPlaybackMs
-  if (listenedMs < requiredMs) return
+  if (listenedMs < requiredMs || listenedMs < nextPlayReportListenedMs) return
 
   reportedPlayKey.value = playKey
   const trackId = player.currentTrack.id
@@ -643,8 +646,18 @@ function maybeRecordCountedPlay() {
       sessionKey,
     }),
   }).then((result) => {
+    if (!result.counted) {
+      if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
+      nextPlayReportListenedMs = listenedMs + 1000
+      return
+    }
+
     player.markCurrentPlayCounted(sessionKey)
     catalog.updateTrackPlayStatistics(trackId, result.statistics)
+    statistics.markHistoryStale()
+  }).catch(() => {
+    if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
+    nextPlayReportListenedMs = listenedMs + 5000
   })
 }
 

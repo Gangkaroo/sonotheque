@@ -87,7 +87,11 @@ class PlaylistsController extends Controller
             ->with('folder:id,name')
             ->withCount(['items' => fn (Builder $items) => $items->whereHas(
                 'track',
-                fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+                fn (Builder $tracks) => $this->libraryRootScope->tracks(
+                    $tracks,
+                    $libraryRootId,
+                    availableOnly: false,
+                ),
             )])
             ->orderByRaw('playlist_folders.id is null')
             ->orderByRaw('lower(playlist_folders.name)')
@@ -131,7 +135,11 @@ class PlaylistsController extends Controller
             ->whereIn('playlist_items.track_id', $trackIds)
             ->whereHas(
                 'track',
-                fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+                fn (Builder $tracks) => $this->libraryRootScope->tracks(
+                    $tracks,
+                    $libraryRootId,
+                    availableOnly: false,
+                ),
             )
             ->groupBy([
                 'playlist_items.track_id',
@@ -171,16 +179,28 @@ class PlaylistsController extends Controller
         $playlist->load([
             'folder:id,name',
             'items' => fn ($items) => $items
-                ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
+                ->whereHas(
+                    'track',
+                    fn (Builder $tracks) => $this->libraryRootScope->tracks(
+                        $tracks,
+                        $libraryRootId,
+                        availableOnly: false,
+                    ),
+                )
                 ->with([
                     'track.album:id,title,original_release_year,artwork_id',
                     'track.album.personalMetadata',
                     'track.album.ownedCopies',
                     'track.artists:id,name',
+                    'track.mediaFile:id,library_root_id,status',
                 ]),
         ])->loadCount(['items' => fn (Builder $items) => $items->whereHas(
             'track',
-            fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+            fn (Builder $tracks) => $this->libraryRootScope->tracks(
+                $tracks,
+                $libraryRootId,
+                availableOnly: false,
+            ),
         )]);
 
         return response()->json($this->playlistDetailPayload($playlist));
@@ -445,7 +465,13 @@ class PlaylistsController extends Controller
 
         return PlaylistItem::query()
             ->whereIn('id', $items->pluck('id'))
-            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.album.ownedCopies', 'track.artists:id,name'])
+            ->with([
+                'track.album:id,title,original_release_year,artwork_id',
+                'track.album.personalMetadata',
+                'track.album.ownedCopies',
+                'track.artists:id,name',
+                'track.mediaFile:id,library_root_id,status',
+            ])
             ->orderBy('position')
             ->get();
     }

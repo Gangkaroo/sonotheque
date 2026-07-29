@@ -18,6 +18,7 @@ class RunAudioAnalyzerBenchmark implements ShouldQueue
 
     public function __construct(public readonly int $audioAnalyzerBenchmarkId)
     {
+        $this->onQueue('analysis');
     }
 
     public function handle(AudioAnalyzerBenchmarkRunner $runner): void

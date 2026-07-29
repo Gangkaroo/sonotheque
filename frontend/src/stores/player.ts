@@ -185,6 +185,13 @@ export const usePlayerStore = defineStore('player', () => {
     queueTracks(album.tracks, 'album')
   }
 
+  function refreshQueuedTracks(tracks: PlayableTrack[]) {
+    const refreshedById = new Map(tracks.map((track) => [track.id, track]))
+    if (!queue.value.some((track) => refreshedById.has(track.id))) return
+
+    queue.value = queue.value.map((track) => refreshedById.get(track.id) ?? track)
+  }
+
   function playQueueIndex(index: number) {
     if (!Number.isInteger(index) || index < 0 || index >= queue.value.length) return
 
@@ -488,6 +495,7 @@ export const usePlayerStore = defineStore('player', () => {
     queueTrack,
     continueWithTracks,
     queueAlbum,
+    refreshQueuedTracks,
     playQueueIndex,
     removeQueuedTrack,
     moveQueuedTrack,

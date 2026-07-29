@@ -35,6 +35,7 @@ use App\Http\Controllers\SimilarTracksController;
 use App\Http\Controllers\SystemHealthController;
 use App\Http\Controllers\TrackMetadataController;
 use App\Http\Controllers\TrackPlayStatisticsController;
+use App\Http\Controllers\TrashController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/catalog/artists', [CatalogBrowseController::class, 'artists']);
@@ -176,6 +177,9 @@ Route::get('/enrichment/tracks/{track}/artist-image-information', [OnlineEnrichm
 Route::get('/enrichment/tracks/{track}/lyrics', [OnlineEnrichmentController::class, 'lyrics']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);
+Route::get('/trash/tracks', [TrashController::class, 'index']);
+Route::delete('/trash/tracks', [TrashController::class, 'destroyMany']);
+Route::delete('/trash/tracks/{track}', [TrashController::class, 'destroy']);
 Route::get('/favorites', [FavoritesController::class, 'ids']);
 Route::get('/favorites/tracks', [FavoritesController::class, 'tracks']);
 Route::post('/favorites/tracks/{track}', [FavoritesController::class, 'addTrack']);

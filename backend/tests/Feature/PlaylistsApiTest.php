@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\MediaFileStatus;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
@@ -111,6 +112,27 @@ class PlaylistsApiTest extends TestCase
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('items.0.track.title', 'First track')
             ->assertJsonPath('items.0.position', 0);
+    }
+
+    public function test_missing_tracks_remain_visible_but_unavailable_in_playlists(): void
+    {
+        [, , $track] = $this->createCatalog();
+        $playlist = Playlist::create(['name' => 'Retained tracks']);
+        $playlist->items()->create([
+            'track_id' => $track->id,
+            'position' => 0,
+        ]);
+        $track->mediaFile()->update(['status' => MediaFileStatus::Missing]);
+
+        $this->getJson("/api/playlists/{$playlist->id}")
+            ->assertOk()
+            ->assertJsonPath('trackCount', 1)
+            ->assertJsonPath('items.0.track.id', $track->id)
+            ->assertJsonPath('items.0.track.available', false);
+
+        $this->getJson('/api/catalog/tracks')
+            ->assertOk()
+            ->assertJsonPath('total', 1);
     }
 
     public function test_playlists_are_ordered_by_folder_then_name_with_unfiled_playlists_last(): void

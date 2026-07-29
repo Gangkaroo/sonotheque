@@ -31,6 +31,11 @@ export const useStatisticsStore = defineStore('statistics', () => {
   const trackRecentPlaysLoading = ref(false)
   const error = ref<string | null>(null)
   const trackRecentPlaysError = ref<string | null>(null)
+  const historyRevision = ref(0)
+
+  function markHistoryStale() {
+    historyRevision.value += 1
+  }
 
   async function loadRecentPlays(page = 1) {
     recentPlaysLoading.value = true
@@ -91,10 +96,12 @@ export const useStatisticsStore = defineStore('statistics', () => {
     trackRecentPlaysLoading,
     error,
     trackRecentPlaysError,
+    historyRevision,
     loadRecentPlays,
     loadMostPlayedTracks,
     loadMostPlayedAlbums,
     loadTrackRecentPlays,
+    markHistoryStale,
   }
 })
 

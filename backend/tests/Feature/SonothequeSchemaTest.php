@@ -37,8 +37,11 @@ class SonothequeSchemaTest extends TestCase
         $this->assertFalse(Schema::hasColumn('library_roots', 'cover_image_path'));
         $this->assertTrue(Schema::hasColumn('scan_runs', 'files_removed'));
         $this->assertTrue(Schema::hasColumn('scan_runs', 'subtree_path'));
+        $this->assertTrue(Schema::hasColumn('scan_runs', 'scan_paths'));
+        $this->assertTrue(Schema::hasColumn('scan_runs', 'missing_paths'));
         $this->assertTrue(Schema::hasColumn('library_roots', 'watch_enabled'));
         $this->assertTrue(Schema::hasColumn('library_roots', 'watch_status'));
+        $this->assertTrue(Schema::hasColumn('library_watch_directories', 'file_signature'));
         $this->assertTrue(Schema::hasColumn('media_files', 'metadata_parser_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
@@ -67,6 +70,8 @@ class SonothequeSchemaTest extends TestCase
             ['library_roots', 'exclude_patterns'],
             ['library_roots', 'cover_image_paths'],
             ['library_roots', 'excluded_directories'],
+            ['scan_runs', 'scan_paths'],
+            ['scan_runs', 'missing_paths'],
             ['scan_runs', 'summary'],
             ['albums', 'metadata'],
             ['media_files', 'raw_metadata'],

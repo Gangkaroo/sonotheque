@@ -138,7 +138,15 @@ try {
         }
     }
     else {
-        Invoke-PackagedCompose -Arguments @('stop', 'web', 'backend', 'queue', 'scheduler')
+        Invoke-PackagedCompose -Arguments @(
+            'stop',
+            'web',
+            'backend',
+            'queue-default',
+            'queue-scans',
+            'queue-analysis',
+            'scheduler'
+        )
     }
 
     if ($appKeyDiffers) {
@@ -182,7 +190,16 @@ try {
             & (Join-Path $PSScriptRoot 'start.ps1') @arguments
         }
         elseif ($Mode -eq 'Packaged' -and $packagedWasRunning) {
-            Invoke-PackagedCompose -Arguments @('up', '-d', 'backend', 'queue', 'scheduler', 'web')
+            Invoke-PackagedCompose -Arguments @(
+                'up',
+                '-d',
+                'backend',
+                'queue-default',
+                'queue-scans',
+                'queue-analysis',
+                'scheduler',
+                'web'
+            )
         }
     }
 

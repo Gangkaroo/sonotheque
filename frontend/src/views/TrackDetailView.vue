@@ -320,6 +320,7 @@ async function pollMetadataEdit() {
       metadataSuccess.value = true
       catalog.invalidateMetrics()
       await catalog.loadTrack(trackId.value)
+      if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
       return
     }
     if (metadataJob.value.status === 'failed') {

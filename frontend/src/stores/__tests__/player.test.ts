@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { watch } from 'vue'
+import { nextTick, watch } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AlbumDetail, Track } from '@/stores/catalog'
@@ -25,6 +25,13 @@ const tracks: Track[] = [
     artists: [{ id: 100, name: 'Artist' }],
   },
 ]
+const emptyAlbumTechnical = {
+  fileTypes: [],
+  bitrateMinimum: null,
+  bitrateMaximum: null,
+  bitrateModes: [],
+  encoderSettings: [],
+}
 
 describe('player store', () => {
   beforeEach(() => {
@@ -54,14 +61,77 @@ describe('player store', () => {
     expect(player.playbackState).toBe('loading')
   })
 
+  it('refreshes queued metadata without restarting playback', () => {
+    const player = usePlayerStore()
+    player.playTrack(tracks[0], tracks)
+    const sessionKey = player.playbackSessionKey
+
+    player.refreshQueuedTracks([{
+      ...tracks[0],
+      title: 'Updated title',
+      album: { id: 10, title: 'Updated album' },
+    }])
+
+    expect(player.currentTrack?.title).toBe('Updated title')
+    expect(player.currentTrack?.album?.title).toBe('Updated album')
+    expect(player.queue[1].title).toBe('Second')
+    expect(player.playbackSessionKey).toBe(sessionKey)
+  })
+
+  it('publishes one settled playback identity when replacing an album queue', async () => {
+    const player = usePlayerStore()
+    const identities: string[] = []
+    watch(
+      () => `${player.currentTrack?.id ?? 'none'}:${player.playbackSessionKey}`,
+      identity => identities.push(identity),
+    )
+    player.playAlbum({
+      id: 10,
+      title: 'Album',
+      primaryArtist: { id: 100, name: 'Artist' },
+      libraryRoot: null,
+      trackCount: tracks.length,
+      personalMetadata: { hasPhysicalCopy: false },
+      genres: [],
+      technical: emptyAlbumTechnical,
+      tracks,
+    })
+    await nextTick()
+    identities.length = 0
+
+    const nextTrack: Track = {
+      id: 3,
+      title: 'Next album',
+      streamUrl: '/api/tracks/3/stream',
+      album: { id: 11, title: 'Next album' },
+      artists: [{ id: 100, name: 'Artist' }],
+    }
+    player.playAlbum({
+      id: 11,
+      title: 'Next album',
+      primaryArtist: { id: 100, name: 'Artist' },
+      libraryRoot: null,
+      trackCount: 1,
+      personalMetadata: { hasPhysicalCopy: false },
+      genres: [],
+      technical: emptyAlbumTechnical,
+      tracks: [nextTrack],
+    })
+    await nextTick()
+
+    expect(identities).toEqual([`${nextTrack.id}:${player.playbackSessionKey}`])
+  })
+
   it('loads and plays an album by id', async () => {
     const album: AlbumDetail = {
       id: 10,
       title: 'Album',
       primaryArtist: { id: 100, name: 'Artist' },
+      libraryRoot: null,
       trackCount: tracks.length,
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
+      technical: emptyAlbumTechnical,
       tracks,
     }
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(album), { status: 200 }))
@@ -88,18 +158,22 @@ describe('player store', () => {
       id: 10,
       title: 'Album',
       primaryArtist: { id: 100, name: 'Artist' },
+      libraryRoot: null,
       trackCount: 1,
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
+      technical: emptyAlbumTechnical,
       tracks: [tracks[0]],
     }
     const nextAlbum: AlbumDetail = {
       id: 11,
       title: 'Scoped next album',
       primaryArtist: { id: 100, name: 'Artist' },
+      libraryRoot: null,
       trackCount: 1,
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
+      technical: emptyAlbumTechnical,
       tracks: [nextTrack],
     }
     const fetchMock = vi.fn()
@@ -392,6 +466,30 @@ describe('player store', () => {
     expect(restoredPlayer.playbackStartedAt).toBe(playbackStartedAt)
     expect(restoredPlayer.isPlaying).toBe(true)
     expect(restoredPlayer.playbackState).toBe('loading')
+  })
+
+  it('preserves accumulated listening across multiple page refreshes', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-28T12:00:00Z'))
+    const player = usePlayerStore()
+
+    player.playTrack(tracks[0], tracks, 'album')
+    const sessionKey = player.playbackSessionKey
+    vi.advanceTimersByTime(60_000)
+    player.setListenedPlaybackMs(30_000)
+
+    setActivePinia(createPinia())
+    const firstRefresh = usePlayerStore()
+    expect(firstRefresh.playbackSessionKey).toBe(sessionKey)
+    expect(firstRefresh.listenedPlaybackMs).toBe(30_000)
+
+    vi.advanceTimersByTime(60_000)
+    firstRefresh.setListenedPlaybackMs(70_000)
+
+    setActivePinia(createPinia())
+    const secondRefresh = usePlayerStore()
+    expect(secondRefresh.playbackSessionKey).toBe(sessionKey)
+    expect(secondRefresh.listenedPlaybackMs).toBe(70_000)
   })
 
   it('resets accumulated listening time for a new playback session', () => {

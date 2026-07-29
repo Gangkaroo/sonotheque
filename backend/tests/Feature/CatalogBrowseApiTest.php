@@ -140,6 +140,17 @@ class CatalogBrowseApiTest extends TestCase
     {
         [$artist, $album, $track] = $this->createCatalog();
         $track->update(['comment' => 'Album comment']);
+        $track->mediaFile->update([
+            'container' => 'mp3',
+            'codec' => 'mp3',
+            'bitrate' => 320000,
+            'raw_metadata' => [
+                'audio' => [
+                    'bitrate_mode' => 'cbr',
+                    'encoder_options' => '-b 320',
+                ],
+            ],
+        ]);
         $artwork = Artwork::create([
             'source_type' => ArtworkSource::Folder,
             'source_relative_path' => 'Cover/Front.jpg',
@@ -161,6 +172,8 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('title', 'Album')
             ->assertJsonPath('primaryArtist.id', $artist->id)
             ->assertJsonPath('primaryArtist.name', 'Artist')
+            ->assertJsonPath('libraryRoot.id', $album->library_root_id)
+            ->assertJsonPath('libraryRoot.name', 'Music')
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('artworkThumbnailUrl', "/api/artwork/{$artwork->id}/thumbnail")
             ->assertJsonPath('artworkUrl', "/api/albums/{$album->id}/artwork/original")
@@ -168,6 +181,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('artworkHeight', 1200)
             ->assertJsonPath('genres.0.id', Genre::where('name', 'Rock')->value('id'))
             ->assertJsonPath('genres.0.name', 'Rock')
+            ->assertJsonPath('technical.fileTypes.0', 'MP3')
+            ->assertJsonPath('technical.bitrateMinimum', 320000)
+            ->assertJsonPath('technical.bitrateMaximum', 320000)
+            ->assertJsonPath('technical.bitrateModes.0', 'cbr')
+            ->assertJsonPath('technical.encoderSettings.0', '-b 320')
             ->assertJsonPath('tracks.0.id', $track->id)
             ->assertJsonPath('tracks.0.comment', 'Album comment')
             ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$track->id}/stream")

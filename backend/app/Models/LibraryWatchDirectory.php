@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'relative_path',
     'relative_path_hash',
     'signature',
+    'file_signature',
     'artwork_signature',
 ])]
 class LibraryWatchDirectory extends Model

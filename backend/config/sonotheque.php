@@ -177,6 +177,7 @@ return [
             'api/library-activity*',
             'api/scan_runs*',
             'api/settings*',
+            'api/trash*',
             'api/tracks/*/metadata*',
             'api/albums/*/metadata*',
             'api/albums/*/personal-metadata',

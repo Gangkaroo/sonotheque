@@ -123,7 +123,8 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         Queue::assertPushed(
             RunAudioAnalyzerBenchmark::class,
             fn (RunAudioAnalyzerBenchmark $job): bool => $job->audioAnalyzerBenchmarkId
-                === $benchmark->id,
+                === $benchmark->id
+                && $job->queue === 'analysis',
         );
 
         $this->postJson(
@@ -207,7 +208,8 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertSame('fingerprinting', AudioAnalysisRun::findOrFail($runId)->status);
         Queue::assertPushed(
             PrepareAudioAnalysisRun::class,
-            fn (PrepareAudioAnalysisRun $job): bool => $job->audioAnalysisRunId === $runId,
+            fn (PrepareAudioAnalysisRun $job): bool => $job->audioAnalysisRunId === $runId
+                && $job->queue === 'analysis',
         );
         Queue::assertNotPushed(RunAudioAnalysis::class);
     }
@@ -263,7 +265,8 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         );
         Queue::assertPushed(
             RunAudioAnalysis::class,
-            fn (RunAudioAnalysis $job): bool => $job->audioAnalysisRunId === $run->id,
+            fn (RunAudioAnalysis $job): bool => $job->audioAnalysisRunId === $run->id
+                && $job->queue === 'analysis',
         );
         $this->postJson("/api/settings/audio-intelligence/runs/{$run->id}/resume")
             ->assertStatus(409);
@@ -357,7 +360,8 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertSame(60, $run->items()->distinct()->count('track_id'));
         Queue::assertPushed(
             PrepareAudioAnalysisRun::class,
-            fn (PrepareAudioAnalysisRun $job): bool => $job->audioAnalysisRunId === $runId,
+            fn (PrepareAudioAnalysisRun $job): bool => $job->audioAnalysisRunId === $runId
+                && $job->queue === 'analysis',
         );
 
         $this->postJson('/api/settings/audio-intelligence/expansions', [

@@ -2,12 +2,15 @@
 
 namespace App\Support;
 
+use App\Enums\MediaFileStatus;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
+use App\Models\MediaFile;
 use App\Models\OwnedAlbumCopy;
 use App\Models\Track;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 class CatalogPayloads
 {
@@ -46,16 +49,37 @@ class CatalogPayloads
     {
         $album->load([
             'primaryArtist:id,name',
+            'libraryRoot:id,name',
             'artwork:id,width,height',
             'personalMetadata',
             'ownedCopies',
             'tracks' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'comment', 'album_id'])
-                ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'genres:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
+                ->whereHas(
+                    'mediaFile',
+                    fn ($query) => $query->where('status', MediaFileStatus::Available->value),
+                )
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'comment', 'album_id', 'media_file_id'])
+                ->with([
+                    'album:id,title,original_release_year,artwork_id',
+                    'album.personalMetadata',
+                    'album.ownedCopies',
+                    'artists:id,name',
+                    'genres:id,name',
+                    'playStatistic:track_id,play_count,first_played_at,last_played_at',
+                    'mediaFile' => fn ($query) => $query
+                        ->select(['id', 'relative_path', 'container', 'codec', 'bitrate', 'status'])
+                        ->selectRaw("raw_metadata #>> '{audio,bitrate_mode}' AS bitrate_mode")
+                        ->selectRaw("COALESCE(raw_metadata #>> '{audio,encoder_options}', raw_metadata #>> '{audio,streams,0,encoder_options}') AS encoder_settings"),
+                ])
                 ->orderBy('disc_number')
                 ->orderBy('track_number')
                 ->orderBy('id'),
-        ])->loadCount('tracks');
+        ])->loadCount([
+            'tracks' => fn ($query) => $query->whereHas(
+                'mediaFile',
+                fn ($query) => $query->where('status', MediaFileStatus::Available->value),
+            ),
+        ]);
         $genres = $album->tracks
             ->flatMap(fn (Track $track) => $track->genres)
             ->unique('id')
@@ -68,10 +92,15 @@ class CatalogPayloads
             'artworkUrl' => $album->artwork_id ? "/api/albums/{$album->id}/artwork/original" : null,
             'artworkWidth' => $album->artwork?->width,
             'artworkHeight' => $album->artwork?->height,
+            'libraryRoot' => $album->libraryRoot ? [
+                'id' => $album->libraryRoot->id,
+                'name' => $album->libraryRoot->name,
+            ] : null,
             'genres' => $genres->map(fn (Genre $genre) => [
                 'id' => $genre->id,
                 'name' => $genre->name,
             ])->values(),
+            'technical' => $this->albumTechnicalSummary($album),
             'tracks' => $album->tracks->map(fn (Track $track) => [
                 ...$this->trackSummary($track),
                 'comment' => $track->comment,
@@ -82,9 +111,13 @@ class CatalogPayloads
     /** @return array<string, mixed> */
     public function trackSummary(Track $track): array
     {
+        $available = ! $track->relationLoaded('mediaFile')
+            || $track->mediaFile?->status === MediaFileStatus::Available;
+
         return [
             'id' => $track->id,
             'title' => $track->title,
+            'available' => $available,
             'streamUrl' => "/api/tracks/{$track->id}/stream",
             'durationMs' => $track->duration_ms,
             'trackNumber' => $track->track_number,
@@ -205,6 +238,59 @@ class CatalogPayloads
             'firstPlayedAt' => $statistics?->first_played_at?->toJSON(),
             'lastPlayedAt' => $statistics?->last_played_at?->toJSON(),
         ];
+    }
+
+    /**
+     * @return array{
+     *     fileTypes: list<string>,
+     *     bitrateMinimum: ?int,
+     *     bitrateMaximum: ?int,
+     *     bitrateModes: list<string>,
+     *     encoderSettings: list<string>
+     * }
+     */
+    private function albumTechnicalSummary(Album $album): array
+    {
+        $files = $album->tracks
+            ->map(fn (Track $track) => $track->mediaFile)
+            ->filter()
+            ->values();
+        $bitrates = $files
+            ->pluck('bitrate')
+            ->filter(fn (mixed $bitrate): bool => is_int($bitrate) && $bitrate > 0);
+
+        return [
+            'fileTypes' => $this->distinctTechnicalValues(
+                $files->map(fn (MediaFile $file): ?string => $this->fileType($file)),
+            ),
+            'bitrateMinimum' => $bitrates->min(),
+            'bitrateMaximum' => $bitrates->max(),
+            'bitrateModes' => $this->distinctTechnicalValues(
+                $files->map(fn (MediaFile $file): ?string => $this->metadataText($file->getAttribute('bitrate_mode'))),
+            ),
+            'encoderSettings' => $this->distinctTechnicalValues(
+                $files->map(fn (MediaFile $file): ?string => $this->metadataText($file->getAttribute('encoder_settings'))),
+            ),
+        ];
+    }
+
+    private function fileType(MediaFile $file): ?string
+    {
+        $extension = pathinfo($file->relative_path, PATHINFO_EXTENSION);
+        $value = $extension !== '' ? $extension : ($file->container ?? $file->codec);
+
+        return $value ? mb_strtoupper($value) : null;
+    }
+
+    /** @return list<string> */
+    private function distinctTechnicalValues(Collection $values): array
+    {
+        return $values
+            ->filter()
+            ->unique(fn (string $value): string => mb_strtolower($value))
+            ->sortBy(fn (string $value): string => mb_strtolower($value), SORT_NATURAL)
+            ->values()
+            ->all();
     }
 
     private function metadataText(mixed $value): ?string

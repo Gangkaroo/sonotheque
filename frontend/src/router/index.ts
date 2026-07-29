@@ -14,6 +14,7 @@ export const router = createRouter({
     { path: '/tracks/:id', name: 'track-detail', component: () => import('@/views/TrackDetailView.vue') },
     { path: '/folders', name: 'folders', component: () => import('@/views/FoldersView.vue') },
     { path: '/history', name: 'history', component: () => import('@/views/HistoryView.vue') },
+    { path: '/trash', name: 'trash', component: () => import('@/views/TrashView.vue') },
     { path: '/playlists', name: 'playlists', component: () => import('@/views/PlaylistsView.vue') },
     { path: '/playlists/:id', name: 'playlist-detail', component: () => import('@/views/PlaylistDetailView.vue') },
     { path: '/favorites', name: 'favorites', component: () => import('@/views/FavoritesView.vue') },

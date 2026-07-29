@@ -23,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'status',
     'trigger',
     'subtree_path',
+    'scan_paths',
+    'missing_paths',
     'files_discovered',
     'files_processed',
     'files_added',
@@ -93,6 +95,8 @@ class ScanRun extends Model
             'started_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'cancel_requested_at' => 'immutable_datetime',
+            'scan_paths' => 'array',
+            'missing_paths' => 'array',
             'summary' => 'array',
         ];
     }

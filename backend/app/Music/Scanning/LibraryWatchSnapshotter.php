@@ -41,6 +41,7 @@ class LibraryWatchSnapshotter
      *     relative_path: string,
      *     relative_path_hash: string,
      *     signature: string,
+     *     file_signature: string,
      *     artwork_signature: string
      * }>  $rows
      */
@@ -60,6 +61,7 @@ class LibraryWatchSnapshotter
         }
 
         $tokens = [];
+        $fileTokens = [];
         $artworkTokens = [];
 
         foreach ($iterator as $entry) {
@@ -94,6 +96,7 @@ class LibraryWatchSnapshotter
 
                 if (in_array($extension, $this->audioExtensions, true)) {
                     $tokens[] = 'a:'.$token;
+                    $fileTokens[] = $token;
                 } elseif (in_array($extension, self::ARTWORK_EXTENSIONS, true)) {
                     $tokens[] = 'i:'.$token;
                     $artworkTokens[] = $token;
@@ -107,12 +110,14 @@ class LibraryWatchSnapshotter
         }
 
         sort($tokens, SORT_STRING);
+        sort($fileTokens, SORT_STRING);
         sort($artworkTokens, SORT_STRING);
         $relativePath = $this->relativePath($directory, $rootPath);
         $rows[] = [
             'relative_path' => $relativePath,
             'relative_path_hash' => hash('sha256', $this->comparisonPath($relativePath)),
             'signature' => hash('sha256', implode("\n", $tokens)),
+            'file_signature' => hash('sha256', implode("\n", $fileTokens)),
             'artwork_signature' => hash('sha256', implode("\n", $artworkTokens)),
         ];
     }

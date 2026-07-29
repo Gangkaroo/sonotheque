@@ -19,6 +19,8 @@ class TrackPlayStatisticsController extends Controller
 
     private const int MAX_LISTENED_WALL_CLOCK_OVERFLOW_MS = 5000;
 
+    private const int MAX_REPORTED_DURATION_DIFFERENCE_MS = 5000;
+
     public function store(Request $request, Track $track): JsonResponse
     {
         $validated = $request->validate([
@@ -30,7 +32,10 @@ class TrackPlayStatisticsController extends Controller
         ]);
 
         $listenedMs = (int) $validated['listenedMs'];
-        $durationMs = $track->duration_ms ?? ($validated['durationMs'] ?? null);
+        $durationMs = $this->playbackDurationMs(
+            $track->duration_ms,
+            $validated['durationMs'] ?? null,
+        );
         $playbackStartedAt = isset($validated['playedAt'])
             ? Carbon::parse($validated['playedAt'])
             : null;
@@ -183,6 +188,21 @@ class TrackPlayStatisticsController extends Controller
         $remainingPlaybackMs = max(0, ($durationMs ?? $listenedMs) - $listenedMs);
 
         return $idleDelaySeconds + (int) ceil($remainingPlaybackMs / 1000);
+    }
+
+    private function playbackDurationMs(?int $catalogDurationMs, ?int $reportedDurationMs): ?int
+    {
+        if ($catalogDurationMs === null) {
+            return $reportedDurationMs;
+        }
+        if ($reportedDurationMs === null) {
+            return $catalogDurationMs;
+        }
+
+        return abs($catalogDurationMs - $reportedDurationMs)
+            <= self::MAX_REPORTED_DURATION_DIFFERENCE_MS
+                ? $reportedDurationMs
+                : $catalogDurationMs;
     }
 
     /** @return array{playCount: int, firstPlayedAt: ?string, lastPlayedAt: ?string} */

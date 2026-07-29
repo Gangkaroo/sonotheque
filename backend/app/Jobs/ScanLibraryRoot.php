@@ -21,6 +21,7 @@ class ScanLibraryRoot implements ShouldQueue
 
     public function __construct(public readonly int $scanRunId)
     {
+        $this->onQueue('scans');
     }
 
     public function handle(
@@ -66,6 +67,18 @@ class ScanLibraryRoot implements ShouldQueue
                 severity: 'warning',
                 code: 'scan_cancelled',
                 message: 'The library scan was cancelled.',
+                scanRun: $scanRun,
+                path: $scanRun->subtree_path,
+            );
+        } elseif ($scanRun->status === ScanStatus::Failed) {
+            $message = (string) ($scanRun->summary['error'] ?? 'The library scan failed.');
+            $this->resetWatcher($scanRun, $message);
+
+            $activityLogger->record(
+                source: $source,
+                severity: 'error',
+                code: 'scan_failed',
+                message: $message,
                 scanRun: $scanRun,
                 path: $scanRun->subtree_path,
             );

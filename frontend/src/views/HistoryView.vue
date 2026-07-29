@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
@@ -58,6 +58,15 @@ onMounted(() => {
   loadMostPlayedTrackPage()
   loadMostPlayedAlbumPage()
 })
+
+watch(
+  () => statistics.historyRevision,
+  () => {
+    if (activeTab.value === 'recent') loadRecentPage()
+    if (activeTab.value === 'most-played-tracks') loadMostPlayedTrackPage()
+    if (activeTab.value === 'most-played-albums') loadMostPlayedAlbumPage()
+  },
+)
 </script>
 
 <template>

@@ -201,7 +201,10 @@ class CatalogBrowseController extends Controller
     {
         $libraryRootId = $this->libraryRootScope->id($request);
         abort_unless(
-            $this->libraryRootScope->tracks(Track::query(), $libraryRootId)->whereKey($track->id)->exists(),
+            $this->libraryRootScope
+                ->tracks(Track::query(), $libraryRootId, availableOnly: false)
+                ->whereKey($track->id)
+                ->exists(),
             404,
         );
 

@@ -302,6 +302,7 @@ class LibraryScannerTest extends TestCase
 
         $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
         $this->assertSame(30, $scan->fresh()->files_processed);
+        $this->assertSame(29, $scan->fresh()->summary['unchangedFilesFastTracked']);
         $this->assertLessThanOrEqual(11, $scanRunQueries);
         $this->assertSame(30, $this->metadataReader->calls);
     }
@@ -368,7 +369,7 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(1, $scan->fresh()->files_processed);
     }
 
-    public function test_scanner_removes_files_and_tracks_when_they_disappear(): void
+    public function test_scanner_marks_missing_files_unavailable_without_deleting_tracks(): void
     {
         $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
         $remainingTrackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'02.mp3';
@@ -384,10 +385,13 @@ class LibraryScannerTest extends TestCase
         $this->app->make(LibraryScanner::class)->scan($scan);
 
         $this->assertSame(1, $scan->fresh()->files_removed);
-        $this->assertDatabaseMissing(MediaFile::class, ['relative_path' => 'Bjoerk/Debut/01.mp3']);
-        $this->assertDatabaseCount(MediaFile::class, 1);
-        $this->assertDatabaseCount(Track::class, 1);
-        $this->assertSame('files_removed', $scan->fresh()->summary['issues'][0]['code']);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Bjoerk/Debut/01.mp3',
+            'status' => MediaFileStatus::Missing->value,
+        ]);
+        $this->assertDatabaseCount(MediaFile::class, 2);
+        $this->assertDatabaseCount(Track::class, 2);
+        $this->assertSame('files_unavailable', $scan->fresh()->summary['issues'][0]['code']);
     }
 
     public function test_scanner_preserves_catalog_identity_when_a_file_moves_and_its_id3_tags_change(): void
@@ -430,6 +434,135 @@ class LibraryScannerTest extends TestCase
         $this->assertDatabaseHas(FavoriteTrack::class, ['track_id' => $track->id]);
     }
 
+    public function test_scanner_restores_missing_track_and_album_identity_in_another_root(): void
+    {
+        $sourcePath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($sourcePath, 'ID3:title=Old|AUDIO|same audio data');
+        $sourceRoot = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($sourceRoot));
+        $mediaFile = MediaFile::firstOrFail();
+        $track = Track::firstOrFail();
+        $album = Album::firstOrFail();
+        $playlist = Playlist::create(['name' => 'Cross-root move']);
+        PlaylistItem::create([
+            'playlist_id' => $playlist->id,
+            'track_id' => $track->id,
+            'position' => 0,
+        ]);
+
+        $destinationPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sonotheque-destination-'.Str::uuid();
+        $destinationAlbumPath = $destinationPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        mkdir($destinationAlbumPath, recursive: true);
+
+        try {
+            rename($sourcePath, $destinationAlbumPath.DIRECTORY_SEPARATOR.'01.mp3');
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+            $scanner->scan($this->createScan($sourceRoot));
+            $this->assertDatabaseHas(MediaFile::class, [
+                'id' => $mediaFile->id,
+                'status' => MediaFileStatus::Missing->value,
+            ]);
+
+            $destinationRoot = $sourceRoot->library->roots()->create([
+                'name' => 'Destination Root',
+                'path' => $destinationPath,
+                'path_hash' => hash('sha256', mb_strtolower(str_replace('\\', '/', $destinationPath))),
+                'cover_image_paths' => ['cover.jpg'],
+            ]);
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+            $destinationScan = $this->createScan($destinationRoot);
+            $scanner->scan($destinationScan);
+
+            $this->assertSame(0, $destinationScan->fresh()->files_added);
+            $this->assertSame(1, $destinationScan->fresh()->files_updated);
+            $this->assertDatabaseHas(MediaFile::class, [
+                'id' => $mediaFile->id,
+                'library_root_id' => $destinationRoot->id,
+                'relative_path' => 'Bjoerk/Debut/01.mp3',
+                'status' => MediaFileStatus::Available->value,
+            ]);
+            $this->assertDatabaseHas(Track::class, [
+                'id' => $track->id,
+                'media_file_id' => $mediaFile->id,
+                'album_id' => $album->id,
+            ]);
+            $this->assertDatabaseHas(Album::class, [
+                'id' => $album->id,
+                'library_root_id' => $destinationRoot->id,
+            ]);
+            $this->assertDatabaseHas(PlaylistItem::class, [
+                'playlist_id' => $playlist->id,
+                'track_id' => $track->id,
+            ]);
+            $this->assertDatabaseCount(MediaFile::class, 1);
+            $this->assertDatabaseCount(Track::class, 1);
+            $this->assertDatabaseCount(Album::class, 1);
+        } finally {
+            $this->removeDirectory($destinationPath);
+        }
+    }
+
+    public function test_scanner_restores_cross_root_identity_when_destination_is_scanned_first(): void
+    {
+        $sourcePath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($sourcePath, 'ID3:title=Old|AUDIO|same audio data');
+        $sourceRoot = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($sourceRoot));
+        $mediaFile = MediaFile::firstOrFail();
+        $track = Track::firstOrFail();
+        $album = Album::firstOrFail();
+        $playlist = Playlist::create(['name' => 'Destination first']);
+        PlaylistItem::create([
+            'playlist_id' => $playlist->id,
+            'track_id' => $track->id,
+            'position' => 0,
+        ]);
+
+        $destinationPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.'sonotheque-destination-'.Str::uuid();
+        $destinationAlbumPath = $destinationPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        mkdir($destinationAlbumPath, recursive: true);
+
+        try {
+            $destinationRoot = $sourceRoot->library->roots()->create([
+                'name' => 'Destination Root',
+                'path' => $destinationPath,
+                'path_hash' => hash('sha256', mb_strtolower(str_replace('\\', '/', $destinationPath))),
+                'cover_image_paths' => ['cover.jpg'],
+            ]);
+            rename($sourcePath, $destinationAlbumPath.DIRECTORY_SEPARATOR.'01.mp3');
+            CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+
+            $scanner->scan($this->createScan($destinationRoot));
+
+            $this->assertDatabaseHas(MediaFile::class, [
+                'id' => $mediaFile->id,
+                'library_root_id' => $destinationRoot->id,
+                'relative_path' => 'Bjoerk/Debut/01.mp3',
+                'status' => MediaFileStatus::Available->value,
+            ]);
+            $this->assertDatabaseHas(Track::class, [
+                'id' => $track->id,
+                'media_file_id' => $mediaFile->id,
+                'album_id' => $album->id,
+            ]);
+            $this->assertDatabaseHas(Album::class, [
+                'id' => $album->id,
+                'library_root_id' => $destinationRoot->id,
+            ]);
+            $this->assertDatabaseHas(PlaylistItem::class, [
+                'playlist_id' => $playlist->id,
+                'track_id' => $track->id,
+            ]);
+            $this->assertDatabaseCount(MediaFile::class, 1);
+            $this->assertDatabaseCount(Track::class, 1);
+            $this->assertDatabaseCount(Album::class, 1);
+        } finally {
+            $this->removeDirectory($destinationPath);
+        }
+    }
+
     public function test_scanner_does_not_reconcile_ambiguous_duplicate_audio_files(): void
     {
         $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
@@ -451,8 +584,11 @@ class LibraryScannerTest extends TestCase
 
         $this->assertSame(2, $scan->fresh()->files_added);
         $this->assertSame(1, $scan->fresh()->files_removed);
-        $this->assertDatabaseMissing(MediaFile::class, ['id' => $oldMediaFileId]);
-        $this->assertDatabaseCount(MediaFile::class, 2);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'id' => $oldMediaFileId,
+            'status' => MediaFileStatus::Missing->value,
+        ]);
+        $this->assertDatabaseCount(MediaFile::class, 3);
     }
 
     public function test_subtree_scan_removes_only_stale_files_inside_its_scope(): void
@@ -482,11 +618,60 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
         $this->assertSame(1, $scan->fresh()->files_removed);
         $this->assertSame('Bjoerk', $scan->fresh()->summary['subtreePath']);
-        $this->assertDatabaseMissing(MediaFile::class, [
+        $this->assertDatabaseHas(MediaFile::class, [
             'relative_path' => 'Bjoerk/Debut/01.mp3',
+            'status' => MediaFileStatus::Missing->value,
         ]);
         $this->assertDatabaseHas(MediaFile::class, [
             'relative_path' => 'Other/Album/01.mp3',
+            'status' => MediaFileStatus::Available->value,
+        ]);
+        $this->assertTrue($fullScanFinishedAt->equalTo($root->fresh()->last_scanned_at));
+    }
+
+    public function test_delta_scan_reconciles_only_explicit_existing_and_missing_paths(): void
+    {
+        $changedAlbum = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';
+        $removedAlbum = $this->musicPath.DIRECTORY_SEPARATOR.'Other'.DIRECTORY_SEPARATOR.'Removed';
+        $untouchedAlbum = $this->musicPath.DIRECTORY_SEPARATOR.'Third'.DIRECTORY_SEPARATOR.'Untouched';
+        mkdir($removedAlbum, recursive: true);
+        mkdir($untouchedAlbum, recursive: true);
+        file_put_contents($changedAlbum.DIRECTORY_SEPARATOR.'01.mp3', 'first');
+        file_put_contents($removedAlbum.DIRECTORY_SEPARATOR.'01.mp3', 'second');
+        file_put_contents($untouchedAlbum.DIRECTORY_SEPARATOR.'01.mp3', 'third');
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        $fullScanFinishedAt = $root->fresh()->last_scanned_at;
+
+        unlink($changedAlbum.DIRECTORY_SEPARATOR.'01.mp3');
+        unlink($removedAlbum.DIRECTORY_SEPARATOR.'01.mp3');
+        rmdir($removedAlbum);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSeconds(10));
+        $scan = $root->scanRuns()->create([
+            'status' => ScanStatus::Pending,
+            'trigger' => ScanTrigger::Watcher,
+            'scan_paths' => ['Bjoerk/Debut'],
+            'missing_paths' => ['Other/Removed'],
+        ]);
+
+        $scanner->scan($scan);
+
+        $this->assertSame(ScanStatus::Completed, $scan->fresh()->status);
+        $this->assertSame(2, $scan->fresh()->files_removed);
+        $this->assertSame(['Bjoerk/Debut'], $scan->fresh()->summary['scanPaths']);
+        $this->assertSame(['Other/Removed'], $scan->fresh()->summary['missingPaths']);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Bjoerk/Debut/01.mp3',
+            'status' => MediaFileStatus::Missing->value,
+        ]);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Other/Removed/01.mp3',
+            'status' => MediaFileStatus::Missing->value,
+        ]);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Third/Untouched/01.mp3',
+            'status' => MediaFileStatus::Available->value,
         ]);
         $this->assertTrue($fullScanFinishedAt->equalTo($root->fresh()->last_scanned_at));
     }
@@ -506,7 +691,7 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(['invalid_layout', 'no_music_files'], array_column($scan->summary['issues'], 'code'));
     }
 
-    public function test_empty_rescan_removes_catalog_data_when_the_root_is_readable(): void
+    public function test_empty_rescan_retains_catalog_identity_as_unavailable(): void
     {
         $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
         file_put_contents($trackPath, 'fake audio data');
@@ -521,11 +706,14 @@ class LibraryScannerTest extends TestCase
         $scan->refresh();
         $this->assertSame(ScanStatus::Completed, $scan->status);
         $this->assertSame(1, $scan->files_removed);
-        $this->assertDatabaseCount(MediaFile::class, 0);
-        $this->assertDatabaseCount(Track::class, 0);
-        $this->assertDatabaseCount(Album::class, 0);
-        $this->assertDatabaseCount(Artist::class, 0);
-        $this->assertDatabaseCount(Genre::class, 0);
+        $this->assertDatabaseHas(MediaFile::class, [
+            'relative_path' => 'Bjoerk/Debut/01.mp3',
+            'status' => MediaFileStatus::Missing->value,
+        ]);
+        $this->assertDatabaseCount(Track::class, 1);
+        $this->assertDatabaseCount(Album::class, 1);
+        $this->assertDatabaseCount(Artist::class, 1);
+        $this->assertDatabaseCount(Genre::class, 1);
     }
 
     public function test_unavailable_root_fails_with_an_actionable_scan_issue(): void
@@ -652,13 +840,14 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(1, $scan->fresh()->files_discovered);
         $this->assertSame(1, $scan->fresh()->files_removed);
         $this->assertSame(2, $this->metadataReader->calls);
-        $this->assertDatabaseCount(Track::class, 1);
-        $this->assertDatabaseCount(Album::class, 1);
-        $this->assertDatabaseMissing(MediaFile::class, [
+        $this->assertDatabaseCount(Track::class, 2);
+        $this->assertDatabaseCount(Album::class, 2);
+        $this->assertDatabaseHas(MediaFile::class, [
             'relative_path' => 'Bjoerk/Incoming/02.mp3',
+            'status' => MediaFileStatus::Missing->value,
         ]);
         $issueCodes = array_column($scan->fresh()->summary['issues'], 'code');
-        $this->assertContains('files_removed', $issueCodes);
+        $this->assertContains('files_unavailable', $issueCodes);
         $this->assertContains('unreadable_directory', $issueCodes);
         $this->assertNotContains('stale_cleanup_preserved', $issueCodes);
     }
@@ -930,7 +1119,11 @@ class LibraryScannerTest extends TestCase
 
         $scanRun = ScanRun::sole();
 
-        Queue::assertPushed(ScanLibraryRoot::class, fn (ScanLibraryRoot $job): bool => $job->scanRunId === $scanRun->id);
+        Queue::assertPushed(
+            ScanLibraryRoot::class,
+            fn (ScanLibraryRoot $job): bool => $job->scanRunId === $scanRun->id
+                && $job->queue === 'scans',
+        );
         $this->assertDatabaseHas(ScanRun::class, [
             'library_root_id' => $root->id,
             'status' => ScanStatus::Pending->value,

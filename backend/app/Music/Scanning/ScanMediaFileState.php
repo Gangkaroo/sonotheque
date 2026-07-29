@@ -16,6 +16,7 @@ final class ScanMediaFileState
     public function __construct(
         public readonly int $id,
         public readonly ?int $albumId,
+        public readonly ?string $albumRelativePathHash,
         public readonly MediaFileStatus $status,
         public readonly int $fileSize,
         public readonly int $modifiedAt,

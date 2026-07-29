@@ -59,7 +59,11 @@ try {
     Invoke-PackagedCompose -Arguments (@('up') + $buildArguments + @('--force-recreate', '--abort-on-container-exit', '--exit-code-from', 'migrate', 'migrate'))
 
     Write-Host 'Starting packaged app services...'
-    Invoke-PackagedCompose -Arguments (@('up', '-d') + $buildArguments + @('backend', 'queue', 'scheduler', 'web'))
+    Invoke-PackagedCompose -Arguments (
+        @('up', '-d') +
+        $buildArguments +
+        @('backend', 'queue-default', 'queue-scans', 'queue-analysis', 'scheduler', 'web')
+    )
 
     Write-Host ''
     Invoke-PackagedCompose -Arguments @('ps')

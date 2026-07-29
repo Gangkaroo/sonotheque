@@ -202,7 +202,15 @@ try {
         -Database $devDatabase
 
     Write-Host 'Stopping packaged app services before restore...'
-    Invoke-PackagedCompose -Arguments @('stop', 'web', 'backend', 'queue', 'scheduler') -AllowExampleEnvironment
+    Invoke-PackagedCompose -Arguments @(
+        'stop',
+        'web',
+        'backend',
+        'queue-default',
+        'queue-scans',
+        'queue-analysis',
+        'scheduler'
+    ) -AllowExampleEnvironment
 
     $migrationDirectory = Join-Path $script:RepositoryRoot 'runtime-logs\migration'
     New-Item -ItemType Directory -Path $migrationDirectory -Force | Out-Null
@@ -303,7 +311,16 @@ try {
 
     if (-not $NoRestart) {
         Write-Host 'Starting packaged app services...'
-        Invoke-PackagedCompose -Arguments @('up', '-d', 'backend', 'queue', 'scheduler', 'web')
+        Invoke-PackagedCompose -Arguments @(
+            'up',
+            '-d',
+            'backend',
+            'queue-default',
+            'queue-scans',
+            'queue-analysis',
+            'scheduler',
+            'web'
+        )
     }
 
     Write-Host ''

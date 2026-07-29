@@ -87,9 +87,27 @@ services:
       timeout: 5s
       retries: 12
 
-  queue:
+  queue-default:
     <<: *backend-image
-    command: ["php", "artisan", "queue:listen", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    command: ["php", "artisan", "queue:listen", "--queue=default", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  queue-scans:
+    <<: *backend-image
+    command: ["php", "artisan", "queue:listen", "--queue=scans", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  queue-analysis:
+    <<: *backend-image
+    command: ["php", "artisan", "queue:listen", "--queue=analysis", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
     depends_on:
       postgres:
         condition: service_healthy

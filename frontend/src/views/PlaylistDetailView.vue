@@ -28,6 +28,7 @@ const targetPlaylistItemId = computed(() => {
 })
 const playlist = computed(() => playlists.current)
 const tracks = computed(() => playlist.value?.items.map((item) => item.track) ?? [])
+const playableTracks = computed(() => tracks.value.filter((track) => track.available !== false))
 const playlistPlayingTime = computed(() => {
   const total = tracks.value.reduce((sum, track) => sum + (track.durationMs ?? 0), 0)
 
@@ -49,14 +50,14 @@ const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.val
 const canReorder = computed(() => libraryRootScope.selectedRootId === null)
 
 function playPlaylist() {
-  const [firstTrack] = tracks.value
+  const [firstTrack] = playableTracks.value
   if (!firstTrack) return
 
-  player.playTrack(firstTrack, tracks.value, 'track-list')
+  player.playTrack(firstTrack, playableTracks.value, 'track-list')
 }
 
 function queuePlaylist() {
-  player.queueTracks(tracks.value, 'track-list')
+  player.queueTracks(playableTracks.value, 'track-list')
 }
 
 function handlePlaylistExported(result: PlaylistFileExportResult) {
@@ -68,6 +69,8 @@ function handlePlaylistExported(result: PlaylistFileExportResult) {
 }
 
 function toggleTrack(track: Track) {
+  if (track.available === false) return
+
   if (player.currentTrack?.id === track.id) {
     if (player.isPlaying) {
       player.pause()
@@ -77,7 +80,7 @@ function toggleTrack(track: Track) {
     return
   }
 
-  player.playTrack(track, tracks.value, 'track-list')
+  player.playTrack(track, playableTracks.value, 'track-list')
 }
 
 function enterSelectionMode() {
@@ -331,6 +334,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
             'current-track': player.currentTrack?.id === item.track.id,
             'membership-target': targetPlaylistItemId === item.id,
             'is-dragging': draggedItemId === item.id,
+            'is-unavailable': item.track.available === false,
             'selection-active': selectionMode,
             ...itemDropClass(index),
           }"
@@ -372,7 +376,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           </template>
 
           <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': player.currentTrack?.id === item.track.id }">
-            <span v-if="selectionMode">{{ item.track.title }}</span>
+            <span v-if="selectionMode || item.track.available === false">{{ item.track.title }}</span>
             <RouterLink v-else class="playlist-track-link" :to="{ name: 'track-detail', params: { id: item.track.id } }">
               {{ item.track.title }}
             </RouterLink>
@@ -381,7 +385,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
             <template v-if="item.track.artists.length">
               <template v-for="(artist, artistIndex) in item.track.artists" :key="artist.id">
                 <span v-if="artistIndex > 0">, </span>
-                <span v-if="selectionMode">{{ artist.name }}</span>
+                <span v-if="selectionMode || item.track.available === false">{{ artist.name }}</span>
                 <RouterLink v-else class="playlist-track-link" :to="{ name: 'artist-detail', params: { id: artist.id } }">
                   {{ artist.name }}
                 </RouterLink>
@@ -391,7 +395,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           </v-list-item-subtitle>
           <v-list-item-subtitle>
             <template v-if="item.track.album">
-              <span v-if="selectionMode">{{ item.track.album.title }}</span>
+              <span v-if="selectionMode || item.track.available === false">{{ item.track.album.title }}</span>
               <RouterLink
                 v-else
                 class="playlist-track-link"
@@ -405,11 +409,21 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           </v-list-item-subtitle>
           <template v-if="!selectionMode" #append>
             <div class="playlist-actions">
+              <v-chip
+                v-if="item.track.available === false"
+                color="warning"
+                prepend-icon="mdi-file-alert-outline"
+                size="x-small"
+                variant="tonal"
+              >
+                {{ t('playlists.unavailable') }}
+              </v-chip>
               <span class="text-caption text-medium-emphasis">{{ duration(item.track.durationMs) }}</span>
               <TooltipIconButton
                 :text="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                 :aria-label="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                 :color="player.currentTrack?.id === item.track.id ? 'primary' : undefined"
+                :disabled="item.track.available === false"
                 :icon="player.currentTrack?.id === item.track.id && player.isPlaying ? 'mdi-pause' : 'mdi-play'"
                 variant="text"
                 @click="toggleTrack(item.track)"
@@ -417,6 +431,7 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
               <TooltipIconButton
                 :text="t('tracks.queueTrack')"
                 :aria-label="t('tracks.queueTrack')"
+                :disabled="item.track.available === false"
                 icon="mdi-playlist-plus"
                 variant="text"
                 @click="player.queueTrack(item.track, 'track-list')"
@@ -517,6 +532,10 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
 
 .playlist-item.is-dragging {
   opacity: 0.55;
+}
+
+.playlist-item.is-unavailable {
+  opacity: 0.7;
 }
 
 .playlist-item.selection-active {

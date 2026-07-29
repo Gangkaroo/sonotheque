@@ -14,6 +14,7 @@ class ScanDispatcher
 {
     public function __construct(
         private readonly LibraryDirectoryResolver $directoryResolver,
+        private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryActivityLogger $activityLogger,
     ) {
     }
@@ -22,14 +23,22 @@ class ScanDispatcher
         LibraryRoot $root,
         ScanTrigger $trigger = ScanTrigger::Manual,
         ?string $subtreePath = null,
+        ?array $scanPaths = null,
+        ?array $missingPaths = null,
     ): ScanRun {
         if (! $root->enabled) {
             throw new ScanDispatchException('The requested library root is disabled.');
         }
 
+        $isDeltaScan = $scanPaths !== null || $missingPaths !== null;
+        $scanPaths = $isDeltaScan ? $this->existingPaths($root, $scanPaths ?? []) : null;
+        $missingPaths = $isDeltaScan ? $this->missingPaths($missingPaths ?? []) : null;
+
         if ($subtreePath !== null && trim($subtreePath) !== '') {
             try {
-                $subtreePath = $this->directoryResolver->resolve($root, $subtreePath)->relativePath;
+                $subtreePath = $isDeltaScan
+                    ? $this->pathGuard->normalizeRelativeDirectoryPath($subtreePath)
+                    : $this->directoryResolver->resolve($root, $subtreePath)->relativePath;
             } catch (InvalidLibraryPath $exception) {
                 throw new ScanDispatchException($exception->getMessage(), 'subtreePath');
             }
@@ -37,7 +46,13 @@ class ScanDispatcher
             $subtreePath = null;
         }
 
-        $scanRun = DB::transaction(function () use ($root, $trigger, $subtreePath): ScanRun {
+        $scanRun = DB::transaction(function () use (
+            $root,
+            $trigger,
+            $subtreePath,
+            $scanPaths,
+            $missingPaths,
+        ): ScanRun {
             $lockedRoot = LibraryRoot::query()
                 ->lockForUpdate()
                 ->findOrFail($root->id);
@@ -61,9 +76,13 @@ class ScanDispatcher
                 'status' => ScanStatus::Pending,
                 'trigger' => $trigger,
                 'subtree_path' => $subtreePath,
+                'scan_paths' => $scanPaths,
+                'missing_paths' => $missingPaths,
                 'summary' => array_filter([
                     'phase' => 'queued',
                     'subtreePath' => $subtreePath,
+                    'scanPaths' => $scanPaths,
+                    'missingPaths' => $missingPaths,
                 ]),
             ]);
         });
@@ -73,15 +92,56 @@ class ScanDispatcher
             source: $trigger === ScanTrigger::Watcher ? 'watcher' : 'scan',
             severity: 'info',
             code: 'scan_queued',
-            message: $subtreePath === null
+            message: $isDeltaScan
+                ? 'A targeted library change scan was queued.'
+                : ($subtreePath === null
                 ? 'A complete library scan was queued.'
-                : 'A library subtree scan was queued.',
+                : 'A library subtree scan was queued.'),
             libraryRoot: $root,
             scanRun: $scanRun,
             path: $subtreePath,
         );
 
         return $scanRun->refresh();
+    }
+
+    /**
+     * @param  list<string>  $paths
+     * @return list<string>
+     */
+    private function existingPaths(LibraryRoot $root, array $paths): array
+    {
+        try {
+            return collect($paths)
+                ->map(fn (string $path): ?string => $this->directoryResolver
+                    ->resolve($root, $path)
+                    ->relativePath)
+                ->map(fn (?string $path): string => $path ?? '')
+                ->unique()
+                ->values()
+                ->all();
+        } catch (InvalidLibraryPath $exception) {
+            throw new ScanDispatchException($exception->getMessage(), 'scanPaths');
+        }
+    }
+
+    /**
+     * @param  list<string>  $paths
+     * @return list<string>
+     */
+    private function missingPaths(array $paths): array
+    {
+        try {
+            return collect($paths)
+                ->map(fn (string $path): ?string => $this->pathGuard
+                    ->normalizeRelativeDirectoryPath($path))
+                ->map(fn (?string $path): string => $path ?? '')
+                ->unique()
+                ->values()
+                ->all();
+        } catch (InvalidLibraryPath $exception) {
+            throw new ScanDispatchException($exception->getMessage(), 'missingPaths');
+        }
     }
 
     private function failStaleScans(LibraryRoot $root): void

@@ -526,8 +526,17 @@ function Wait-Postgres {
 }
 
 function Find-ExternalQueueWorker {
+    param([Parameter(Mandatory)][string]$Queue)
+
+    $queueName = [regex]::Escape($Queue)
+
     return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'artisan\s+queue:(work|listen)' } |
+        Where-Object {
+            $_.CommandLine -match 'artisan\s+queue:(work|listen)' -and (
+                ($Queue -eq 'default' -and $_.CommandLine -notmatch '--queue(?:=|\s+)') -or
+                $_.CommandLine -match "--queue(?:=|\s+)$queueName(?:,|\s|$)"
+            )
+        } |
         Select-Object -First 1
 }
 
@@ -550,8 +559,25 @@ function Get-RuntimeStatus {
     $apiProcess = Get-ManagedProcess -Name 'api'
     $apiOwner = Get-PortOwner -Port 8000
     $apiHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/up'
-    $queueProcess = Get-ManagedProcess -Name 'queue-worker'
-    $externalQueue = if ($null -eq $queueProcess) { Find-ExternalQueueWorker } else { $null }
+    $queueStatuses = foreach ($queue in @(
+        @{ Name = 'queue-default'; Queue = 'default'; Label = 'Interactive queue' }
+        @{ Name = 'queue-scans'; Queue = 'scans'; Label = 'Library scan queue' }
+        @{ Name = 'queue-analysis'; Queue = 'analysis'; Label = 'Audio analysis queue' }
+    )) {
+        $queueProcess = Get-ManagedProcess -Name $queue.Name
+        $externalQueue = if ($null -eq $queueProcess) {
+            Find-ExternalQueueWorker -Queue $queue.Queue
+        }
+        else {
+            $null
+        }
+
+        [pscustomobject]@{
+            Service = $queue.Label
+            Status = if ($null -ne $queueProcess -or $null -ne $externalQueue) { 'Running' } else { 'Stopped' }
+            Details = if ($null -ne $queueProcess) { "managed PID $($queueProcess.Id)" } elseif ($null -ne $externalQueue) { "external PID $($externalQueue.ProcessId)" } else { '-' }
+        }
+    }
     $schedulerProcess = Get-ManagedProcess -Name 'scheduler'
     $externalScheduler = if ($null -eq $schedulerProcess) { Find-ExternalScheduler } else { $null }
     $frontendProcess = Get-ManagedProcess -Name 'frontend'
@@ -569,11 +595,7 @@ function Get-RuntimeStatus {
             Status = if ($apiHealthy) { 'Healthy' } else { 'Stopped' }
             Details = if ($null -ne $apiProcess) { "managed PID $($apiProcess.Id)" } elseif ($null -ne $apiOwner) { "external PID $apiOwner" } else { '-' }
         },
-        [pscustomobject]@{
-            Service = 'Queue worker'
-            Status = if ($null -ne $queueProcess -or $null -ne $externalQueue) { 'Running' } else { 'Stopped' }
-            Details = if ($null -ne $queueProcess) { "managed PID $($queueProcess.Id)" } elseif ($null -ne $externalQueue) { "external PID $($externalQueue.ProcessId)" } else { '-' }
-        },
+        $queueStatuses
         [pscustomobject]@{
             Service = 'Scheduler'
             Status = if ($null -ne $schedulerProcess -or $null -ne $externalScheduler) { 'Running' } else { 'Stopped' }

@@ -54,6 +54,7 @@ const navigation = computed(() => [
   { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
   { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
   { title: t('navigation.history'), icon: 'mdi-history', to: '/history' },
+  { title: t('navigation.trash'), icon: 'mdi-delete-clock-outline', to: '/trash' },
 ])
 watch(
   () => preferences.locale,

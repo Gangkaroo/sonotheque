@@ -17,6 +17,7 @@ import { apiRequest } from '@/api/client'
 import type { AlbumPersonalMetadata, Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import {
@@ -30,6 +31,7 @@ const route = useRoute()
 const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
 const artworkDialog = ref(false)
@@ -159,12 +161,61 @@ const albumPlayingTime = computed(() => {
 
   return total > 0 ? formatTotalDuration(total) : null
 })
+const showLibraryRoot = computed(() => libraryRoots.roots.filter((root) => root.enabled).length > 1)
 const selectedTracks = computed(() => {
   const selected = new Set(selectedTrackIds.value)
   return tracks.value.filter((track) => selected.has(track.id))
 })
 const allTracksSelected = computed(() => tracks.value.length > 0 && selectedTrackIds.value.length === tracks.value.length)
 const albumGenres = computed(() => album.value?.genres ?? [])
+const albumTechnicalChips = computed(() => {
+  const technical = album.value?.technical
+  if (!technical) return []
+
+  const chips: Array<{ key: string, icon: string, label: string, title: string }> = []
+  if (technical.fileTypes.length) {
+    chips.push({
+      key: 'fileTypes',
+      icon: 'mdi-file-music-outline',
+      label: technical.fileTypes.join(' / '),
+      title: t('albums.fileTypes'),
+    })
+  }
+
+  const bitrate = formatAlbumBitrate(
+    technical.bitrateMinimum,
+    technical.bitrateMaximum,
+    technical.bitrateModes,
+  )
+  if (bitrate) {
+    chips.push({
+      key: 'bitrate',
+      icon: 'mdi-speedometer',
+      label: bitrate,
+      title: t('tracks.bitrate'),
+    })
+  }
+
+  const encoderSettings = technical.encoderSettings
+    .map(formatEncoderSettings)
+    .filter(value => !isRedundantCbrSetting(
+      value,
+      technical.bitrateMinimum,
+      technical.bitrateMaximum,
+      technical.bitrateModes,
+    ))
+    .filter((value, index, values) => values.indexOf(value) === index)
+  if (encoderSettings.length) {
+    chips.push({
+      key: 'encoderSettings',
+      icon: 'mdi-tune-variant',
+      label: encoderSettings.join(' / '),
+      title: t('tracks.encoderSettings'),
+    })
+  }
+
+  return chips
+})
 const artworkUrl = computed(() => album.value?.artworkUrl ?? album.value?.artworkThumbnailUrl ?? null)
 const artworkStyle = computed(() => ({
   maxWidth: `${album.value?.artworkWidth ?? 1200}px`,
@@ -222,6 +273,42 @@ const albumPersonalMetadata = computed<AlbumPersonalMetadata>(() => album.value?
 
 function formatDate(value?: string | null) {
   return formatDateTime(value, locale.value)
+}
+
+function formatAlbumBitrate(
+  minimum?: number | null,
+  maximum?: number | null,
+  modes: string[] = [],
+) {
+  if (!minimum || !maximum) return null
+
+  const minimumKbps = Math.round(minimum / 1000)
+  const maximumKbps = Math.round(maximum / 1000)
+  const bitrate = minimumKbps === maximumKbps
+    ? `${minimumKbps} kbps`
+    : `${minimumKbps}–${maximumKbps} kbps`
+  const normalizedModes = modes.map(mode => mode.toUpperCase())
+
+  return normalizedModes.length ? `${normalizedModes.join('/')} · ${bitrate}` : bitrate
+}
+
+function formatEncoderSettings(value: string) {
+  const quality = value.match(/(?:^|\s)-?V\s*(\d+(?:\.\d+)?)(?:\s|$)/i)
+
+  return quality ? `V${quality[1]}` : value
+}
+
+function isRedundantCbrSetting(
+  value: string,
+  minimum?: number | null,
+  maximum?: number | null,
+  modes: string[] = [],
+) {
+  if (!minimum || minimum !== maximum || !modes.some(mode => mode.toLowerCase() === 'cbr')) return false
+
+  const cbrBitrate = value.match(/^(?:CBR\s*|-B\s*)(\d+)$/i)
+
+  return cbrBitrate ? Number(cbrBitrate[1]) === Math.round(minimum / 1000) : false
 }
 
 function playCountTooltip(track: Track) {
@@ -354,6 +441,7 @@ async function batchMetadataCompleted(count: number) {
   exitSelectionMode()
   catalog.invalidateMetrics()
   await catalog.loadAlbum(albumId.value)
+  if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
 }
 
 function openMetadataEditor() {
@@ -448,6 +536,7 @@ async function pollMetadataEdit() {
       metadataSuccess.value = true
       catalog.invalidateMetrics()
       await catalog.loadAlbum(albumId.value)
+      if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
       return
     }
     if (['partial', 'failed'].includes(metadataJob.value.status)) return
@@ -584,16 +673,32 @@ onUnmounted(() => {
           </v-card-item>
           <v-card-text class="text-medium-emphasis">
             {{ albumDetails }}<span v-if="albumPlayingTime"> · {{ t('catalog.playingTime', { duration: albumPlayingTime }) }}</span>
-            <div v-if="albumGenres.length" class="d-flex flex-wrap ga-2 mt-4">
-              <v-chip
-                v-for="genre in albumGenres"
-                :key="genre.id"
-                :to="{ name: 'albums', query: { genre: genre.id, genreName: genre.name } }"
-                size="small"
-                variant="tonal"
-              >
-                {{ genre.name }}
-              </v-chip>
+            <span v-if="showLibraryRoot && album.libraryRoot"> · {{ album.libraryRoot.name }}</span>
+            <div v-if="albumGenres.length || albumTechnicalChips.length" class="album-classification mt-4">
+              <div v-if="albumGenres.length" class="d-flex flex-wrap ga-2">
+                <v-chip
+                  v-for="genre in albumGenres"
+                  :key="genre.id"
+                  :to="{ name: 'albums', query: { genre: genre.id, genreName: genre.name } }"
+                  size="small"
+                  variant="tonal"
+                >
+                  {{ genre.name }}
+                </v-chip>
+              </div>
+              <div v-if="albumTechnicalChips.length" class="d-flex flex-wrap ga-2">
+                <v-chip
+                  v-for="chip in albumTechnicalChips"
+                  :key="chip.key"
+                  class="album-technical-chip text-medium-emphasis"
+                  :prepend-icon="chip.icon"
+                  size="small"
+                  :title="chip.title"
+                  variant="outlined"
+                >
+                  {{ chip.label }}
+                </v-chip>
+              </div>
             </div>
             <div v-if="albumPlaybackStats.length" class="album-stat-grid mt-4">
               <div v-for="stat in albumPlaybackStats" :key="stat.key" class="album-stat-tile">
@@ -1058,6 +1163,22 @@ onUnmounted(() => {
 .album-actions {
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.album-classification {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.album-technical-chip {
+  max-width: 18rem;
+}
+
+.album-technical-chip :deep(.v-chip__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metadata-change {

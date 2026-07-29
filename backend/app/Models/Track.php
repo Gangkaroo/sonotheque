@@ -125,6 +125,12 @@ class Track extends Model
         return $this->hasMany(TrackPlayEvent::class);
     }
 
+    /** @return HasMany<PlaylistItem, $this> */
+    public function playlistItems(): HasMany
+    {
+        return $this->hasMany(PlaylistItem::class);
+    }
+
     protected function casts(): array
     {
         return [

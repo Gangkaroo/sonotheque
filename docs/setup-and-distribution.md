@@ -29,7 +29,8 @@ Development mode is the current setup:
 
 - PostgreSQL runs in Docker.
 - Laravel runs natively on Windows.
-- The queue listener runs natively on Windows.
+- Separate interactive, scan, and audio-analysis queue listeners run natively
+  on Windows.
 - Vite serves the frontend on port `5173`.
 - The scripts under `scripts/` start and stop those processes manually.
 
@@ -40,8 +41,8 @@ to local drives and while development changes should hot-reload quickly.
 
 Packaged local mode is the default for non-developer users:
 
-- Docker Compose starts the database, backend, queue worker, scheduler, and a
-  web server.
+- Docker Compose starts the database, backend, separate interactive, scan, and
+  audio-analysis queue workers, the scheduler, and a web server.
 - The frontend is built once and served as static files by nginx, which proxies
   `/api` requests to Laravel.
 - The browser opens a single local URL, for example `http://127.0.0.1:8080`.

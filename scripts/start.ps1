@@ -97,20 +97,34 @@ try {
         Write-Host "Laravel API is already available on port 8000 (external PID $apiOwner)."
     }
 
-    if ($null -eq (Get-ManagedProcess -Name 'queue-worker') -and $null -eq (Find-ExternalQueueWorker)) {
-        Write-Host 'Starting queue worker...'
-        Start-ManagedProcess `
-            -Name 'queue-worker' `
-            -FilePath $php `
-            -ArgumentList @('artisan', 'queue:listen', '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
-            -WorkingDirectory $script:BackendDirectory `
-            -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'queue-worker.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'queue-worker.err.log') `
-            -EnvironmentVariables $backendEnvironment | Out-Null
-        $startedServices.Add('queue-worker')
-    }
-    else {
-        Write-Host 'Queue worker is already running.'
+    foreach ($queueWorker in @(
+        @{ Name = 'queue-default'; Queue = 'default'; Label = 'interactive' }
+        @{ Name = 'queue-scans'; Queue = 'scans'; Label = 'library scan' }
+        @{ Name = 'queue-analysis'; Queue = 'analysis'; Label = 'audio analysis' }
+    )) {
+        $managedQueueWorker = Get-ManagedProcess -Name $queueWorker.Name
+        $externalQueueWorker = if ($null -eq $managedQueueWorker) {
+            Find-ExternalQueueWorker -Queue $queueWorker.Queue
+        }
+        else {
+            $null
+        }
+
+        if ($null -eq $managedQueueWorker -and $null -eq $externalQueueWorker) {
+            Write-Host "Starting $($queueWorker.Label) queue worker..."
+            Start-ManagedProcess `
+                -Name $queueWorker.Name `
+                -FilePath $php `
+                -ArgumentList @('artisan', 'queue:listen', "--queue=$($queueWorker.Queue)", '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
+                -WorkingDirectory $script:BackendDirectory `
+                -StandardOutputPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).out.log") `
+                -StandardErrorPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).err.log") `
+                -EnvironmentVariables $backendEnvironment | Out-Null
+            $startedServices.Add($queueWorker.Name)
+        }
+        else {
+            Write-Host "$($queueWorker.Label) queue worker is already running."
+        }
     }
 
     if ($null -eq (Get-ManagedProcess -Name 'scheduler') -and $null -eq (Find-ExternalScheduler)) {
@@ -182,7 +196,14 @@ try {
 }
 catch {
     if ($Lan) {
-        foreach ($service in @('frontend', 'scheduler', 'queue-worker', 'api')) {
+        foreach ($service in @(
+            'frontend',
+            'scheduler',
+            'queue-analysis',
+            'queue-scans',
+            'queue-default',
+            'api'
+        )) {
             if ($startedServices.Contains($service)) {
                 Stop-ManagedProcess -Name $service | Out-Null
             }

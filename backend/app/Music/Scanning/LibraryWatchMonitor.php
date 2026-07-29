@@ -24,7 +24,7 @@ class LibraryWatchMonitor
         $memoryLimit = config('sonotheque.scan_memory_limit');
 
         if (is_string($memoryLimit) && $memoryLimit !== '') {
-            ini_set('memory_limit', $memoryLimit);
+            $this->applyMemoryLimit($memoryLimit);
         }
 
         try {
@@ -35,9 +35,20 @@ class LibraryWatchMonitor
                 ->each(fn (LibraryRoot $root) => $this->inspect($root));
         } finally {
             if (is_string($previousMemoryLimit) && $previousMemoryLimit !== '') {
-                ini_set('memory_limit', $previousMemoryLimit);
+                $this->applyMemoryLimit($previousMemoryLimit);
             }
         }
+    }
+
+    private function applyMemoryLimit(string $memoryLimit): void
+    {
+        $bytes = ini_parse_quantity($memoryLimit);
+
+        if ($bytes >= 0 && $bytes < memory_get_usage(true)) {
+            return;
+        }
+
+        ini_set('memory_limit', $memoryLimit);
     }
 
     private function inspect(LibraryRoot $root): void
@@ -71,33 +82,51 @@ class LibraryWatchMonitor
         }
 
         $stored = $root->watchDirectories()
-            ->get(['relative_path', 'relative_path_hash', 'signature', 'artwork_signature'])
+            ->get([
+                'relative_path',
+                'relative_path_hash',
+                'signature',
+                'file_signature',
+                'artwork_signature',
+            ])
             ->keyBy('relative_path_hash');
         $firstSnapshot = $stored->isEmpty();
-        $changes = [];
+        $scanPaths = [];
+        $missingPaths = [];
         $artworkChanged = false;
+        $snapshotUpgradeNeeded = false;
 
         foreach ($snapshot->directories as $directory) {
             $previous = $stored->get($directory['relative_path_hash']);
 
-            if ($previous === null || $previous->signature !== $directory['signature']) {
-                $changes[] = $directory['relative_path'];
+            if ($previous === null) {
+                $scanPaths[] = $directory['relative_path'];
+            } elseif ($previous->file_signature === null) {
+                $snapshotUpgradeNeeded = true;
+
+                if ($previous->signature !== $directory['signature']) {
+                    $scanPaths[] = $directory['relative_path'];
+                }
+            } elseif ($previous->file_signature !== $directory['file_signature']) {
+                $scanPaths[] = $directory['relative_path'];
             }
-            if ($previous !== null && $previous->artwork_signature !== $directory['artwork_signature']) {
+
+            if ($previous !== null
+                && $previous->artwork_signature !== $directory['artwork_signature']) {
                 $artworkChanged = true;
+                $scanPaths[] = $directory['relative_path'];
             }
 
             $stored->forget($directory['relative_path_hash']);
         }
 
         foreach ($stored as $removed) {
-            $changes[] = $this->parentPath($removed->relative_path);
-            if ($removed->artwork_signature !== hash('sha256', '')) {
-                $artworkChanged = true;
-            }
+            $missingPaths[] = $removed->relative_path;
         }
 
-        $changes = array_values(array_unique($changes));
+        $scanPaths = $this->collapseNestedPaths($scanPaths);
+        $missingPaths = $this->collapseNestedPaths($missingPaths);
+        $changes = array_values(array_unique([...$scanPaths, ...$missingPaths]));
         $reconciliationDue = $root->last_scanned_at === null
             || $root->last_scanned_at->lte(
                 now()->subMinutes($root->watch_reconcile_interval_minutes),
@@ -105,6 +134,10 @@ class LibraryWatchMonitor
         $needsScan = $firstSnapshot || $changes !== [] || $reconciliationDue;
 
         if (! $needsScan) {
+            if ($snapshotUpgradeNeeded) {
+                $this->replaceSnapshot($root, $snapshot);
+            }
+
             $root->update([
                 'watch_status' => 'watching',
                 'watch_checked_at' => now(),
@@ -120,16 +153,22 @@ class LibraryWatchMonitor
             return;
         }
 
-        $subtreePath = $firstSnapshot || $reconciliationDue || $artworkChanged
-            ? null
-            : $this->commonAncestor($changes);
+        $fullReconciliation = $firstSnapshot || $reconciliationDue;
+        $subtreePath = $fullReconciliation ? null : $this->commonAncestor($changes);
 
         try {
-            $scan = $this->scanDispatcher->dispatch(
-                $root,
-                ScanTrigger::Watcher,
-                $subtreePath,
-            );
+            $scan = $fullReconciliation
+                ? $this->scanDispatcher->dispatch(
+                    $root,
+                    ScanTrigger::Watcher,
+                )
+                : $this->scanDispatcher->dispatch(
+                    $root,
+                    ScanTrigger::Watcher,
+                    $subtreePath,
+                    $scanPaths,
+                    $missingPaths,
+                );
         } catch (ScanDispatchException) {
             $this->markPending($root);
 
@@ -160,6 +199,8 @@ class LibraryWatchMonitor
             path: $eventPath,
             context: [
                 'changedDirectoryCount' => count($changes),
+                'scanPathCount' => count($scanPaths),
+                'missingPathCount' => count($missingPaths),
                 'artworkChanged' => $artworkChanged,
             ],
         );
@@ -246,10 +287,44 @@ class LibraryWatchMonitor
             : $left === $right;
     }
 
-    private function parentPath(string $path): string
+    /** @param list<string> $paths
+     *  @return list<string>
+     */
+    private function collapseNestedPaths(array $paths): array
     {
-        $parent = str_replace('\\', '/', dirname($path));
+        $paths = array_values(array_unique($paths));
+        usort(
+            $paths,
+            static fn (string $left, string $right): int => substr_count($left, '/')
+                <=> substr_count($right, '/'),
+        );
+        $collapsed = [];
 
-        return $parent === '.' ? '' : trim($parent, '/');
+        foreach ($paths as $path) {
+            $nested = false;
+
+            foreach ($collapsed as $parent) {
+                if ($parent === '' || $this->pathWithin($path, $parent)) {
+                    $nested = true;
+
+                    break;
+                }
+            }
+
+            if (! $nested) {
+                $collapsed[] = $path;
+            }
+        }
+
+        return $collapsed;
+    }
+
+    private function pathWithin(string $path, string $parent): bool
+    {
+        $comparisonPath = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($path) : $path;
+        $comparisonParent = PHP_OS_FAMILY === 'Windows' ? mb_strtolower($parent) : $parent;
+
+        return $comparisonPath === $comparisonParent
+            || str_starts_with($comparisonPath, $comparisonParent.'/');
     }
 }

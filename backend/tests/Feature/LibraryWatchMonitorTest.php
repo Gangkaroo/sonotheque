@@ -76,6 +76,8 @@ class LibraryWatchMonitorTest extends TestCase
         $secondScan = $root->scanRuns()->latest('id')->firstOrFail();
         $this->assertNotSame($firstScan->id, $secondScan->id);
         $this->assertSame('Artist/Album', $secondScan->subtree_path);
+        $this->assertSame(['Artist/Album'], $secondScan->scan_paths);
+        $this->assertSame([], $secondScan->missing_paths);
         $this->assertDatabaseHas(LibraryActivityLog::class, [
             'library_root_id' => $root->id,
             'scan_run_id' => $secondScan->id,
@@ -95,6 +97,47 @@ class LibraryWatchMonitorTest extends TestCase
 
         $this->assertSame('pending', $root->fresh()->watch_status);
         $this->assertSame(1, $root->scanRuns()->count());
+    }
+
+    public function test_moving_an_album_with_artwork_queues_an_artist_subtree_scan(): void
+    {
+        file_put_contents(
+            $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'.DIRECTORY_SEPARATOR.'cover.jpg',
+            'album cover',
+        );
+        $root = $this->createRoot();
+        $monitor = $this->app->make(LibraryWatchMonitor::class);
+
+        $monitor->run();
+        $firstScan = $root->scanRuns()->sole();
+        $firstScan->update([
+            'status' => ScanStatus::Completed,
+            'finished_at' => now(),
+        ]);
+        $root->update([
+            'last_scanned_at' => now(),
+            'watch_checked_at' => now()->subMinutes(10),
+            'watch_status' => 'watching',
+        ]);
+
+        rename(
+            $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album',
+            $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Moved Album',
+        );
+
+        $monitor->run();
+
+        $secondScan = $root->scanRuns()->latest('id')->firstOrFail();
+        $this->assertNotSame($firstScan->id, $secondScan->id);
+        $this->assertSame('Artist', $secondScan->subtree_path);
+        $this->assertSame(['Artist/Moved Album'], $secondScan->scan_paths);
+        $this->assertSame(['Artist/Album'], $secondScan->missing_paths);
+        $this->assertDatabaseHas(LibraryActivityLog::class, [
+            'library_root_id' => $root->id,
+            'scan_run_id' => $secondScan->id,
+            'source' => 'watcher',
+            'code' => 'watch_change_detected',
+        ]);
     }
 
     public function test_successful_initial_reconciliation_transitions_to_watching(): void
@@ -160,6 +203,37 @@ class LibraryWatchMonitorTest extends TestCase
         $this->assertFalse($root->watch_enabled);
         $this->assertSame('disabled', $root->watch_status);
         $this->assertNull($root->watch_checked_at);
+        $this->assertSame(0, $root->watchDirectories()->count());
+    }
+
+    public function test_failed_watcher_scan_resets_its_snapshot_for_retry(): void
+    {
+        $root = $this->createRoot();
+        $this->app->make(LibraryWatchMonitor::class)->run();
+        $scan = $root->scanRuns()->sole();
+        $scanner = \Mockery::mock(LibraryScanner::class);
+        $scanner->shouldReceive('scan')
+            ->once()
+            ->andReturnUsing(function (ScanRun $scanRun): void {
+                $scanRun->update([
+                    'status' => ScanStatus::Failed,
+                    'finished_at' => now(),
+                    'summary' => [
+                        'phase' => 'failed',
+                        'error' => 'The watched directory could not be read.',
+                    ],
+                ]);
+            });
+
+        (new ScanLibraryRoot($scan->id))->handle(
+            $scanner,
+            $this->app->make(LibraryActivityLogger::class),
+        );
+
+        $root->refresh();
+        $this->assertSame('pending', $root->watch_status);
+        $this->assertNull($root->watch_checked_at);
+        $this->assertSame('The watched directory could not be read.', $root->watch_error);
         $this->assertSame(0, $root->watchDirectories()->count());
     }
 

@@ -24,6 +24,7 @@ class RunAudioAnalysis implements ShouldQueue
 
     public function __construct(public readonly int $audioAnalysisRunId)
     {
+        $this->onQueue('analysis');
     }
 
     public function handle(AudioAnalyzer $analyzer, LibraryPathGuard $pathGuard): void

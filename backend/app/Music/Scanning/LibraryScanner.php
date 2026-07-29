@@ -38,6 +38,8 @@ class LibraryScanner
 
     private const PROGRESS_UPDATE_INTERVAL = 25;
 
+    private const UNCHANGED_FLUSH_INTERVAL = 1000;
+
     /** @var array<int, true> */
     private array $artworkSynced = [];
 
@@ -65,7 +67,7 @@ class LibraryScanner
     /** @var list<DiscoveredAudioFile> */
     private array $newFiles = [];
 
-    /** @var array<string, list<array{pathHash: string, state: ScanMediaFileState}>> */
+    /** @var array<string, list<array{pathHash: string, libraryRootId: int, state: ScanMediaFileState}>> */
     private array $staleFilesByFingerprint = [];
 
     /** @var array<string, true> */
@@ -77,13 +79,16 @@ class LibraryScanner
     /** @var list<int> */
     private array $unchangedFileIds = [];
 
+    /** @var array<int, true> */
+    private array $unchangedArtworkAlbums = [];
+
+    private int $unchangedFilesFastTracked = 0;
+
     private bool $importPlayStatisticsFromTags = false;
 
     private int $playStatisticsImported = 0;
 
     private int $issueRecordCount = 0;
-
-    private bool $storedFingerprintsAvailable = false;
 
     /** @var list<array{scan_run_id: int, code: string, severity: string, message: string, path: ?string, occurrence_count: int, created_at: mixed, updated_at: mixed}> */
     private array $pendingScanIssues = [];
@@ -91,6 +96,12 @@ class LibraryScanner
     private ?int $pendingScanRunId = null;
 
     private ?string $subtreePath = null;
+
+    /** @var list<string>|null */
+    private ?array $scanPaths = null;
+
+    /** @var list<string>|null */
+    private ?array $missingPaths = null;
 
     private ?int $pendingLibraryRootId = null;
 
@@ -110,6 +121,7 @@ class LibraryScanner
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
         private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
+        private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryActivityLogger $activityLogger,
     ) {
     }
@@ -135,6 +147,8 @@ class LibraryScanner
         $scanRun->refresh()->loadMissing('libraryRoot');
         $this->pendingLibraryRootId = $scanRun->library_root_id;
         $this->subtreePath = $scanRun->subtree_path;
+        $this->scanPaths = $scanRun->scan_paths;
+        $this->missingPaths = $scanRun->missing_paths;
         $this->prepareScanCaches($scanRun);
         $issues = [];
         $progress = [
@@ -152,17 +166,47 @@ class LibraryScanner
             $this->discoveryManifest->start($scanRun->id);
 
             foreach ($this->discover($scanRun, $diagnostics) as $file) {
-                $this->discoveryManifest->append($file);
                 $progress['files_discovered']++;
                 $pathHash = $this->pathHash($file->relativePath);
                 $this->discoveredPathHashes[$pathHash] = true;
+                $existing = $this->existingFiles[$pathHash] ?? null;
 
-                if (! isset($this->existingFiles[$pathHash]) && $this->storedFingerprintsAvailable) {
+                if ($existing === null) {
                     $this->newFiles[] = $file;
+                }
+
+                if ($existing !== null && $this->isUnchangedFile($file, $existing)) {
+                    $albumId = $existing->albumId;
+
+                    if ($albumId !== null && ! isset($this->unchangedArtworkAlbums[$albumId])) {
+                        $this->unchangedArtworkAlbums[$albumId] = true;
+                        $this->discoveryManifest->append($file);
+                    } else {
+                        $warnings = $this->fastTrackUnchangedFile($existing, $startedAt);
+                        $progress['files_processed']++;
+                        $this->unchangedFilesFastTracked++;
+
+                        if ($warnings !== []) {
+                            $progress['warning_count'] += count($warnings);
+
+                            foreach ($warnings as $warning) {
+                                $this->addIssue(
+                                    $issues,
+                                    'file_warning',
+                                    'warning',
+                                    $warning,
+                                    $file->relativePath,
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    $this->discoveryManifest->append($file);
                 }
 
                 if ($progress['files_discovered'] % self::DISCOVERY_UPDATE_INTERVAL === 0
                     && $this->cancellationRequested($scanRun)) {
+                    $this->flushPendingFileChanges($startedAt);
                     $this->cancelScan($scanRun, $progress, $issues);
 
                     return;
@@ -175,6 +219,7 @@ class LibraryScanner
                 }
             }
 
+            $this->flushPendingFileChanges($startedAt);
             $scanRun->update(array_merge($progress, [
                 'summary' => $this->summary('scanning', $issues),
             ]));
@@ -285,7 +330,7 @@ class LibraryScanner
                 return;
             }
 
-            if ($progress['files_discovered'] === 0) {
+            if ($progress['files_discovered'] === 0 && ! $this->isDeltaScan()) {
                 $this->addIssue(
                     $issues,
                     'no_music_files',
@@ -299,20 +344,23 @@ class LibraryScanner
                 ->where('library_root_id', $scanRun->library_root_id)
                 ->where('last_seen_at', '<', $startedAt);
             $this->scopeMediaFilesToScan($staleFiles, $scanRun);
-            $removed = $this->deleteStaleFiles($staleFiles, $diagnostics);
+            $removed = $this->markStaleFilesMissing($staleFiles, $diagnostics);
 
             if ($removed > 0) {
                 $this->addIssue(
                     $issues,
-                    'files_removed',
+                    'files_unavailable',
                     'warning',
-                    'Previously indexed audio files were not found and were removed from the catalog.',
+                    'Previously indexed audio files were not found and are now unavailable.',
                     count: $removed,
                 );
                 $progress['warning_count'] += $removed;
             }
 
-            if (! $canRemoveStaleFiles && (clone $staleFiles)->exists()) {
+            if (! $canRemoveStaleFiles
+                && (clone $staleFiles)
+                    ->where('status', '!=', MediaFileStatus::Missing->value)
+                    ->exists()) {
                 $this->addIssue(
                     $issues,
                     'stale_cleanup_preserved',
@@ -326,7 +374,7 @@ class LibraryScanner
             $this->deleteOrphanedCatalogData();
             $this->flushScanIssues();
 
-            if ($scanRun->subtree_path === null) {
+            if ($scanRun->subtree_path === null && ! $this->isDeltaScan()) {
                 $scanRun->libraryRoot->update(['last_scanned_at' => now()]);
             }
             $scanRun->update(array_merge($progress, [
@@ -362,15 +410,10 @@ class LibraryScanner
             $existing = $this->reconcileMovedFile($scanRun, $file, $pathHash);
         }
 
-        if ($existing !== null
-            && ! $existing->moved
-            && $existing->status === MediaFileStatus::Available
-            && $existing->fileSize === $file->fileSize
-            && $existing->modifiedAt === $file->modifiedAt
-            && $existing->metadataParserVersion === self::METADATA_PARSER_VERSION) {
+        if ($existing !== null && $this->isUnchangedFile($file, $existing)) {
             $album = $this->findAlbumById($existing->albumId);
 
-            if ($album !== null && $album->relative_path_hash === $this->pathHash($file->albumRelativePath)) {
+            if ($album !== null) {
                 $this->unchangedFileIds[] = $existing->id;
                 $warnings = $this->syncArtwork($album, $scanRun, audioPath: $file->absolutePath);
                 $trackId = $existing->trackId;
@@ -511,6 +554,42 @@ class LibraryScanner
                 ),
             ),
         ];
+    }
+
+    private function isUnchangedFile(
+        DiscoveredAudioFile $file,
+        ScanMediaFileState $existing,
+    ): bool {
+        return ! $existing->moved
+            && $existing->albumId !== null
+            && $existing->albumRelativePathHash === $this->pathHash($file->albumRelativePath)
+            && $existing->status === MediaFileStatus::Available
+            && $existing->fileSize === $file->fileSize
+            && $existing->modifiedAt === $file->modifiedAt
+            && $existing->metadataParserVersion === self::METADATA_PARSER_VERSION;
+    }
+
+    /** @return list<string> */
+    private function fastTrackUnchangedFile(
+        ScanMediaFileState $existing,
+        CarbonImmutable $seenAt,
+    ): array {
+        $this->unchangedFileIds[] = $existing->id;
+        $warnings = [];
+
+        if ($existing->trackId !== null && $existing->playStatistics !== null) {
+            $warnings = $this->importPlayStatistics(
+                $existing->trackId,
+                $existing->playStatistics,
+                $existing->id,
+            );
+        }
+
+        if (count($this->unchangedFileIds) >= self::UNCHANGED_FLUSH_INTERVAL) {
+            $this->flushPendingFileChanges($seenAt);
+        }
+
+        return $warnings;
     }
 
     /** @return list<string> */
@@ -688,8 +767,10 @@ class LibraryScanner
     }
 
     /** @param Builder<MediaFile> $staleFiles */
-    private function deleteStaleFiles(Builder $staleFiles, DiscoveryDiagnostics $diagnostics): int
-    {
+    private function markStaleFilesMissing(
+        Builder $staleFiles,
+        DiscoveryDiagnostics $diagnostics,
+    ): int {
         $preservedPaths = $diagnostics->pathsRequiringPreservation();
 
         if ($preservedPaths === null) {
@@ -706,7 +787,29 @@ class LibraryScanner
                 ->whereRaw("NOT starts_with({$comparisonColumn}, ?)", [$comparisonPath.'/']);
         }
 
-        return $deletableFiles->delete();
+        $mediaFileIds = $deletableFiles
+            ->where('status', '!=', MediaFileStatus::Missing->value)
+            ->pluck('id');
+
+        if ($mediaFileIds->isEmpty()) {
+            return 0;
+        }
+
+        $trackIds = Track::query()
+            ->whereIn('media_file_id', $mediaFileIds)
+            ->pluck('id')
+            ->map(fn (int $id): int => $id)
+            ->all();
+        $updated = MediaFile::query()
+            ->whereIn('id', $mediaFileIds)
+            ->update([
+                'status' => MediaFileStatus::Missing,
+                'scan_error' => null,
+            ]);
+
+        $this->playlistSynchronizationDispatcher->tracks($trackIds);
+
+        return $updated;
     }
 
     private function prepareScanCaches(ScanRun $scanRun): void
@@ -717,13 +820,14 @@ class LibraryScanner
         $this->artistCache = [];
         $this->genreCache = [];
         $this->unchangedFileIds = [];
+        $this->unchangedArtworkAlbums = [];
+        $this->unchangedFilesFastTracked = 0;
         $this->discoveredPathHashes = [];
         $this->fingerprintsByPath = [];
         $this->fingerprintFailures = [];
         $this->newFingerprintCounts = [];
         $this->newFiles = [];
         $this->staleFilesByFingerprint = [];
-        $this->storedFingerprintsAvailable = false;
         $this->issueRecordCount = 0;
         $this->pendingScanIssues = [];
         $this->pendingScanRunId = $scanRun->id;
@@ -735,9 +839,12 @@ class LibraryScanner
         $this->existingFiles = [];
         $query = $scanRun->libraryRoot->mediaFiles()
             ->getQuery()
+            ->leftJoin('tracks', 'tracks.media_file_id', '=', 'media_files.id')
+            ->leftJoin('albums', 'albums.id', '=', 'media_files.album_id')
             ->select([
                 'media_files.id',
                 'media_files.album_id',
+                'albums.relative_path_hash as album_relative_path_hash',
                 'media_files.relative_path_hash',
                 'media_files.status',
                 'media_files.file_size',
@@ -745,18 +852,17 @@ class LibraryScanner
                 'media_files.metadata_parser_version',
                 'media_files.content_fingerprint',
                 'media_files.content_fingerprint_version',
+                'tracks.id as track_id',
             ]);
         $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
 
         foreach ($query->lazyById(1000, 'media_files.id', 'id') as $mediaFile) {
             $state = $this->mediaFileState($mediaFile);
 
-            if ($state->contentFingerprint !== null
-                && $state->contentFingerprintVersion === AudioContentFingerprinter::VERSION) {
-                $this->storedFingerprintsAvailable = true;
-            }
-
             $this->existingFiles[$mediaFile->relative_path_hash] = $state;
+            $state->trackId = $mediaFile->track_id === null
+                ? null
+                : (int) $mediaFile->track_id;
         }
 
         if ($this->importPlayStatisticsFromTags) {
@@ -807,6 +913,7 @@ class LibraryScanner
         return new ScanMediaFileState(
             id: $mediaFile->id,
             albumId: $mediaFile->album_id,
+            albumRelativePathHash: $mediaFile->album_relative_path_hash,
             status: $mediaFile->status,
             fileSize: $mediaFile->file_size,
             modifiedAt: $mediaFile->modified_at->getTimestamp(),
@@ -844,6 +951,7 @@ class LibraryScanner
 
             $this->staleFilesByFingerprint[$fingerprint][] = [
                 'pathHash' => $pathHash,
+                'libraryRootId' => $this->libraryRootId(),
                 'state' => $state,
             ];
         }
@@ -851,7 +959,7 @@ class LibraryScanner
 
     private function fingerprintNewFilesForMoveDetection(ScanRun $scanRun): bool
     {
-        if ($this->staleFilesByFingerprint === []) {
+        if ($this->newFiles === []) {
             $this->newFiles = [];
 
             return true;
@@ -883,21 +991,71 @@ class LibraryScanner
     ): ?ScanMediaFileState {
         $fingerprint = $this->fingerprint($file);
         if ($fingerprint === null
-            || ($this->newFingerprintCounts[$fingerprint] ?? 0) !== 1
-            || count($this->staleFilesByFingerprint[$fingerprint] ?? []) !== 1) {
+            || ($this->newFingerprintCounts[$fingerprint] ?? 0) !== 1) {
             return null;
         }
 
-        $candidate = $this->staleFilesByFingerprint[$fingerprint][0];
+        $candidates = $this->staleFilesByFingerprint[$fingerprint] ?? [];
+        $candidateIds = array_map(
+            static fn (array $candidate): int => $candidate['state']->id,
+            $candidates,
+        );
+        $globalCandidates = MediaFile::query()
+            ->with([
+                'track:id,media_file_id',
+                'libraryRoot:id,path',
+            ])
+            ->whereIn('status', [
+                MediaFileStatus::Available->value,
+                MediaFileStatus::Missing->value,
+            ])
+            ->where('content_fingerprint', $fingerprint)
+            ->where('content_fingerprint_version', AudioContentFingerprinter::VERSION)
+            ->when(
+                $candidateIds !== [],
+                fn (Builder $query) => $query->whereNotIn('id', $candidateIds),
+            )
+            ->get([
+                'id',
+                'library_root_id',
+                'album_id',
+                'status',
+                'file_size',
+                'modified_at',
+                'metadata_parser_version',
+                'content_fingerprint',
+                'content_fingerprint_version',
+                'relative_path',
+                'relative_path_hash',
+            ])
+            ->filter(fn (MediaFile $mediaFile): bool => $this->isMissingMoveCandidate($mediaFile));
+
+        foreach ($globalCandidates as $mediaFile) {
+            $state = $this->mediaFileState($mediaFile);
+            $state->trackId = $mediaFile->track?->id;
+            $candidates[] = [
+                'pathHash' => $mediaFile->relative_path_hash,
+                'libraryRootId' => $mediaFile->library_root_id,
+                'state' => $state,
+            ];
+        }
+
+        if (count($candidates) !== 1) {
+            return null;
+        }
+
+        $candidate = $candidates[0];
         $updated = MediaFile::query()
             ->whereKey($candidate['state']->id)
-            ->where('library_root_id', $scanRun->library_root_id)
+            ->where('library_root_id', $candidate['libraryRootId'])
             ->where('relative_path_hash', $candidate['pathHash'])
             ->update([
+                'library_root_id' => $scanRun->library_root_id,
                 'relative_path' => $file->relativePath,
                 'relative_path_hash' => $pathHash,
                 'file_size' => $file->fileSize,
                 'modified_at' => CarbonImmutable::createFromTimestamp($file->modifiedAt),
+                'status' => MediaFileStatus::Missing,
                 'content_fingerprint' => $fingerprint,
                 'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
             ]);
@@ -920,6 +1078,27 @@ class LibraryScanner
         }
 
         return $state;
+    }
+
+    private function isMissingMoveCandidate(MediaFile $mediaFile): bool
+    {
+        if ($mediaFile->status === MediaFileStatus::Missing) {
+            return true;
+        }
+
+        $root = $mediaFile->libraryRoot;
+        if ($root === null) {
+            return false;
+        }
+
+        try {
+            return $this->pathGuard->resolveExistingFileWithin(
+                $root->path,
+                $mediaFile->relative_path,
+            ) === null;
+        } catch (InvalidLibraryPath) {
+            return false;
+        }
     }
 
     /** @return list<string> */
@@ -987,12 +1166,18 @@ class LibraryScanner
         $existingAlbum = $existing === null ? null : $this->findAlbumById($existing->albumId);
 
         if ($existingAlbum !== null
-            && $existingAlbum->library_root_id === $scanRun->library_root_id
-            && $existingAlbum->relative_path_hash !== $albumHash
+            && ($existingAlbum->library_root_id !== $scanRun->library_root_id
+                || $existingAlbum->relative_path_hash !== $albumHash)
             && ! Album::query()
                 ->where('library_root_id', $scanRun->library_root_id)
                 ->where('relative_path_hash', $albumHash)
-                ->exists()) {
+                ->exists()
+            && ($existingAlbum->library_root_id === $scanRun->library_root_id
+                || ! $existingAlbum->mediaFiles()
+                    ->where('status', '!=', MediaFileStatus::Missing->value)
+                    ->exists())) {
+            $existingAlbum->library_root_id = $scanRun->library_root_id;
+
             return $existingAlbum;
         }
 
@@ -1094,6 +1279,9 @@ class LibraryScanner
         return array_filter([
             'phase' => $phase,
             'subtreePath' => $this->subtreePath,
+            'scanPaths' => $this->scanPaths,
+            'missingPaths' => $this->missingPaths,
+            'unchangedFilesFastTracked' => $this->unchangedFilesFastTracked ?: null,
             'error' => $error,
             'playStatisticsImported' => $this->playStatisticsImported ?: null,
             'issuesTruncated' => $this->issueRecordCount > count($issues) ?: null,
@@ -1122,11 +1310,25 @@ class LibraryScanner
     /** @return iterable<int, DiscoveredAudioFile> */
     private function discover(ScanRun $scanRun, DiscoveryDiagnostics $diagnostics): iterable
     {
-        if ($scanRun->subtree_path === null) {
-            return $this->discoverer->discover($scanRun->libraryRoot, $diagnostics);
+        if ($this->isDeltaScan()) {
+            foreach ($this->scanPaths ?? [] as $scanPath) {
+                yield from $this->discoverer->discover(
+                    $scanRun->libraryRoot,
+                    $diagnostics,
+                    $scanPath === '' ? null : $scanPath,
+                );
+            }
+
+            return;
         }
 
-        return $this->discoverer->discover(
+        if ($scanRun->subtree_path === null) {
+            yield from $this->discoverer->discover($scanRun->libraryRoot, $diagnostics);
+
+            return;
+        }
+
+        yield from $this->discoverer->discover(
             $scanRun->libraryRoot,
             $diagnostics,
             $scanRun->subtree_path,
@@ -1139,6 +1341,43 @@ class LibraryScanner
         ScanRun $scanRun,
         string $column = 'relative_path',
     ): void {
+        if ($this->isDeltaScan()) {
+            $paths = array_values(array_unique([
+                ...($this->scanPaths ?? []),
+                ...($this->missingPaths ?? []),
+            ]));
+
+            if (in_array('', $paths, true)) {
+                return;
+            }
+
+            if ($paths === []) {
+                $query->whereRaw('1 = 0');
+
+                return;
+            }
+
+            $comparisonColumn = PHP_OS_FAMILY === 'Windows' ? "LOWER({$column})" : $column;
+            $comparisonPaths = array_map(
+                static fn (string $path): string => PHP_OS_FAMILY === 'Windows'
+                    ? mb_strtolower($path)
+                    : $path,
+                $paths,
+            );
+
+            $query->where(function (Builder $query) use ($comparisonColumn, $comparisonPaths): void {
+                foreach ($comparisonPaths as $path) {
+                    $query->orWhere(function (Builder $query) use ($comparisonColumn, $path): void {
+                        $query
+                            ->whereRaw("{$comparisonColumn} = ?", [$path])
+                            ->orWhereRaw("starts_with({$comparisonColumn}, ?)", [$path.'/']);
+                    });
+                }
+            });
+
+            return;
+        }
+
         if ($scanRun->subtree_path === null) {
             return;
         }
@@ -1155,6 +1394,10 @@ class LibraryScanner
         });
     }
 
+    private function isDeltaScan(): bool
+    {
+        return $this->scanPaths !== null || $this->missingPaths !== null;
+    }
 
     private function findOrCreateGenre(string $name): Genre
     {

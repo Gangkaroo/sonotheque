@@ -52,6 +52,27 @@ class TrackPlayStatisticsApiTest extends TestCase
         ]);
     }
 
+    public function test_it_accepts_a_small_duration_change_after_metadata_was_rewritten(): void
+    {
+        $track = $this->createTrack(durationMs: 230_478);
+
+        $this->postJson("/api/tracks/{$track->id}/plays", [
+            'listenedMs' => 115_221,
+            'durationMs' => 230_442,
+            'sessionKey' => 'metadata-rewrite-session',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('counted', true)
+            ->assertJsonPath('statistics.playCount', 1);
+
+        $this->assertDatabaseHas('track_play_events', [
+            'track_id' => $track->id,
+            'listened_ms' => 115_221,
+            'duration_ms' => 230_442,
+            'counted' => true,
+        ]);
+    }
+
     public function test_it_does_not_count_the_same_playback_session_twice(): void
     {
         $track = $this->createTrack(durationMs: 120_000);

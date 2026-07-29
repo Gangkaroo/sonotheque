@@ -485,15 +485,19 @@ For manual diagnostics, the equivalent commands remain:
 docker compose up -d postgres
 cd backend
 & $php85 artisan serve --host=127.0.0.1 --port=8000
-& $php85 artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:listen --queue=default --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:listen --queue=scans --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:listen --queue=analysis --tries=1 --timeout=0 --memory=512 --sleep=1
 & $php85 artisan schedule:work
 cd ..\frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-`queue:listen` supervises a fresh worker process for each scan. This prevents a
-large completed scan from leaving the application without a queue listener when
-Laravel retires a child worker after crossing its memory threshold.
+The three queue listeners keep short interactive work independent from library
+scans and audio analysis. `default` handles metadata edits, scrobbles, playlist
+sync, and other bounded jobs; `scans` handles library scans; `analysis` handles
+audio-intelligence preparation, analysis, and benchmarks. Each listener
+supervises a fresh worker process for every job.
 
 Open the app at:
 
@@ -509,7 +513,7 @@ http://127.0.0.1:8000/api/docs
 
 ## Background Scans
 
-Scans are queued through the Laravel database queue. The queue worker must be
+Scans are queued through the Laravel database `scans` queue. Its worker must be
 running for scans started from the Settings UI to progress.
 
 For command-line diagnostics, queue a scan for a library-root ID:
@@ -531,6 +535,15 @@ At the moment they are:
 ```text
 aac, aif, aiff, alac, flac, m4a, mp3, oga, ogg, opus, wav, wma
 ```
+
+During discovery, files whose size, modification time, parser version, album
+path, and availability state are unchanged take a batched fast path. Sonotheque
+keeps one representative file per album in the disk-backed manifest so folder
+and embedded artwork changes are still detected, while the remaining unchanged
+files only receive their updated seen state and optional cached playback-tag
+import. New, moved, changed, or previously unavailable files continue through
+the full metadata-processing path. The scan summary records the number handled
+as `unchangedFilesFastTracked` for diagnostics.
 
 The expected library layout is:
 
@@ -586,6 +599,15 @@ imported. A subtree scan can only reconcile a move
 when both its old and new paths are inside that subtree; use a full-root scan for
 moves across subtree boundaries.
 
+Unavailable tracks can be reviewed in the admin-protected Trash view. Permanent
+deletion is accepted only while a track is still unavailable and removes its
+catalog identity together with playlist entries, favorites, listening history,
+statistics, and other track-specific records. The absent music file is not
+deleted from disk. Empty albums, artists, and genres are cleaned afterwards,
+and affected synchronized playlist files are refreshed. Keep an entry in Trash
+when the file may return in another root; permanent deletion prevents a later
+scan from reconnecting that entry's personal data.
+
 Normal scans fingerprint new and changed files but do not hash every unchanged
 legacy file because that would make routine scans unnecessarily expensive. The
 one-time legacy backfill uses the same audio-content fingerprinter and stores
@@ -628,6 +650,13 @@ does not parse tags or fingerprint audio. Only a queued scan performs catalog
 updates. Files whose contents change while both size and modification time are
 deliberately preserved cannot be distinguished cheaply and are not detected by
 the current incremental scanner.
+
+Folder modification dates are not used to decide whether a directory is new.
+Each snapshot is keyed by the root-relative directory path and includes its
+immediate child-directory names plus the names, sizes, and modification times
+of supported audio and artwork files. Moving an old folder therefore appears as
+a missing path in the source root and a previously unknown path in the
+destination root even when the folder and file dates are preserved.
 
 Both the scheduler and queue listener must be running. A disconnected drive is
 reported without removing catalog data. Settings displays monitoring state,
@@ -721,8 +750,12 @@ Useful files:
 
 - `runtime-logs/backend-server.out.log`
 - `runtime-logs/backend-server.err.log`
-- `runtime-logs/queue-worker.out.log`
-- `runtime-logs/queue-worker.err.log`
+- `runtime-logs/queue-default.out.log`
+- `runtime-logs/queue-default.err.log`
+- `runtime-logs/queue-scans.out.log`
+- `runtime-logs/queue-scans.err.log`
+- `runtime-logs/queue-analysis.out.log`
+- `runtime-logs/queue-analysis.err.log`
 - `runtime-logs/frontend-vite.out.log`
 - `runtime-logs/frontend-vite.err.log`
 

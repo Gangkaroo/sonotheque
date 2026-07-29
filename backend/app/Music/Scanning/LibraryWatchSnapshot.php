@@ -9,6 +9,7 @@ class LibraryWatchSnapshot
      *     relative_path: string,
      *     relative_path_hash: string,
      *     signature: string,
+     *     file_signature: string,
      *     artwork_signature: string
      * }>  $directories
      */

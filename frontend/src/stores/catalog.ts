@@ -131,13 +131,22 @@ export interface Album {
 }
 
 export interface AlbumDetail extends Album {
+  libraryRoot: NamedCatalogItem | null
   genres: NamedCatalogItem[]
+  technical: {
+    fileTypes: string[]
+    bitrateMinimum?: number | null
+    bitrateMaximum?: number | null
+    bitrateModes: string[]
+    encoderSettings: string[]
+  }
   tracks: Track[]
 }
 
 export interface Track {
   id: number
   title: string
+  available?: boolean
   streamUrl: string
   durationMs?: number
   trackNumber?: number

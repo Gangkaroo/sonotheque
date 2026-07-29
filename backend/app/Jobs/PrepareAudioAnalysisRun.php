@@ -23,6 +23,7 @@ class PrepareAudioAnalysisRun implements ShouldQueue
 
     public function __construct(public readonly int $audioAnalysisRunId)
     {
+        $this->onQueue('analysis');
     }
 
     public function handle(

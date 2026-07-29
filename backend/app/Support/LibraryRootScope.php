@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\MediaFileStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -29,25 +30,54 @@ class LibraryRootScope
         return isset($validated['libraryRoot']) ? (int) $validated['libraryRoot'] : null;
     }
 
-    public function albums(Builder $query, ?int $libraryRootId, string $column = 'library_root_id'): Builder
-    {
+    public function albums(
+        Builder $query,
+        ?int $libraryRootId,
+        string $column = 'library_root_id',
+        bool $availableOnly = true,
+    ): Builder {
         if ($libraryRootId !== null) {
-            return $query->where($column, $libraryRootId);
+            $query->where($column, $libraryRootId);
+        } else {
+            $query->whereHas(
+                'libraryRoot',
+                fn (Builder $libraryRoots) => $libraryRoots->where('enabled', true),
+            );
         }
 
-        return $query->whereHas(
-            'libraryRoot',
-            fn (Builder $libraryRoots) => $libraryRoots->where('enabled', true),
+        return $query->when(
+            $availableOnly,
+            fn (Builder $albums) => $albums->whereHas(
+                'mediaFiles',
+                fn (Builder $mediaFiles) => $mediaFiles->where(
+                    'status',
+                    MediaFileStatus::Available->value,
+                ),
+            ),
         );
     }
 
-    public function tracks(Builder $query, ?int $libraryRootId): Builder
-    {
+    public function tracks(
+        Builder $query,
+        ?int $libraryRootId,
+        bool $availableOnly = true,
+    ): Builder {
         return $query->whereHas(
-            'mediaFile.libraryRoot',
-            fn (Builder $libraryRoots) => $libraryRoots
-                ->where('enabled', true)
-                ->when($libraryRootId, fn (Builder $query, int $id) => $query->whereKey($id)),
+            'mediaFile',
+            fn (Builder $mediaFiles) => $mediaFiles
+                ->when(
+                    $availableOnly,
+                    fn (Builder $query) => $query->where(
+                        'status',
+                        MediaFileStatus::Available->value,
+                    ),
+                )
+                ->whereHas(
+                    'libraryRoot',
+                    fn (Builder $libraryRoots) => $libraryRoots
+                        ->where('enabled', true)
+                        ->when($libraryRootId, fn (Builder $query, int $id) => $query->whereKey($id)),
+                ),
         );
     }
 }

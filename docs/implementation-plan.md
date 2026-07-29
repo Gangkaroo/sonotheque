@@ -114,6 +114,9 @@ The Vue single-page application communicates with the Laravel application throug
 
 Scanning is performed asynchronously using Laravel queue jobs. Each discovered
 file is inspected with getID3 and normalized into relational library records.
+Short interactive jobs, library scans, and audio-intelligence work use separate
+database queues and workers so a long scan cannot block metadata edits,
+scrobbles, playlist synchronization, or other bounded operations.
 When getID3 reports an error, FFprobe validates the audio stream and supplies
 missing technical data and tags; successfully recovered files remain available
 with bounded parser warnings. Original parser data is retained in JSONB for
@@ -552,11 +555,15 @@ Completed:
 - Database schema, relationships, browse/search indexes, and read-only catalog APIs
 - Incremental filesystem scanner with queued execution, error isolation,
   disk-backed single-pass discovery manifests, and versioned playback-tag
-  import checkpoints that avoid repeated work for unchanged files
+  import checkpoints that avoid repeated work for unchanged files. Unchanged
+  albums keep one manifest representative for artwork verification while their
+  remaining files are updated through the batched fast path.
 - Optional per-root portable filesystem monitoring with configurable checks,
   targeted subtree scans, periodic full reconciliation, disconnected-root
   preservation, serialized per-root scan dispatch, durable disabled-state
   handling, and no overlapping scans
+- Admin-protected Trash view for reviewing unavailable tracks and permanently
+  deleting selected catalog identities together with their personal references
 - Persistent cross-root library activity log for watcher events, scan lifecycle
   entries, warnings, and errors, with root/scan links, filters, pagination, and
   bounded retention
@@ -738,7 +745,10 @@ The implementation order changed from the original phase list. The scanner and a
   only when requested.
 - Fall back to embedded artwork when no configured folder image is available.
 - Deduplicate cached artwork using checksums.
-- Detect unchanged files using size and modification time.
+- Detect unchanged files using size and modification time. Keep one unchanged
+  file per album in the processing manifest to verify artwork, and batch-update
+  the seen state of the remaining unchanged files without reparsing or a second
+  manifest pass. (Complete)
 - Update modified files and remove catalog records for files no longer discovered, while preserving records only beneath unreadable paths.
 - Record malformed files and nonfatal warnings without stopping a scan.
 - Execute scans through queued jobs.
@@ -862,6 +872,34 @@ into a general-purpose file manager.
   end-to-end nested-disc fixture before enabling the feature in packaged mode.
   (Complete with PostgreSQL-backed API coverage, frontend store coverage, and
   an isolated packaged Playwright fixture)
+- Replace common-ancestor watcher scans with a durable multi-path change set.
+  Capture added/updated directories, missing path prefixes, and artwork impact
+  paths separately; collapse overlapping entries without widening them to a
+  whole letter folder or root. One queued delta run may process several
+  disjoint paths while retaining the one-active-scan-per-root rule. Directory
+  membership and direct-file signatures identify new folders independently of
+  inherited folder timestamps. (Complete)
+- Treat files absent from a trustworthy delta or reconciliation as unavailable
+  instead of deleting their media and track identity immediately. Set
+  `media_files.status` to `missing`, hide those tracks from ordinary catalog
+  browsing and random playback, and keep playlist items, favorites, listening
+  statistics, and other personal references intact. Playlist rows remain
+  visible but disabled and clearly marked as unavailable. (Complete)
+- Add a Trash view for unavailable tracks with search, library-root scope,
+  multi-selection, and guarded permanent deletion. Purging a track also removes
+  its playlist entries, favorites, listening history/statistics, and other
+  track-specific records, then cleans empty albums, artists, and genres.
+  Available tracks must never be accepted by this operation. (Complete)
+- Before importing a newly discovered file as a new track, compare its
+  tag-independent audio-payload fingerprint against missing media across every
+  enabled library root. A single unambiguous match reuses the existing media
+  and track IDs, updates root/path/album relationships and parsed metadata, and
+  makes retained playlist entries playable again. Preserve missing records
+  when no match exists and decline ambiguous duplicate matches. Matching also
+  recognizes an old physical path that disappeared before its root scan updates
+  the database, making cross-root moves independent of root scan order.
+  Periodic full reconciliation applies the same unavailable/relink lifecycle
+  as watcher deltas. (Complete)
 - Defer moving entries to another parent, delete, folder creation, and other
   write operations to a later filesystem-management phase with explicit
   conflict and rollback rules.
@@ -1301,6 +1339,14 @@ Last.fm integration.
   APP_KEY preservation, safety backups, and Settings status)
 
 ## Recommended Next Step
+
+The filesystem-monitoring milestone is complete: watcher events now create
+durable multi-path delta runs, missing files retain their catalog and playlist
+identity as unavailable entries, and unambiguous audio fingerprints reconnect
+cross-root moves without depending on root processing order. The next practical
+step is observing these deltas on the real multi-root collection and using the
+activity/scan logs to tune only demonstrably noisy edge cases; periodic full
+reconciliation remains the bounded safety net.
 
 The expanded similarity review produced predominantly useful matches and is
 accepted as the go decision for the unweighted embedding baseline. Sonotheque
