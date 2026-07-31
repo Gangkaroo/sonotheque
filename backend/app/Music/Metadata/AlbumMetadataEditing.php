@@ -33,6 +33,10 @@ class AlbumMetadataEditing
             ->uniqueStrict()
             ->values()
             ->all();
+        $albumArtistFileValues = $album->tracks
+            ->map(fn ($track): ?string => $this->fileAlbumArtist($track->mediaFile?->raw_metadata ?? []));
+        $albumArtistFilesMatch = ! $albumArtistFileValues
+            ->contains(fn (?string $artist): bool => $artist !== $values['albumArtist']);
         $current = [
             'albumTitle' => $album->title,
             'albumArtist' => $album->primaryArtist?->name ?? '',
@@ -46,10 +50,15 @@ class AlbumMetadataEditing
             $unchanged = match ($field) {
                 'genres' => $this->sameNames($current[$field], $proposed),
                 'comment' => count($currentComments) === 1 && $currentComments[0] === $proposed,
+                'albumArtist' => $current[$field] === $proposed && $albumArtistFilesMatch,
                 default => $current[$field] === $proposed,
             };
             if (! $unchanged) {
-                $changes[] = ['field' => $field, 'current' => $current[$field], 'proposed' => $proposed];
+                $change = ['field' => $field, 'current' => $current[$field], 'proposed' => $proposed];
+                if ($field === 'albumArtist' && ! $albumArtistFilesMatch) {
+                    $change['fileValuesDiffer'] = true;
+                }
+                $changes[] = $change;
             }
         }
         $changedFields = array_fill_keys(array_column($changes, 'field'), true);
@@ -165,5 +174,33 @@ class AlbumMetadataEditing
         };
 
         return $normalize($left) === $normalize($right);
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function fileAlbumArtist(array $metadata): ?string
+    {
+        foreach ([
+            'comments.album_artist',
+            'comments.band',
+            'id3v2.comments.album_artist',
+            'id3v2.comments.band',
+            'tags.id3v2.album_artist',
+            'tags.id3v2.band',
+            'ffprobe_fallback.format.tags.album_artist',
+            'ffprobe_fallback.format.tags.albumartist',
+        ] as $path) {
+            foreach ((array) data_get($metadata, $path) as $value) {
+                if (! is_scalar($value)) {
+                    continue;
+                }
+
+                $artist = trim((string) $value);
+                if ($artist !== '') {
+                    return $artist;
+                }
+            }
+        }
+
+        return null;
     }
 }

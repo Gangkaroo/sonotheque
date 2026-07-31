@@ -109,6 +109,42 @@ class AlbumMetadataApiTest extends TestCase
         $this->assertSame(['albumTitle' => 'Changed album'], MetadataEditItem::firstOrFail()->requested_changes);
     }
 
+    public function test_it_synchronizes_missing_album_artist_file_tags_when_the_catalog_value_is_unchanged(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $album->tracks()->orderBy('track_number')->get()[1]->mediaFile->update([
+            'raw_metadata' => ['comments' => []],
+        ]);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonCount(1, 'changes')
+            ->assertJsonPath('changes.0.field', 'albumArtist')
+            ->assertJsonPath('changes.0.current', 'Artist')
+            ->assertJsonPath('changes.0.proposed', 'Artist')
+            ->assertJsonPath('changes.0.fileValuesDiffer', true)
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertSame(
+            [['albumArtist' => 'Artist'], ['albumArtist' => 'Artist']],
+            MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->all(),
+        );
+        Queue::assertPushed(ApplyAlbumMetadataEdit::class);
+    }
+
     public function test_it_can_clear_the_comment_on_every_album_track(): void
     {
         Queue::fake();
@@ -184,6 +220,11 @@ class AlbumMetadataApiTest extends TestCase
                 'file_size' => 1,
                 'modified_at' => now(),
                 'last_seen_at' => now(),
+                'raw_metadata' => [
+                    'comments' => [
+                        'album_artist' => ['Artist'],
+                    ],
+                ],
             ]);
             $track = Track::create([
                 'album_id' => $album->id,

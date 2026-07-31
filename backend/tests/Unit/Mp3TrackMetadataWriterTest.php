@@ -301,6 +301,58 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertStringContainsString($technicalComment, (string) file_get_contents($path));
     }
 
+    public function test_it_clears_an_unsynchronized_id3v24_comment_with_a_data_length_indicator(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'unsynchronized-comment.mp3';
+        $decodedComment = chr(1).'eng'."\xFF\xFE\0\0"
+            .mb_convert_encoding('kingdom-leaks.com', 'UTF-16LE', 'UTF-8');
+        $storedComment = $this->synchsafe(strlen($decodedComment))
+            .str_replace("\xFF", "\xFF\0", $decodedComment);
+        $commentFrame = $this->frameV4('COMM', $storedComment, "\0".chr(3));
+        $payload = $commentFrame.$this->frameV4('RVA2', "track\0");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(4).chr(0).chr(0x80).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64),
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, ['comment' => null]);
+
+        $this->assertNull($metadata->comment);
+        $this->assertArrayNotHasKey('COMM', $metadata->rawMetadata['id3v2']);
+        $this->assertArrayHasKey('RVA2', $metadata->rawMetadata['id3v2']);
+    }
+
+    public function test_it_removes_selected_additional_frames_without_changing_standard_tags(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'additional-tags.mp3';
+        $payload = $this->frameV4('TIT2', chr(3).'Track title')
+            .$this->frameV4('RVA2', "track\0")
+            .$this->frameV4('TXXX', chr(3)."SOURCE\0Download store");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(4).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64),
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, [
+            'removedTagKeys' => ['RVA2', 'TXXX:SOURCE'],
+        ]);
+
+        $this->assertSame('Track title', $metadata->title);
+        $this->assertArrayNotHasKey('RVA2', $metadata->rawMetadata['id3v2']);
+        $this->assertArrayNotHasKey('TXXX', $metadata->rawMetadata['id3v2']);
+        $this->assertArrayHasKey('TIT2', $metadata->rawMetadata['id3v2']);
+    }
+
     public function test_it_clears_the_id3v1_comment_without_losing_the_legacy_track_number(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'legacy-comment.mp3';

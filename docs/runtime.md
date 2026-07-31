@@ -485,19 +485,21 @@ For manual diagnostics, the equivalent commands remain:
 docker compose up -d postgres
 cd backend
 & $php85 artisan serve --host=127.0.0.1 --port=8000
-& $php85 artisan queue:listen --queue=default --tries=1 --timeout=0 --memory=512 --sleep=1
-& $php85 artisan queue:listen --queue=scans --tries=1 --timeout=0 --memory=512 --sleep=1
-& $php85 artisan queue:listen --queue=analysis --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:work --queue=default --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:work --queue=scans --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:work --queue=analysis --tries=1 --timeout=0 --memory=512 --sleep=1
 & $php85 artisan schedule:work
 cd ..\frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-The three queue listeners keep short interactive work independent from library
+The three persistent queue workers keep short interactive work independent from library
 scans and audio analysis. `default` handles metadata edits, scrobbles, playlist
 sync, and other bounded jobs; `scans` handles library scans; `analysis` handles
-audio-intelligence preparation, analysis, and benchmarks. Each listener
-supervises a fresh worker process for every job.
+audio-intelligence preparation, analysis, and benchmarks. Persistent workers
+keep Laravel booted between jobs, avoiding the recurring CPU and process churn
+of `queue:listen`. Restart the managed runtime after backend code changes so
+the workers load the new code.
 
 Open the app at:
 

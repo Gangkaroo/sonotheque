@@ -33,7 +33,7 @@ class TrackMetadataController extends Controller
         return response()->json($this->payloads->job($metadataEditJob));
     }
 
-    /** @return array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int} */
+    /** @return array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int, removedTagKeys: list<string>} */
     private function values(Request $request): array
     {
         $validated = $request->validate([
@@ -50,6 +50,13 @@ class TrackMetadataController extends Controller
             'trackNumber' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
             'discNumber' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
             'year' => ['present', 'nullable', 'integer', 'min:1000', 'max:9999'],
+            'removedTagKeys' => ['sometimes', 'array', 'max:64'],
+            'removedTagKeys.*' => [
+                'string',
+                'max:512',
+                'distinct',
+                'regex:/^[A-Z0-9]{4}(?::.+)?$/u',
+            ],
         ]);
 
         return [
@@ -62,6 +69,7 @@ class TrackMetadataController extends Controller
             'trackNumber' => $validated['trackNumber'],
             'discNumber' => $validated['discNumber'],
             'year' => $validated['year'],
+            'removedTagKeys' => array_values($validated['removedTagKeys'] ?? []),
         ];
     }
 

@@ -41,7 +41,7 @@ Prefer the PHP 8.5 binary if an older PHP appears first on `PATH`:
 ```powershell
 $php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
 & $php85 artisan serve --host=127.0.0.1 --port=8000
-& $php85 artisan queue:listen --tries=1 --timeout=0 --memory=512 --sleep=1
+& $php85 artisan queue:work --tries=1 --timeout=0 --memory=512 --sleep=1
 ```
 
 Queue a scan for a configured library-root ID:

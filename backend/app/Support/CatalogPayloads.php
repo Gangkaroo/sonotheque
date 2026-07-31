@@ -9,11 +9,16 @@ use App\Models\Genre;
 use App\Models\MediaFile;
 use App\Models\OwnedAlbumCopy;
 use App\Models\Track;
+use App\Music\Metadata\AdditionalMetadataTags;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 class CatalogPayloads
 {
+    public function __construct(private readonly AdditionalMetadataTags $additionalTags)
+    {
+    }
+
     public function paginated(LengthAwarePaginator $paginator, callable $map): array
     {
         return [
@@ -182,12 +187,13 @@ class CatalogPayloads
                 'container' => $mediaFile->container,
                 'codec' => $mediaFile->codec,
                 'encoder' => $this->metadataText($audioMetadata['encoder'] ?? $audioStream['encoder'] ?? null),
-                'encoderSettings' => $this->metadataText($audioMetadata['encoder_options'] ?? $audioStream['encoder_options'] ?? null),
+                'encoderSettings' => $this->encoderSettings($audioMetadata['encoder_options'] ?? $audioStream['encoder_options'] ?? null),
                 'bitrate' => $mediaFile->bitrate,
                 'sampleRate' => $mediaFile->sample_rate,
                 'channels' => $mediaFile->channels,
                 'status' => $mediaFile->status?->value,
                 'scanError' => $mediaFile->scan_error,
+                'additionalTags' => $this->additionalTags->extract($mediaFile->raw_metadata ?? []),
             ] : null,
             'playStatistics' => $this->playStatisticsPayload($track),
         ];
@@ -269,7 +275,7 @@ class CatalogPayloads
                 $files->map(fn (MediaFile $file): ?string => $this->metadataText($file->getAttribute('bitrate_mode'))),
             ),
             'encoderSettings' => $this->distinctTechnicalValues(
-                $files->map(fn (MediaFile $file): ?string => $this->metadataText($file->getAttribute('encoder_settings'))),
+                $files->map(fn (MediaFile $file): ?string => $this->encoderSettings($file->getAttribute('encoder_settings'))),
             ),
         ];
     }
@@ -302,5 +308,19 @@ class CatalogPayloads
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function encoderSettings(mixed $value): ?string
+    {
+        $settings = $this->metadataText($value);
+        if ($settings === null) {
+            return null;
+        }
+
+        if (preg_match('/^--preset\s+(?:fast\s+)?extreme(?:\s+-b\s*\d+)?$/i', $settings) === 1) {
+            return 'V0';
+        }
+
+        return $settings;
     }
 }

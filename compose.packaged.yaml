@@ -89,7 +89,8 @@ services:
 
   queue-default:
     <<: *backend-image
-    command: ["php", "artisan", "queue:listen", "--queue=default", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    command: ["php", "artisan", "queue:work", "--queue=default", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,7 +99,8 @@ services:
 
   queue-scans:
     <<: *backend-image
-    command: ["php", "artisan", "queue:listen", "--queue=scans", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    command: ["php", "artisan", "queue:work", "--queue=scans", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,7 +109,8 @@ services:
 
   queue-analysis:
     <<: *backend-image
-    command: ["php", "artisan", "queue:listen", "--queue=analysis", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    command: ["php", "artisan", "queue:work", "--queue=analysis", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy

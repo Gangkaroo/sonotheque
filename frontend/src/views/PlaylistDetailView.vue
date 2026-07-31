@@ -377,7 +377,15 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
 
           <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': player.currentTrack?.id === item.track.id }">
             <span v-if="selectionMode || item.track.available === false">{{ item.track.title }}</span>
-            <RouterLink v-else class="playlist-track-link" :to="{ name: 'track-detail', params: { id: item.track.id } }">
+            <RouterLink
+              v-else
+              class="playlist-track-link"
+              :to="{
+                name: 'track-detail',
+                params: { id: item.track.id },
+                query: { backPlaylist: playlist.id, playlistItem: item.id },
+              }"
+            >
               {{ item.track.title }}
             </RouterLink>
           </v-list-item-title>

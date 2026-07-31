@@ -709,11 +709,12 @@ Open roadmap work:
 - Explicit persisted CPU/CUDA analyzer selection based on availability and
   benchmark results, plus remaining zero-overhead and failure-path coverage
 - Optional alternate configured destination for album playlist exports
+- Local collection assistant over guarded Sonotheque tools
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
-  HTTPS gateway and remains disabled by default
-- Local collection assistant over guarded Sonotheque tools
+  HTTPS gateway and remains disabled by default. This is the final deferred
+  feature and starts only after all other roadmap work is complete
 
 The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
 
@@ -1307,84 +1308,6 @@ Last.fm integration.
   (Complete, including a repeatable LAN preflight and physical-device browsing,
   playback, and anonymous-administration verification)
 
-### 7a. Optional Remote Access and Trusted Devices
-
-Remote access is feasible with the current Laravel, Vue, PostgreSQL, and
-packaged Compose architecture, but it is a separate security mode rather than
-an extension of development LAN mode. It must be disabled by default and must
-never expose Vite, `artisan serve`, PostgreSQL, queue workers, or mounted music
-folders directly to the Internet.
-
-Two deployment paths should be supported:
-
-1. **Private overlay access (recommended):** document and optionally integrate
-   a WireGuard-based overlay such as Tailscale. Device admission can then be
-   enforced by the overlay network's own device-approval and access-control
-   system. Sonotheque still applies its read-only remote-device authorization,
-   but no router port forwarding or public Sonotheque endpoint is required.
-2. **Direct HTTPS gateway (advanced):** expose only the packaged reverse proxy
-   on TCP 443, use a domain or dynamic-DNS name, terminate valid TLS at a
-   production reverse proxy, and forward requests to the existing same-origin
-   frontend and Laravel API. Startup must refuse this mode when TLS, trusted
-   proxy, host allowlist, and persistent secrets are incomplete.
-
-The trusted-device workflow for either path should be:
-
-- An untrusted browser can access only the enrollment page and narrowly scoped
-  request/status endpoints. Catalog, artwork, audio, enrichment, and all
-  mutation endpoints remain unavailable until approval.
-- The browser creates a pending request with a user-supplied device label. The
-  backend returns a short verification code plus an opaque, one-time polling
-  secret. Requests expire after a short period and are rate-limited by source
-  address and request identifier.
-- A local administrator reviews the device label, verification code, request
-  time, source address, and user agent in Settings. Approval and rejection are
-  available only from localhost or through the existing admin-token boundary.
-- After approval, the waiting browser exchanges its one-time secret for a
-  random, revocable device session in a `Secure`, `HttpOnly`, same-site cookie.
-  Only hashes of persistent secrets are stored. Approval tokens are single-use,
-  device sessions rotate, and clearing browser data requires enrollment again.
-- Settings lists approved, pending, expired, and revoked browsers with creation,
-  approval, last-use, and expiry timestamps. Administrators can revoke one
-  browser or all remote sessions immediately.
-- A browser enrollment represents one browser profile, not cryptographic proof
-  of a physical device. Optional WebAuthn-bound credentials can be evaluated
-  later if stronger device identity becomes necessary.
-
-Authorization must be enforced by Laravel rather than only by hidden frontend
-controls:
-
-- Introduce explicit capabilities such as `catalog.read`, `media.stream`, and
-  optional `listening-history.write`. Remote devices receive only the minimum
-  configured capabilities.
-- Apply a deny-by-default remote middleware boundary to every API route. Initial
-  read-only access allows catalog browsing, artwork, cached enrichment, lyrics,
-  and range-based audio streaming. Library configuration, scans, folder
-  browsing and writes, metadata editing, trash, backups, connections, device
-  administration, favorites, playlists, and personal album data remain denied.
-- Theme and language stay available because they are browser-local preferences.
-  Administrative settings tabs, write actions, and their routes are hidden for
-  read-only sessions, but backend authorization remains authoritative.
-- Decide explicitly whether remote playback contributes to Sonotheque history,
-  play counts, and Last.fm scrobbles. Treat it as a separate capability and
-  leave it off for the initial read-only mode.
-
-Before release, add:
-
-- CSRF protection for cookie-authenticated requests; strict host, origin, and
-  trusted-proxy validation; secure response headers; bounded request bodies;
-  enrollment and streaming rate limits; concurrent-stream limits; and
-  structured security audit events.
-- Feature tests that enumerate every API route for anonymous, pending,
-  read-only, revoked, and administrator contexts so a newly added write route
-  cannot accidentally become public.
-- Packaged end-to-end tests for request, approval, cookie rotation, expiry,
-  revocation during playback, hidden frontend actions, HTTP range streaming,
-  and failed brute-force attempts.
-- Operational documentation for dynamic DNS, router or CGNAT limitations,
-  certificate renewal, firewall rules, bandwidth expectations, token recovery,
-  incident response, and disabling remote access.
-
 ### 8. Testing and Packaging
 
 - Unit-test path validation, metadata mapping, and incremental scan decisions. (Partially complete)
@@ -1620,3 +1543,86 @@ The first milestone is complete when:
   arbitrary absolute paths from the catalog browser.
 - Keep the first folder view read-oriented, with playback, playlist, and scoped
   scan actions but no filesystem mutations.
+
+## Final Deferred Milestone: Optional Remote Access and Trusted Devices
+
+This milestone deliberately comes last. Implementation must not begin until all
+other planned local features, their tests, and the corresponding release work
+are complete. Its external networking and security dependencies should not
+shape or delay the core local application before then.
+
+Remote access is feasible with the current Laravel, Vue, PostgreSQL, and
+packaged Compose architecture, but it is a separate security mode rather than
+an extension of development LAN mode. It must be disabled by default and must
+never expose Vite, `artisan serve`, PostgreSQL, queue workers, or mounted music
+folders directly to the Internet.
+
+Two deployment paths should be supported:
+
+1. **Private overlay access (recommended):** document and optionally integrate
+   a WireGuard-based overlay such as Tailscale. Device admission can then be
+   enforced by the overlay network's own device-approval and access-control
+   system. Sonotheque still applies its read-only remote-device authorization,
+   but no router port forwarding or public Sonotheque endpoint is required.
+2. **Direct HTTPS gateway (advanced):** expose only the packaged reverse proxy
+   on TCP 443, use a domain or dynamic-DNS name, terminate valid TLS at a
+   production reverse proxy, and forward requests to the existing same-origin
+   frontend and Laravel API. Startup must refuse this mode when TLS, trusted
+   proxy, host allowlist, and persistent secrets are incomplete.
+
+The trusted-device workflow for either path should be:
+
+- An untrusted browser can access only the enrollment page and narrowly scoped
+  request/status endpoints. Catalog, artwork, audio, enrichment, and all
+  mutation endpoints remain unavailable until approval.
+- The browser creates a pending request with a user-supplied device label. The
+  backend returns a short verification code plus an opaque, one-time polling
+  secret. Requests expire after a short period and are rate-limited by source
+  address and request identifier.
+- A local administrator reviews the device label, verification code, request
+  time, source address, and user agent in Settings. Approval and rejection are
+  available only from localhost or through the existing admin-token boundary.
+- After approval, the waiting browser exchanges its one-time secret for a
+  random, revocable device session in a `Secure`, `HttpOnly`, same-site cookie.
+  Only hashes of persistent secrets are stored. Approval tokens are single-use,
+  device sessions rotate, and clearing browser data requires enrollment again.
+- Settings lists approved, pending, expired, and revoked browsers with creation,
+  approval, last-use, and expiry timestamps. Administrators can revoke one
+  browser or all remote sessions immediately.
+- A browser enrollment represents one browser profile, not cryptographic proof
+  of a physical device. Optional WebAuthn-bound credentials can be evaluated
+  later if stronger device identity becomes necessary.
+
+Authorization must be enforced by Laravel rather than only by hidden frontend
+controls:
+
+- Introduce explicit capabilities such as `catalog.read`, `media.stream`, and
+  optional `listening-history.write`. Remote devices receive only the minimum
+  configured capabilities.
+- Apply a deny-by-default remote middleware boundary to every API route. Initial
+  read-only access allows catalog browsing, artwork, cached enrichment, lyrics,
+  and range-based audio streaming. Library configuration, scans, folder
+  browsing and writes, metadata editing, trash, backups, connections, device
+  administration, favorites, playlists, and personal album data remain denied.
+- Theme and language stay available because they are browser-local preferences.
+  Administrative settings tabs, write actions, and their routes are hidden for
+  read-only sessions, but backend authorization remains authoritative.
+- Decide explicitly whether remote playback contributes to Sonotheque history,
+  play counts, and Last.fm scrobbles. Treat it as a separate capability and
+  leave it off for the initial read-only mode.
+
+Before release, add:
+
+- CSRF protection for cookie-authenticated requests; strict host, origin, and
+  trusted-proxy validation; secure response headers; bounded request bodies;
+  enrollment and streaming rate limits; concurrent-stream limits; and
+  structured security audit events.
+- Feature tests that enumerate every API route for anonymous, pending,
+  read-only, revoked, and administrator contexts so a newly added write route
+  cannot accidentally become public.
+- Packaged end-to-end tests for request, approval, cookie rotation, expiry,
+  revocation during playback, hidden frontend actions, HTTP range streaming,
+  and failed brute-force attempts.
+- Operational documentation for dynamic DNS, router or CGNAT limitations,
+  certificate renewal, firewall rules, bandwidth expectations, token recovery,
+  incident response, and disabling remote access.

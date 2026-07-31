@@ -43,7 +43,7 @@
             "@php artisan migrate --force"
         ],
         "serve": "@php artisan serve",
-        "queue": "@php artisan queue:listen --tries=1 --timeout=0",
+        "queue": "@php artisan queue:work --tries=1 --timeout=0",
         "check:style": "pint --test",
         "check:autoload": "@composer dump-autoload --optimize --strict-psr --no-scripts",
         "test": [

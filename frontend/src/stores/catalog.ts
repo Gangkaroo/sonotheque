@@ -165,6 +165,14 @@ export interface Track {
   playStatistics: TrackPlayStatistics
 }
 
+export interface AdditionalMetadataTag {
+  key: string
+  frameId: string
+  name: string
+  values: string[]
+  sizeBytes?: number | null
+}
+
 export interface TrackDetail extends Track {
   composers: string[]
   performers: string[]
@@ -185,6 +193,7 @@ export interface TrackDetail extends Track {
     channels?: number | null
     status?: string | null
     scanError?: string | null
+    additionalTags: AdditionalMetadataTag[]
   } | null
 }
 

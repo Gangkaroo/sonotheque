@@ -115,7 +115,7 @@ try {
             Start-ManagedProcess `
                 -Name $queueWorker.Name `
                 -FilePath $php `
-                -ArgumentList @('artisan', 'queue:listen', "--queue=$($queueWorker.Queue)", '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
+                -ArgumentList @('artisan', 'queue:work', "--queue=$($queueWorker.Queue)", '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
                 -WorkingDirectory $script:BackendDirectory `
                 -StandardOutputPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).out.log") `
                 -StandardErrorPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).err.log") `

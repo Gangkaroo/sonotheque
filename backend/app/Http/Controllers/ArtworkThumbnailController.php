@@ -32,7 +32,7 @@ class ArtworkThumbnailController extends Controller
         LibraryPathGuard $pathGuard,
         AudioMetadataReader $metadataReader,
     ): Response {
-        $album->loadMissing(['artwork', 'libraryRoot', 'mediaFiles']);
+        $album->loadMissing(['artwork', 'libraryRoot']);
         $artwork = $album->artwork;
         abort_if($artwork === null || ! $album->libraryRoot?->enabled, 404);
 
@@ -48,15 +48,17 @@ class ArtworkThumbnailController extends Controller
                 $source = null;
             }
 
-            if ($source !== null && hash_file('sha256', $source) === $artwork->checksum) {
+            if ($source !== null) {
                 return response()->file($source, [
                     'Cache-Control' => 'private, max-age=3600',
                     'Content-Type' => $artwork->mime_type,
+                    'X-Content-Type-Options' => 'nosniff',
                 ]);
             }
         }
 
         if ($album->artwork_source_type === ArtworkSource::Embedded) {
+            $album->loadMissing('mediaFiles');
             foreach ($album->mediaFiles as $mediaFile) {
                 $source = $pathGuard->resolveExistingFileWithin(
                     $album->libraryRoot->path,

@@ -83,6 +83,7 @@ interface AlbumMetadataChange {
   field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'comment'
   current: string | number | string[] | null
   proposed: string | number | string[] | null
+  fileValuesDiffer?: boolean
 }
 
 interface AlbumMetadataFile {
@@ -1040,6 +1041,9 @@ onUnmounted(() => {
                 <span>{{ metadataValue(change.current) }}</span>
                 <v-icon icon="mdi-arrow-right" size="small" />
                 <strong>{{ metadataValue(change.proposed) }}</strong>
+              </v-list-item-subtitle>
+              <v-list-item-subtitle v-if="change.fileValuesDiffer" class="text-medium-emphasis">
+                {{ t('albums.metadataFileValuesDiffer') }}
               </v-list-item-subtitle>
             </v-list-item>
           </v-list>

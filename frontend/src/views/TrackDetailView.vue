@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
+import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import { apiRequest } from '@/api/client'
-import { useCatalogStore } from '@/stores/catalog'
+import { useCatalogStore, type AdditionalMetadataTag } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
@@ -18,6 +19,7 @@ import { formatDateTime, formatDuration as duration } from '@/utils/formatters'
 
 const { locale, t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
@@ -34,6 +36,7 @@ const metadataError = ref<string | null>(null)
 const metadataSuccess = ref(false)
 const metadataPreview = ref<MetadataPreview | null>(null)
 const metadataJob = ref<MetadataEditJob | null>(null)
+const metadataRemovedTagKeys = ref<string[]>([])
 const metadataForm = reactive({
   title: '',
   artistNames: [] as string[],
@@ -48,7 +51,7 @@ const metadataForm = reactive({
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 
 interface MetadataChange {
-  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year'
+  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year' | 'removedTagKeys'
   current: string | number | string[] | null
   proposed: string | number | string[] | null
 }
@@ -74,6 +77,7 @@ interface MetadataValues {
   trackNumber: number | null
   discNumber: number | null
   year: number | null
+  removedTagKeys: string[]
 }
 
 interface MetadataEditJob {
@@ -98,10 +102,27 @@ const backAlbumId = computed(() => {
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
+const backPlaylistId = computed(() => {
+  const parsed = typeof route.query.backPlaylist === 'string' ? Number(route.query.backPlaylist) : NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
+const backPlaylistItemId = computed(() => {
+  const parsed = typeof route.query.playlistItem === 'string' ? Number(route.query.playlistItem) : NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
 const backRoute = computed(() => {
   if (backAlbumId.value) {
     return { name: 'album-detail', params: { id: backAlbumId.value } }
+  }
+  if (backPlaylistId.value) {
+    return {
+      name: 'playlist-detail',
+      params: { id: backPlaylistId.value },
+      query: backPlaylistItemId.value ? { playlistItem: backPlaylistItemId.value } : {},
+    }
   }
   if (backToAudioIntelligence.value) {
     return { name: 'settings', query: { tab: 'intelligence' } }
@@ -111,12 +132,81 @@ const backRoute = computed(() => {
 })
 const backLabel = computed(() => {
   if (backAlbumId.value) return t('tracks.backToAlbum')
+  if (backPlaylistId.value) return t('tracks.backToPlaylist')
   if (backToAudioIntelligence.value) return t('tracks.backToAudioIntelligence')
 
   return t('tracks.back')
 })
 const track = computed(() => catalog.trackDetail)
+const albumNavigationTracks = computed(() => {
+  if (!backAlbumId.value || catalog.albumDetail?.id !== backAlbumId.value) return []
+
+  return catalog.albumDetail.tracks
+})
+const albumTrackIndex = computed(() => albumNavigationTracks.value.findIndex((albumTrack) => albumTrack.id === trackId.value))
+const previousAlbumTrackId = computed(() => {
+  const index = albumTrackIndex.value
+
+  return index > 0 ? albumNavigationTracks.value[index - 1]?.id ?? null : null
+})
+const nextAlbumTrackId = computed(() => {
+  const index = albumTrackIndex.value
+
+  return index >= 0 && index < albumNavigationTracks.value.length - 1
+    ? albumNavigationTracks.value[index + 1]?.id ?? null
+    : null
+})
+const playlistNavigationItems = computed(() => {
+  if (!backPlaylistId.value || playlists.current?.id !== backPlaylistId.value) return []
+
+  return playlists.current.items
+})
+const playlistItemIndex = computed(() => {
+  if (backPlaylistItemId.value) {
+    return playlistNavigationItems.value.findIndex((item) => item.id === backPlaylistItemId.value)
+  }
+
+  return playlistNavigationItems.value.findIndex((item) => item.track.id === trackId.value)
+})
+const previousPlaylistItem = computed(() => {
+  const index = playlistItemIndex.value
+
+  return index > 0 ? playlistNavigationItems.value[index - 1] ?? null : null
+})
+const nextPlaylistItem = computed(() => {
+  const index = playlistItemIndex.value
+
+  return index >= 0 && index < playlistNavigationItems.value.length - 1
+    ? playlistNavigationItems.value[index + 1] ?? null
+    : null
+})
+const previousNavigationTarget = computed(() => {
+  if (backAlbumId.value) {
+    return previousAlbumTrackId.value ? { trackId: previousAlbumTrackId.value, playlistItemId: null } : null
+  }
+
+  return previousPlaylistItem.value
+    ? { trackId: previousPlaylistItem.value.track.id, playlistItemId: previousPlaylistItem.value.id }
+    : null
+})
+const nextNavigationTarget = computed(() => {
+  if (backAlbumId.value) {
+    return nextAlbumTrackId.value ? { trackId: nextAlbumTrackId.value, playlistItemId: null } : null
+  }
+
+  return nextPlaylistItem.value
+    ? { trackId: nextPlaylistItem.value.track.id, playlistItemId: nextPlaylistItem.value.id }
+    : null
+})
+const previousNavigationLabel = computed(() => backAlbumId.value
+  ? t('tracks.previousAlbumTrack')
+  : t('tracks.previousPlaylistTrack'))
+const nextNavigationLabel = computed(() => backAlbumId.value
+  ? t('tracks.nextAlbumTrack')
+  : t('tracks.nextPlaylistTrack'))
+const navigationLoading = computed(() => backAlbumId.value ? catalog.albumDetailLoading : playlists.loading)
 const playlistTracks = computed(() => track.value ? [track.value] : [])
+const additionalMetadataTags = computed(() => track.value?.mediaFile?.additionalTags ?? [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
 const canEditMetadata = computed(() => track.value?.mediaFile?.relativePath.toLowerCase().endsWith('.mp3') ?? false)
 const artistNames = computed(() => track.value?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
@@ -205,6 +295,15 @@ function formatSampleRate(value?: number | null) {
   return value ? `${(value / 1000).toFixed(1)} kHz` : null
 }
 
+function additionalTagValue(tag: AdditionalMetadataTag) {
+  if (tag.values.length) return tag.values.join(', ')
+  if (tag.sizeBytes !== undefined && tag.sizeBytes !== null) {
+    return t('tracks.additionalTagSize', { size: tag.sizeBytes })
+  }
+
+  return t('tracks.additionalTagValueUnavailable')
+}
+
 function formatDate(value?: string | null) {
   return formatDateTime(value, locale.value, null)
 }
@@ -239,6 +338,7 @@ function openMetadataEditor() {
   metadataPreview.value = null
   metadataJob.value = null
   metadataError.value = null
+  metadataRemovedTagKeys.value = []
   metadataDialog.value = true
 }
 
@@ -253,6 +353,7 @@ function metadataValues(): MetadataValues {
     trackNumber: nullableInteger(metadataForm.trackNumber),
     discNumber: nullableInteger(metadataForm.discNumber),
     year: nullableInteger(metadataForm.year),
+    removedTagKeys: [...metadataRemovedTagKeys.value],
   }
 }
 
@@ -320,6 +421,8 @@ async function pollMetadataEdit() {
       metadataSuccess.value = true
       catalog.invalidateMetrics()
       await catalog.loadTrack(trackId.value)
+      if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
+      if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
       if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
       return
     }
@@ -344,6 +447,7 @@ function metadataFieldLabel(field: MetadataChange['field']) {
     trackNumber: t('tracks.trackNumber'),
     discNumber: t('tracks.discNumber'),
     year: t('tracks.year'),
+    removedTagKeys: t('tracks.removeAdditionalTags'),
   }[field]
 }
 
@@ -374,6 +478,30 @@ function loadRecentPlays(page = recentPlaysPage.value) {
   void statistics.loadTrackRecentPlays(trackId.value, page)
 }
 
+function navigateToContextTrack(target: { trackId: number, playlistItemId: number | null } | null) {
+  if (!target) return
+
+  if (backAlbumId.value) {
+    void router.push({
+      name: 'track-detail',
+      params: { id: target.trackId },
+      query: { backAlbum: String(backAlbumId.value) },
+    })
+    return
+  }
+
+  if (backPlaylistId.value && target.playlistItemId) {
+    void router.push({
+      name: 'track-detail',
+      params: { id: target.trackId },
+      query: {
+        backPlaylist: String(backPlaylistId.value),
+        playlistItem: String(target.playlistItemId),
+      },
+    })
+  }
+}
+
 watch([trackId, () => libraryRootScope.selectedRootId], ([id]) => {
   if (!Number.isInteger(id) || id <= 0) return
 
@@ -383,15 +511,47 @@ watch([trackId, () => libraryRootScope.selectedRootId], ([id]) => {
   loadRecentPlays(1)
 }, { immediate: true })
 
+watch([backAlbumId, () => libraryRootScope.selectedRootId], ([albumId]) => {
+  if (!albumId || catalog.albumDetail?.id === albumId) return
+
+  void catalog.loadAlbum(albumId)
+}, { immediate: true })
+
+watch([backPlaylistId, () => libraryRootScope.selectedRootId], ([playlistId]) => {
+  if (!playlistId || playlists.current?.id === playlistId) return
+
+  void playlists.loadPlaylist(playlistId)
+}, { immediate: true })
+
 onUnmounted(() => {
   if (metadataPollTimer) clearTimeout(metadataPollTimer)
 })
 </script>
 
 <template>
-  <v-btn class="mb-4" variant="text" prepend-icon="mdi-arrow-left" :to="backRoute">
-    {{ backLabel }}
-  </v-btn>
+  <div class="track-detail-navigation mb-4">
+    <v-btn variant="text" prepend-icon="mdi-arrow-left" :to="backRoute">
+      {{ backLabel }}
+    </v-btn>
+    <div v-if="backAlbumId || backPlaylistId" class="d-flex ga-1">
+      <TooltipIconButton
+        :text="previousNavigationLabel"
+        :aria-label="previousNavigationLabel"
+        :disabled="navigationLoading || !previousNavigationTarget"
+        icon="mdi-chevron-left"
+        variant="text"
+        @click="navigateToContextTrack(previousNavigationTarget)"
+      />
+      <TooltipIconButton
+        :text="nextNavigationLabel"
+        :aria-label="nextNavigationLabel"
+        :disabled="navigationLoading || !nextNavigationTarget"
+        icon="mdi-chevron-right"
+        variant="text"
+        @click="navigateToContextTrack(nextNavigationTarget)"
+      />
+    </div>
+  </div>
 
   <v-alert v-if="catalog.trackDetailError" type="error" variant="tonal">
     {{ catalog.trackDetailError }}
@@ -537,6 +697,24 @@ onUnmounted(() => {
                 <div class="text-body-2 font-weight-medium detail-value">{{ row.value }}</div>
               </div>
             </div>
+            <template v-if="additionalMetadataTags.length">
+              <v-divider class="my-4" />
+              <div class="text-subtitle-2 mb-1">{{ t('tracks.additionalTags') }}</div>
+              <div class="text-caption text-medium-emphasis mb-2">{{ t('tracks.additionalTagsHint') }}</div>
+              <v-list border density="compact" rounded>
+                <v-list-item
+                  v-for="tag in additionalMetadataTags"
+                  :key="tag.key"
+                  prepend-icon="mdi-tag-text-outline"
+                  :subtitle="additionalTagValue(tag)"
+                >
+                  <v-list-item-title>
+                    {{ tag.name }}
+                    <span class="text-caption text-medium-emphasis ml-1">{{ tag.frameId }}</span>
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </template>
           </v-card-text>
           <v-card-text v-else class="text-medium-emphasis">
             {{ t('tracks.noTechnicalMetadata') }}
@@ -609,6 +787,29 @@ onUnmounted(() => {
               <v-text-field v-model="metadataForm.year" inputmode="numeric" :label="t('tracks.year')" />
             </v-col>
           </v-row>
+          <template v-if="additionalMetadataTags.length">
+            <v-divider class="mb-4" />
+            <div class="text-subtitle-2">{{ t('tracks.removeAdditionalTags') }}</div>
+            <div class="text-caption text-medium-emphasis mb-2">{{ t('tracks.removeAdditionalTagsHint') }}</div>
+            <v-checkbox
+              v-for="tag in additionalMetadataTags"
+              :key="tag.key"
+              v-model="metadataRemovedTagKeys"
+              color="primary"
+              density="compact"
+              hide-details
+              :value="tag.key"
+            >
+              <template #label>
+                <span>
+                  {{ tag.name }}
+                  <span class="text-caption text-medium-emphasis ml-1">
+                    {{ tag.frameId }} · {{ additionalTagValue(tag) }}
+                  </span>
+                </span>
+              </template>
+            </v-checkbox>
+          </template>
           <div class="text-caption text-medium-emphasis">{{ t('tracks.metadataPreviewHint') }}</div>
         </template>
 
@@ -732,6 +933,17 @@ onUnmounted(() => {
 .track-actions :deep(.v-btn) {
   flex: 0 0 auto;
   margin-inline-start: 0 !important;
+}
+
+.track-detail-navigation {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.track-detail-navigation > :deep(.v-btn) {
+  min-width: 0;
 }
 
 </style>

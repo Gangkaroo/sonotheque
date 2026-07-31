@@ -100,6 +100,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, string|list<string>|null>  $textFrames
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
+     * @param  list<string>  $removedTagKeys
      */
     public function write(
         string $path,
@@ -107,6 +108,7 @@ class Mp3Id3v2TagEditor
         array $userTextFrames,
         Closure $verify,
         array $commentFrames = [],
+        array $removedTagKeys = [],
     ): void {
         if (! $this->supports($path)) {
             throw new UnsupportedPlaybackStatisticsTagFormat(
@@ -121,7 +123,13 @@ class Mp3Id3v2TagEditor
         $updatesComment = array_key_exists('COMM', $commentFrames);
         $inPlaceReplacement = $updatesComment
             ? null
-            : $this->inPlaceReplacement($path, $textFrames, $userTextFrames, $commentFrames);
+            : $this->inPlaceReplacement(
+                $path,
+                $textFrames,
+                $userTextFrames,
+                $commentFrames,
+                $removedTagKeys,
+            );
         if ($inPlaceReplacement !== null) {
             $this->writeTagInPlace(
                 $path,
@@ -138,7 +146,14 @@ class Mp3Id3v2TagEditor
         $backupPath = $path.$suffix.'.bak';
 
         try {
-            $this->writeTemporaryFile($path, $temporaryPath, $textFrames, $userTextFrames, $commentFrames);
+            $this->writeTemporaryFile(
+                $path,
+                $temporaryPath,
+                $textFrames,
+                $userTextFrames,
+                $commentFrames,
+                $removedTagKeys,
+            );
             $verify($temporaryPath);
             $this->replaceOriginal($path, $temporaryPath, $backupPath);
         } finally {
@@ -153,6 +168,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, string|list<string>|null>  $textFrames
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
+     * @param  list<string>  $removedTagKeys
      * @return null|array{original: string, replacement: string}
      */
     private function inPlaceReplacement(
@@ -160,6 +176,7 @@ class Mp3Id3v2TagEditor
         array $textFrames,
         array $userTextFrames,
         array $commentFrames,
+        array $removedTagKeys,
     ): ?array {
         $source = fopen($path, 'rb');
         if ($source === false) {
@@ -182,6 +199,7 @@ class Mp3Id3v2TagEditor
                 $textFrames,
                 $userTextFrames,
                 $commentFrames,
+                $removedTagKeys,
             );
             if (strlen($payload) > $existing['payloadSize']) {
                 return null;
@@ -315,6 +333,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, string|list<string>|null>  $textFrames
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
+     * @param  list<string>  $removedTagKeys
      */
     private function writeTemporaryFile(
         string $sourcePath,
@@ -322,6 +341,7 @@ class Mp3Id3v2TagEditor
         array $textFrames,
         array $userTextFrames,
         array $commentFrames,
+        array $removedTagKeys,
     ): void {
         $source = fopen($sourcePath, 'rb');
         $target = fopen($temporaryPath, 'xb');
@@ -352,6 +372,7 @@ class Mp3Id3v2TagEditor
                     $textFrames,
                     $userTextFrames,
                     $commentFrames,
+                    $removedTagKeys,
                 );
                 $payloadSize = max($existing['payloadSize'], strlen($payload) + 1024);
             } else {
@@ -582,6 +603,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, string|list<string>|null>  $textFrames
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
+     * @param  list<string>  $removedTagKeys
      */
     private function replaceFrames(
         string $payload,
@@ -589,6 +611,7 @@ class Mp3Id3v2TagEditor
         array $textFrames,
         array $userTextFrames,
         array $commentFrames,
+        array $removedTagKeys,
     ): string {
         $offset = 0;
         $preserved = '';
@@ -620,13 +643,35 @@ class Mp3Id3v2TagEditor
 
             $frame = substr($payload, $offset, $frameLength);
             $framePayload = substr($frame, 10);
+            $descriptivePayload = $this->descriptiveFramePayload(
+                $framePayload,
+                $majorVersion,
+                substr($frame, 8, 2),
+            );
+            $textDescription = $descriptivePayload === null
+                ? null
+                : $this->textDescription($descriptivePayload);
+            $commentDescription = $descriptivePayload === null
+                ? null
+                : $this->commentDescription($descriptivePayload);
             $replaceStandardFrame = array_key_exists($frameId, $textFrames);
             $replaceUserFrame = $frameId === 'TXXX'
-                && in_array($this->textDescription($framePayload), $targetDescriptions, true);
+                && in_array($textDescription, $targetDescriptions, true);
             $replaceCommentFrame = $frameId === 'COMM'
                 && array_key_exists('COMM', $commentFrames)
-                && $this->commentDescription($framePayload) === '';
-            if (! $replaceStandardFrame && ! $replaceUserFrame && ! $replaceCommentFrame) {
+                && $commentDescription === '';
+            $removeAdditionalFrame = in_array($frameId, $removedTagKeys, true)
+                || ($frameId === 'TXXX'
+                    && $textDescription !== null
+                    && in_array("TXXX:{$textDescription}", $removedTagKeys, true))
+                || ($frameId === 'COMM'
+                    && $commentDescription !== null
+                    && $commentDescription !== ''
+                    && in_array("COMM:{$commentDescription}", $removedTagKeys, true));
+            if (! $replaceStandardFrame
+                && ! $replaceUserFrame
+                && ! $replaceCommentFrame
+                && ! $removeAdditionalFrame) {
                 $preserved .= $frame;
             }
 
@@ -638,6 +683,38 @@ class Mp3Id3v2TagEditor
         }
 
         return $preserved.$this->newFrames($majorVersion, $textFrames, $userTextFrames, $commentFrames);
+    }
+
+    private function descriptiveFramePayload(
+        string $payload,
+        int $majorVersion,
+        string $flags,
+    ): ?string {
+        if ($majorVersion !== 4 || strlen($flags) !== 2) {
+            return $payload;
+        }
+
+        $formatFlags = ord($flags[1]);
+        if (($formatFlags & 0x0C) !== 0) {
+            return null;
+        }
+
+        $offset = 0;
+        if (($formatFlags & 0x40) !== 0) {
+            $offset++;
+        }
+        if (($formatFlags & 0x01) !== 0) {
+            $offset += 4;
+        }
+        if ($offset > strlen($payload)) {
+            return null;
+        }
+
+        $payload = substr($payload, $offset);
+
+        return ($formatFlags & 0x02) !== 0
+            ? str_replace("\xFF\x00", "\xFF", $payload)
+            : $payload;
     }
 
     private function headerSupportIssue(int $majorVersion, int $flags): ?string

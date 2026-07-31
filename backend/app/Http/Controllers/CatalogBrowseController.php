@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MediaFileStatus;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
@@ -36,8 +37,11 @@ class CatalogBrowseController extends Controller
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
             ->when($filters['initial'] ?? null, fn (Builder $query, string $initial) => $query->where('browse_initial', $initial))
             ->orderByRaw('coalesce(sort_name, name)')
-            ->orderBy('name')
-            ->paginate(50);
+            ->orderBy('name');
+        $artists = $artists->paginate(
+            perPage: 50,
+            total: fn (): int => $this->artistCatalogTotal($libraryRootId, $filters),
+        );
 
         return response()->json($this->payloads->paginated($artists, fn (Artist $artist) => $this->artistPayload($artist)));
     }
@@ -83,7 +87,12 @@ class CatalogBrowseController extends Controller
             ->withCount('tracks');
 
         $albums = $this->applyAlbumSort($albums, $this->albumSort($filters))
-            ->paginate(24);
+            ->paginate(
+                perPage: 24,
+                total: $this->hasAlbumFilters($filters)
+                    ? null
+                    : fn (): int => $this->albumCatalogTotal($libraryRootId),
+            );
 
         return response()->json($this->payloads->paginated($albums, fn (Album $album) => $this->payloads->albumSummary($album)));
     }
@@ -220,12 +229,26 @@ class CatalogBrowseController extends Controller
         ]);
 
         $genres = Genre::query()
-            ->select(['id', 'name'])
-            ->whereHas('tracks', fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId))
-            ->withCount(['tracks' => fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId)])
-            ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query->where('name', 'ilike', '%'.$this->escapeLike($search).'%'))
-            ->orderBy('name')
-            ->paginate(50);
+            ->join('genre_track as catalog_genre_tracks', 'catalog_genre_tracks.genre_id', '=', 'genres.id')
+            ->join('tracks as catalog_tracks', 'catalog_tracks.id', '=', 'catalog_genre_tracks.track_id')
+            ->join('media_files as catalog_media_files', 'catalog_media_files.id', '=', 'catalog_tracks.media_file_id')
+            ->join('library_roots as catalog_library_roots', 'catalog_library_roots.id', '=', 'catalog_media_files.library_root_id')
+            ->where('catalog_media_files.status', MediaFileStatus::Available->value)
+            ->where('catalog_library_roots.enabled', true)
+            ->when($libraryRootId, fn (Builder $query, int $id) => $query->where('catalog_media_files.library_root_id', $id))
+            ->when(
+                $filters['search'] ?? null,
+                fn (Builder $query, string $search) => $query->where(
+                    'genres.name',
+                    'ilike',
+                    '%'.$this->escapeLike($search).'%',
+                ),
+            )
+            ->select(['genres.id', 'genres.name'])
+            ->selectRaw('count(*) as tracks_count')
+            ->groupBy(['genres.id', 'genres.name'])
+            ->orderBy('genres.name');
+        $genres = $genres->paginate(50);
 
         return response()->json($this->payloads->paginated($genres, fn (Genre $genre) => [
             'id' => $genre->id,
@@ -272,6 +295,50 @@ class CatalogBrowseController extends Controller
                 'albums' => fn (Builder $query) => $this->libraryRootScope->albums($query, $libraryRootId),
                 'tracks' => fn (Builder $query) => $this->libraryRootScope->tracks($query, $libraryRootId),
             ]);
+    }
+
+    /** @param array<string, mixed> $filters */
+    private function artistCatalogTotal(?int $libraryRootId, array $filters): int
+    {
+        $albumArtists = DB::table('albums as total_albums')
+            ->join('media_files as total_album_files', 'total_album_files.album_id', '=', 'total_albums.id')
+            ->join('library_roots as total_album_roots', 'total_album_roots.id', '=', 'total_albums.library_root_id')
+            ->whereNotNull('total_albums.primary_artist_id')
+            ->where('total_album_files.status', MediaFileStatus::Available->value)
+            ->where('total_album_roots.enabled', true)
+            ->when(
+                $libraryRootId,
+                fn ($query, int $id) => $query->where('total_albums.library_root_id', $id),
+            )
+            ->selectRaw('total_albums.primary_artist_id as artist_id');
+        $trackArtists = DB::table('artist_track as total_artist_tracks')
+            ->join('tracks as total_tracks', 'total_tracks.id', '=', 'total_artist_tracks.track_id')
+            ->join('media_files as total_track_files', 'total_track_files.id', '=', 'total_tracks.media_file_id')
+            ->join('library_roots as total_track_roots', 'total_track_roots.id', '=', 'total_track_files.library_root_id')
+            ->where('total_track_files.status', MediaFileStatus::Available->value)
+            ->where('total_track_roots.enabled', true)
+            ->when(
+                $libraryRootId,
+                fn ($query, int $id) => $query->where('total_track_files.library_root_id', $id),
+            )
+            ->select('total_artist_tracks.artist_id');
+
+        return DB::query()
+            ->fromSub($albumArtists->union($trackArtists), 'catalog_artist_ids')
+            ->join('artists', 'artists.id', '=', 'catalog_artist_ids.artist_id')
+            ->when(
+                $filters['search'] ?? null,
+                fn ($query, string $search) => $query->where(
+                    'artists.name',
+                    'ilike',
+                    '%'.$this->escapeLike($search).'%',
+                ),
+            )
+            ->when(
+                $filters['initial'] ?? null,
+                fn ($query, string $initial) => $query->where('artists.browse_initial', $initial),
+            )
+            ->count('artists.id');
     }
 
     /** @return array<string, mixed> */
@@ -346,6 +413,39 @@ class CatalogBrowseController extends Controller
                     fn (Builder $artistQuery) => $artistQuery->where('browse_initial', $initial),
                 ),
             );
+    }
+
+    private function albumCatalogTotal(?int $libraryRootId): int
+    {
+        return DB::table('media_files as total_album_files')
+            ->join('albums as total_albums', 'total_albums.id', '=', 'total_album_files.album_id')
+            ->join('library_roots as total_album_roots', 'total_album_roots.id', '=', 'total_albums.library_root_id')
+            ->where('total_album_files.status', MediaFileStatus::Available->value)
+            ->where('total_album_roots.enabled', true)
+            ->when(
+                $libraryRootId,
+                fn ($query, int $id) => $query->where('total_albums.library_root_id', $id),
+            )
+            ->whereExists(
+                fn ($query) => $query
+                    ->selectRaw('1')
+                    ->from('tracks as total_album_tracks')
+                    ->whereColumn('total_album_tracks.album_id', 'total_albums.id'),
+            )
+            ->distinct()
+            ->count('total_albums.id');
+    }
+
+    /** @param array<string, mixed> $filters */
+    private function hasAlbumFilters(array $filters): bool
+    {
+        foreach (['search', 'initial', 'year', 'genre', 'artist', 'physicalCopy'] as $filter) {
+            if (($filters[$filter] ?? null) !== null && ($filters[$filter] ?? '') !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $filters */

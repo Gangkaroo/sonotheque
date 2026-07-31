@@ -355,6 +355,27 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('mediaFile.channels', 2);
     }
 
+    public function test_lame_extreme_preset_is_presented_as_v0(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+        $track->mediaFile->update([
+            'raw_metadata' => [
+                'audio' => [
+                    'bitrate_mode' => 'vbr',
+                    'encoder_options' => '--preset fast extreme -b32',
+                ],
+            ],
+        ]);
+
+        $this->getJson("/api/catalog/albums/{$album->id}")
+            ->assertOk()
+            ->assertJsonPath('technical.encoderSettings.0', 'V0');
+
+        $this->getJson("/api/catalog/tracks/{$track->id}")
+            ->assertOk()
+            ->assertJsonPath('mediaFile.encoderSettings', 'V0');
+    }
+
     public function test_tracks_can_be_filtered_to_never_played(): void
     {
         [, $album, $playedTrack] = $this->createCatalog();

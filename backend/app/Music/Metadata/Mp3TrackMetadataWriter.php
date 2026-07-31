@@ -8,10 +8,14 @@ use RuntimeException;
 
 class Mp3TrackMetadataWriter implements TrackMetadataWriter
 {
+    private readonly AdditionalMetadataTags $additionalTags;
+
     public function __construct(
         private readonly Mp3Id3v2TagEditor $editor,
         private readonly AudioMetadataReader $metadataReader,
+        ?AdditionalMetadataTags $additionalTags = null,
     ) {
+        $this->additionalTags = $additionalTags ?? new AdditionalMetadataTags();
     }
 
     public function supports(string $path): bool
@@ -75,15 +79,22 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
         $commentFrames = array_key_exists('comment', $values) ? ['COMM' => $values['comment']] : [];
         $verified = null;
 
-        $this->editor->write($path, $frames, [], function (string $temporaryPath) use ($values, &$verified): void {
-            $verified = $this->metadataReader->read($temporaryPath);
-            $failedField = $this->failedVerificationField($verified, $values);
-            if ($failedField !== null) {
-                throw new RuntimeException(
-                    "Track metadata could not be verified after writing: {$failedField} read back differently.",
-                );
-            }
-        }, $commentFrames);
+        $this->editor->write(
+            $path,
+            $frames,
+            [],
+            function (string $temporaryPath) use ($values, &$verified): void {
+                $verified = $this->metadataReader->read($temporaryPath);
+                $failedField = $this->failedVerificationField($verified, $values);
+                if ($failedField !== null) {
+                    throw new RuntimeException(
+                        "Track metadata could not be verified after writing: {$failedField} read back differently.",
+                    );
+                }
+            },
+            $commentFrames,
+            $values['removedTagKeys'] ?? [],
+        );
 
         if (! $verified instanceof AudioMetadata) {
             throw new RuntimeException('Track metadata verification did not complete.');
@@ -116,6 +127,13 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
             if (array_key_exists($field, $values)
                 && ! $this->sameNames($values[$field], $this->metadataValues($metadata, $field))) {
                 return $field;
+            }
+        }
+
+        $remainingTagKeys = $this->additionalTags->keys($metadata->rawMetadata);
+        foreach ($values['removedTagKeys'] ?? [] as $removedTagKey) {
+            if (in_array($removedTagKey, $remainingTagKeys, true)) {
+                return 'additional tags';
             }
         }
 

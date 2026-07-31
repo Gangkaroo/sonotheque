@@ -24,7 +24,7 @@ import { usePlaylistsStore } from '@/stores/playlists'
 import { useStatisticsStore } from '@/stores/statistics'
 import { openExternalUrl } from '@/utils/externalLinks'
 import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
-import { releaseMediaSource } from '@/utils/mediaPlayback'
+import { playbackHandoffAction, releaseMediaSource } from '@/utils/mediaPlayback'
 import { PlaybackListenAccumulator } from '@/utils/playbackListenAccumulator'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
@@ -32,7 +32,8 @@ const { locale, t } = useI18n()
 const MINIMUM_COUNTED_TRACK_SECONDS = 30
 const MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS = 240
 const PLAYBACK_HANDOFF_RETRY_MS = 2500
-const PLAYBACK_HANDOFF_TIMEOUT_MS = 10000
+const PLAYBACK_HANDOFF_TIMEOUT_MS = 30000
+const PLAYBACK_ERROR_RETRY_MS = 250
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
@@ -72,6 +73,8 @@ let seekLoadingTimer: ReturnType<typeof window.setTimeout> | null = null
 let seekLoadingClearTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackHandoffRetryTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackHandoffTimeoutTimer: ReturnType<typeof window.setTimeout> | null = null
+let playbackErrorRetryTimer: ReturnType<typeof window.setTimeout> | null = null
+let playbackErrorRetryKey: string | null = null
 let playbackAttemptId = 0
 const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
@@ -214,6 +217,8 @@ watch(
     releasePreviousMediaSource(playKey)
     playbackAttemptId += 1
     clearPlaybackHandoffTimers()
+    clearPlaybackErrorRetry()
+    playbackErrorRetryKey = null
     clearSeekFeedback()
     restoredTrackId.value = null
     reportedPlayKey.value = null
@@ -402,6 +407,8 @@ function togglePlayback() {
 function retryPlaybackAfterError() {
   if (!audio.value || !player.currentTrack) return
 
+  clearPlaybackErrorRetry()
+  playbackErrorRetryKey = null
   restoredTrackId.value = null
   isRestoringPosition.value = player.playbackPosition > 0
   resumeAfterMetadata.value = true
@@ -494,10 +501,44 @@ function onError(event?: Event) {
 
   suspendListenedPlayback(audio.value?.currentTime)
   clearPlaybackHandoffTimers()
+  if (retryTransientPlaybackError()) return
+
   resumeAfterMetadata.value = false
   isRestoringPlayback.value = false
   isRestoringPosition.value = false
   player.setError(t('player.playbackError'))
+}
+
+function retryTransientPlaybackError() {
+  const element = audio.value
+  const playKey = currentPlayKey.value
+  if (
+    !element
+    || !playKey
+    || !player.isPlaying
+    || playbackErrorRetryKey === playKey
+  ) return false
+
+  playbackErrorRetryKey = playKey
+  playbackAttemptId += 1
+  restoredTrackId.value = null
+  isRestoringPosition.value = player.playbackPosition > 0
+  resumeAfterMetadata.value = true
+  isRestoringPlayback.value = false
+  player.setPlaybackState('loading')
+  playbackErrorRetryTimer = window.setTimeout(() => {
+    playbackErrorRetryTimer = null
+    if (
+      playKey !== currentPlayKey.value
+      || element !== audio.value
+      || !player.isPlaying
+    ) return
+
+    element.load()
+    schedulePlaybackHandoff(playKey)
+  }, PLAYBACK_ERROR_RETRY_MS)
+
+  return true
 }
 
 function onLoading(event: Event) {
@@ -761,17 +802,19 @@ function recoverPlaybackHandoff(playKey: string) {
   const element = audio.value
   if (!isPendingPlaybackHandoff(playKey, element)) return
 
-  if (!element.paused) {
+  const action = playbackHandoffAction(element)
+  if (action === 'playing') {
     clearPlaybackHandoffTimers()
     player.setPlaybackState('playing')
-    return
+  } else if (action === 'play') {
+    void playAudio()
+  } else if (action === 'reload') {
+    playbackAttemptId += 1
+    resumeAfterMetadata.value = true
+    restoredTrackId.value = null
+    isRestoringPosition.value = player.playbackPosition > 0
+    element.load()
   }
-
-  playbackAttemptId += 1
-  resumeAfterMetadata.value = true
-  restoredTrackId.value = null
-  isRestoringPosition.value = player.playbackPosition > 0
-  element.load()
 }
 
 function failStalledPlaybackHandoff(playKey: string) {
@@ -809,6 +852,13 @@ function clearPlaybackHandoffTimers() {
   }
 }
 
+function clearPlaybackErrorRetry() {
+  if (!playbackErrorRetryTimer) return
+
+  window.clearTimeout(playbackErrorRetryTimer)
+  playbackErrorRetryTimer = null
+}
+
 function releasePreviousMediaSource(nextPlayKey: string | null) {
   const element = audio.value
   if (!element || element.dataset.playKey === nextPlayKey) return
@@ -844,6 +894,7 @@ onBeforeUnmount(() => {
   persistCurrentPlaybackState()
   window.removeEventListener('beforeunload', persistCurrentPlaybackState)
   clearPlaybackHandoffTimers()
+  clearPlaybackErrorRetry()
   clearSeekFeedback()
   if (audio.value) releasePlayerMediaSource(audio.value)
 })

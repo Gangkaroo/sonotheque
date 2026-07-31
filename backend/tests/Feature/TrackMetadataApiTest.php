@@ -166,6 +166,52 @@ class TrackMetadataApiTest extends TestCase
             ->assertJsonPath('supportIssue', null);
     }
 
+    public function test_it_previews_and_queues_removing_an_additional_tag(): void
+    {
+        Queue::fake();
+        $track = $this->createTrack('track.mp3');
+        $track->mediaFile->update([
+            'raw_metadata' => [
+                'id3v2' => [
+                    'majorversion' => 4,
+                    'RVA2' => [[
+                        'framenamelong' => 'Relative volume adjustment (2)',
+                        'datalength' => 5,
+                    ]],
+                ],
+            ],
+        ]);
+        $values = [
+            'title' => 'Track',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'genres' => [],
+            'comment' => null,
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2000,
+            'removedTagKeys' => ['RVA2'],
+        ];
+
+        $preview = $this->postJson("/api/tracks/{$track->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('changes.0.field', 'removedTagKeys')
+            ->assertJsonPath('changes.0.current.0', 'Relative volume adjustment (2)')
+            ->json();
+
+        $response = $this->postJson("/api/tracks/{$track->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertDatabaseHas('metadata_edit_jobs', [
+            'id' => $response->json('id'),
+            'track_id' => $track->id,
+        ]);
+        Queue::assertPushed(ApplyTrackMetadataEdit::class);
+    }
+
     private function createTrack(string $filename): Track
     {
         $artist = Artist::create([

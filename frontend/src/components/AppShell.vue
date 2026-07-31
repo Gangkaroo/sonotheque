@@ -29,6 +29,16 @@ const router = useRouter()
 const isSetup = computed(() => route.name === 'setup')
 const { locale, t } = useI18n()
 const theme = useTheme()
+const canNavigateBack = computed(() => {
+  void route.fullPath
+
+  return typeof window.history.state?.back === 'string'
+})
+const canNavigateForward = computed(() => {
+  void route.fullPath
+
+  return typeof window.history.state?.forward === 'string'
+})
 const filterableListRoutes = new Set(['artists', 'albums', 'tracks', 'genres'])
 const viewKey = computed(() => {
   const routeName = String(route.name ?? 'unknown')
@@ -77,6 +87,14 @@ function enforceFirstRunSetup() {
   if (firstRunSetup.status && !firstRunSetup.status.completed && route.name !== 'setup') {
     void router.replace({ name: 'setup' })
   }
+}
+
+function navigateBack() {
+  if (canNavigateBack.value) router.back()
+}
+
+function navigateForward() {
+  if (canNavigateForward.value) router.forward()
 }
 
 watch(
@@ -155,6 +173,28 @@ watch(
           <v-app-bar-nav-icon v-bind="props" :aria-label="t('actions.toggleNavigation')" @click="drawer = !drawer" />
         </template>
       </v-tooltip>
+      <div class="history-navigation">
+        <TooltipIconButton
+          :text="t('actions.navigateBack')"
+          :aria-label="t('actions.navigateBack')"
+          :disabled="!canNavigateBack"
+          density="compact"
+          icon="mdi-arrow-left"
+          location="bottom"
+          variant="text"
+          @click="navigateBack"
+        />
+        <TooltipIconButton
+          :text="t('actions.navigateForward')"
+          :aria-label="t('actions.navigateForward')"
+          :disabled="!canNavigateForward"
+          density="compact"
+          icon="mdi-arrow-right"
+          location="bottom"
+          variant="text"
+          @click="navigateForward"
+        />
+      </div>
       <v-app-bar-title class="app-title">{{ t('app.name') }}</v-app-bar-title>
 
       <template #append>
@@ -207,6 +247,11 @@ watch(
 
 .library-root-selector {
   width: clamp(180px, 22vw, 300px);
+}
+
+.history-navigation {
+  display: flex;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 500px) {

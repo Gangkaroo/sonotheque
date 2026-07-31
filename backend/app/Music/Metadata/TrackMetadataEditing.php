@@ -12,11 +12,12 @@ class TrackMetadataEditing
     public function __construct(
         private readonly TrackMetadataWriter $writer,
         private readonly Mp3Id3v2TagEditor $editor,
+        private readonly AdditionalMetadataTags $additionalTags,
     ) {
     }
 
     /**
-     * @param  array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int}  $values
+     * @param  array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int, removedTagKeys: list<string>}  $values
      * @return array<string, mixed>
      */
     public function preview(Track $track, array $values): array
@@ -25,6 +26,14 @@ class TrackMetadataEditing
         $mediaFile = $track->mediaFile;
         if ($mediaFile === null) {
             throw ValidationException::withMessages(['track' => 'This track has no associated media file.']);
+        }
+        $additionalTags = $this->additionalTags->extract($mediaFile->raw_metadata ?? []);
+        $additionalTagKeys = array_column($additionalTags, 'key');
+        $unknownTagKeys = array_values(array_diff($values['removedTagKeys'], $additionalTagKeys));
+        if ($unknownTagKeys !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'One or more additional tags are no longer present in this file.',
+            ]);
         }
 
         $supportIssue = $this->supportIssue($track);
@@ -38,9 +47,26 @@ class TrackMetadataEditing
             'trackNumber' => $track->track_number,
             'discNumber' => $track->disc_number,
             'year' => $track->year,
+            'removedTagKeys' => [],
         ];
         $changes = [];
         foreach ($values as $field => $proposed) {
+            if ($field === 'removedTagKeys') {
+                if ($proposed !== []) {
+                    $changes[] = [
+                        'field' => $field,
+                        'current' => collect($additionalTags)
+                            ->whereIn('key', $proposed)
+                            ->pluck('name')
+                            ->values()
+                            ->all(),
+                        'proposed' => [],
+                    ];
+                }
+
+                continue;
+            }
+
             $unchanged = in_array($field, ['artistNames', 'composers', 'performers', 'genres'], true)
                 ? $this->sameNames($current[$field], $proposed)
                 : $current[$field] === $proposed;
@@ -66,7 +92,7 @@ class TrackMetadataEditing
     }
 
     /**
-     * @param  array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int}  $values
+     * @param  array{title: string, artistNames: list<string>, composers: list<string>, performers: list<string>, genres: list<string>, comment: ?string, trackNumber: ?int, discNumber: ?int, year: ?int, removedTagKeys: list<string>}  $values
      */
     public function queue(Track $track, array $values, string $fingerprint): MetadataEditJob
     {

@@ -47,7 +47,7 @@ class ArtworkApiTest extends TestCase
             'mime_type' => 'image/jpeg',
             'width' => 1200,
             'height' => 1200,
-            'checksum' => hash('sha256', 'folder image bytes'),
+            'checksum' => hash('sha256', 'checksum recorded during the scan'),
         ]);
         $album->update([
             'artwork_id' => $artwork->id,
@@ -57,7 +57,8 @@ class ArtworkApiTest extends TestCase
 
         $response = $this->get("/api/albums/{$album->id}/artwork/original")
             ->assertOk()
-            ->assertHeader('Content-Type', 'image/jpeg');
+            ->assertHeader('Content-Type', 'image/jpeg')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
         $this->assertSame(realpath($sourcePath), $response->baseResponse->getFile()->getRealPath());
     }
 
