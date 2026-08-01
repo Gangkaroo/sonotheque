@@ -257,6 +257,27 @@ class PlaylistsApiTest extends TestCase
         $this->assertSame([$items[2]], $playlist->items()->orderBy('position')->pluck('id')->all());
     }
 
+    public function test_a_track_can_be_removed_from_a_playlist_with_all_of_its_occurrences(): void
+    {
+        [, , $firstTrack, , $secondTrack] = $this->createCatalog();
+        $playlist = Playlist::create(['name' => 'Remove duplicates']);
+        $this->postJson("/api/playlists/{$playlist->id}/tracks", [
+            'trackIds' => [$firstTrack->id, $secondTrack->id, $firstTrack->id],
+        ])->assertCreated();
+
+        $this->deleteJson("/api/playlists/{$playlist->id}/tracks/{$firstTrack->id}")
+            ->assertOk()
+            ->assertJsonPath('removedCount', 2);
+
+        $this->assertSame(
+            [$secondTrack->id],
+            $playlist->items()->orderBy('position')->pluck('track_id')->all(),
+        );
+        $this->assertSame([0], $playlist->items()->orderBy('position')->pluck('position')->all());
+        $this->deleteJson("/api/playlists/{$playlist->id}/tracks/{$firstTrack->id}")
+            ->assertNotFound();
+    }
+
     public function test_reorder_requires_all_playlist_items(): void
     {
         [, , $firstTrack, , $secondTrack] = $this->createCatalog();

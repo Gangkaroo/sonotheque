@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -20,12 +20,30 @@ const { t } = useI18n()
 const playlists = usePlaylistsStore()
 const memberships = computed(() => playlists.membershipsForTrack(props.trackId))
 const buttonText = computed(() => t('playlists.inPlaylists', { count: memberships.value.length }))
+const removingPlaylistId = ref<number | null>(null)
+const removeError = ref<string | null>(null)
+const removeErrorVisible = ref(false)
 
 function membershipSubtitle(membership: TrackPlaylistMembership) {
   const folder = membership.folder?.name ?? t('playlists.noFolder')
   if (membership.occurrenceCount === 1) return folder
 
   return `${folder} · ${t('playlists.trackOccurrences', { count: membership.occurrenceCount })}`
+}
+
+async function removeMembership(membership: TrackPlaylistMembership) {
+  removingPlaylistId.value = membership.id
+  removeError.value = null
+  try {
+    await playlists.removeTrackFromPlaylist(membership.id, props.trackId)
+  } catch (cause) {
+    removeError.value = cause instanceof Error
+      ? cause.message
+      : t('playlists.removeTrackFromPlaylistFailed')
+    removeErrorVisible.value = true
+  } finally {
+    removingPlaylistId.value = null
+  }
 }
 </script>
 
@@ -66,7 +84,21 @@ function membershipSubtitle(membership: TrackPlaylistMembership) {
           params: { id: membership.id },
           query: { playlistItem: membership.firstItemId },
         }"
-      />
+      >
+        <template #append>
+          <TooltipIconButton
+            :aria-label="t('playlists.removeTrackFromPlaylist', { name: membership.name })"
+            color="error"
+            density="compact"
+            icon="mdi-delete-outline"
+            :loading="removingPlaylistId === membership.id"
+            size="small"
+            :text="t('playlists.removeTrackFromPlaylist', { name: membership.name })"
+            variant="text"
+            @click.stop.prevent="void removeMembership(membership)"
+          />
+        </template>
+      </v-list-item>
       <v-divider />
       <v-list-item
         prepend-icon="mdi-playlist-music"
@@ -93,4 +125,8 @@ function membershipSubtitle(membership: TrackPlaylistMembership) {
   >
     {{ t('playlists.addTrackToPlaylist') }}
   </v-btn>
+
+  <v-snackbar v-model="removeErrorVisible" color="error" timeout="4000">
+    {{ removeError }}
+  </v-snackbar>
 </template>

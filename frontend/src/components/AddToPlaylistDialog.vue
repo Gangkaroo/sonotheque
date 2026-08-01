@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import type { Track } from '@/stores/catalog'
 import { usePlaylistsStore } from '@/stores/playlists'
@@ -14,6 +15,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const router = useRouter()
 const playlists = usePlaylistsStore()
 const selectedPlaylistId = ref<number | null>(null)
 const creatingPlaylist = ref(false)
@@ -21,6 +23,7 @@ const newPlaylistName = ref('')
 const newPlaylistDescription = ref('')
 const newPlaylistFolderId = ref<number | null>(null)
 const submitting = ref(false)
+const submitAction = ref<'add' | 'open' | null>(null)
 const submitError = ref('')
 const successMessage = ref('')
 const successVisible = ref(false)
@@ -49,14 +52,22 @@ const canSubmit = computed(() => {
     ? newPlaylistName.value.trim().length > 0
     : selectedPlaylistId.value !== null
 })
+const addButtonText = computed(() => creatingPlaylist.value
+  ? t('playlists.createAndAdd')
+  : t('playlists.addToPlaylist'))
+const addAndOpenButtonText = computed(() => creatingPlaylist.value
+  ? t('playlists.createAddAndOpen')
+  : t('playlists.addAndOpenPlaylist'))
 
-async function submit() {
+async function submit(openAfterAdding = false) {
   if (!canSubmit.value) return
 
   submitting.value = true
+  submitAction.value = openAfterAdding ? 'open' : 'add'
   submitError.value = ''
   try {
     const trackIds = props.tracks.map((track) => track.id)
+    let firstAddedItemId: number | null = null
     const playlist = creatingPlaylist.value
       ? await playlists.createPlaylist({
           name: newPlaylistName.value.trim(),
@@ -67,15 +78,26 @@ async function submit() {
       : playlists.playlists.find((item) => item.id === selectedPlaylistId.value)
 
     if (!playlist) return
-    if (!creatingPlaylist.value) await playlists.addTracks(playlist.id, trackIds)
+    if (!creatingPlaylist.value) {
+      const items = await playlists.addTracks(playlist.id, trackIds)
+      firstAddedItemId = items[0]?.id ?? null
+    }
 
     successMessage.value = t('playlists.addedToPlaylist', { name: playlist.name })
     successVisible.value = true
     dialogOpen.value = false
+    if (openAfterAdding) {
+      await router.push({
+        name: 'playlist-detail',
+        params: { id: playlist.id },
+        query: firstAddedItemId === null ? {} : { playlistItem: firstAddedItemId },
+      })
+    }
   } catch (cause) {
     submitError.value = cause instanceof Error ? cause.message : t('playlists.addToPlaylistFailed')
   } finally {
     submitting.value = false
+    submitAction.value = null
   }
 }
 
@@ -124,7 +146,7 @@ watch(dialogOpen, async (open) => {
             :disabled="playlists.saving || submitting"
             :label="t('playlists.playlistName')"
             variant="outlined"
-            @keydown.enter.prevent="submit"
+            @keydown.enter.prevent="void submit(false)"
           />
           <v-select
             v-model="newPlaylistFolderId"
@@ -165,11 +187,27 @@ watch(dialogOpen, async (open) => {
           </v-btn>
         </template>
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions class="flex-wrap ga-2">
         <v-spacer />
         <v-btn variant="text" @click="dialogOpen = false">{{ t('settings.cancel') }}</v-btn>
-        <v-btn color="primary" :disabled="!canSubmit" :loading="playlists.saving || submitting" variant="flat" @click="submit">
-          {{ creatingPlaylist ? t('playlists.createAndAdd') : t('playlists.addToPlaylist') }}
+        <v-btn
+          color="primary"
+          :disabled="!canSubmit"
+          :loading="submitAction === 'open'"
+          prepend-icon="mdi-arrow-right-circle-outline"
+          variant="tonal"
+          @click="void submit(true)"
+        >
+          {{ addAndOpenButtonText }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :disabled="!canSubmit"
+          :loading="submitAction === 'add'"
+          variant="flat"
+          @click="void submit(false)"
+        >
+          {{ addButtonText }}
         </v-btn>
       </v-card-actions>
     </v-card>

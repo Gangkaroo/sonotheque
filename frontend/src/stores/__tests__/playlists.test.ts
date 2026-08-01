@@ -271,6 +271,39 @@ describe('playlists store', () => {
     expect(store.current?.trackCount).toBe(0)
   })
 
+  it('removes every occurrence of a track from a playlist and its membership cache', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/tracks/1' && init?.method === 'DELETE') {
+        return jsonResponse({ removedCount: 2 })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.playlists = [{ id: 10, name: 'Mix', trackCount: 3 }]
+    store.trackMemberships = {
+      1: [{ id: 10, name: 'Mix', firstItemId: 100, occurrenceCount: 2 }],
+    }
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 3,
+      items: [
+        { id: 100, position: 0, track: trackResponse(1) },
+        { id: 101, position: 1, track: trackResponse(2) },
+        { id: 102, position: 2, track: trackResponse(1) },
+      ],
+    }
+
+    await store.removeTrackFromPlaylist(10, 1)
+
+    expect(store.playlists[0]?.trackCount).toBe(1)
+    expect(store.current?.items.map((item) => [item.track.id, item.position])).toEqual([[2, 0]])
+    expect(store.current?.trackCount).toBe(1)
+    expect(store.membershipsForTrack(1)).toEqual([])
+  })
+
   it('removes multiple playlist items and keeps returned order', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (url === '/api/playlists/10/items' && init?.method === 'DELETE') {

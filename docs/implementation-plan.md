@@ -1296,6 +1296,25 @@ Last.fm integration.
   available beside the current track in the queue. Both use the same scored
   preview and explicit playback confirmation; continuing preserves the current
   track and replaces only the unplayed queue tail.)
+- Add audio-similarity playlist ordering. The user chooses a fixed opening
+  track, and Sonotheque constructs an initial route through the analyzed tracks
+  in that playlist by repeatedly selecting a close neighbour. Improve that
+  route with deterministic local search such as 2-opt and track relocation so
+  the result minimizes the combined cost of every adjacent transition rather
+  than only making the best greedy next-track choice. Keep embedding similarity
+  as the transparent baseline objective; optional artist repetition, BPM, key,
+  energy, and diversity penalties may be added only as inspectable controls
+  after the baseline has been evaluated. Show the proposed order and adjacent
+  scores before writing anything, allow applying it to the current playlist or
+  saving it as a new playlist, and retain a reversible snapshot of the previous
+  order. Clearly identify tracks without a current analysis profile and keep
+  their relative order in a separate trailing group unless the user excludes
+  them. For unusually large playlists, bound pairwise work or use measured
+  nearest-neighbour candidates. Consider seeded simulated annealing later as an
+  optional **Thorough** mode only if it measurably improves accepted previews
+  over greedy construction plus local optimization. The feature remains
+  unavailable when Audio intelligence is disabled and never starts analysis
+  implicitly. (Pending)
 - Add a read-only evaluation workspace that selects an analyzed track, ranks
   exact cosine neighbours, exposes scores and feature context, and links back
   to catalog details without changing playback. Add compact feature
@@ -1483,6 +1502,12 @@ obtain a visibly different preview. The existing thumbs-up/down records are
 evaluation-only and must not be presented as if they already improve
 recommendations. Compare every new ranking against the accepted embedding-only
 baseline before making it the default.
+
+The playlist roadmap now also includes audio-similarity ordering from a
+user-selected opening track. Its first implementation should use deterministic
+nearest-neighbour construction followed by 2-opt/relocation, with a reviewable
+and reversible preview. Seeded simulated annealing is reserved for a measured
+optional thorough mode rather than being required for the initial workflow.
 
 Once that workflow is useful, simplify the standard settings surface to
 enablement, collection coverage/progress, resource limits, and recommendation

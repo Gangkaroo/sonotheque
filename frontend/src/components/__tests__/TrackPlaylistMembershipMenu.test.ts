@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { nextTick } from 'vue'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -33,6 +33,7 @@ describe('TrackPlaylistMembershipMenu', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     document.body.innerHTML = ''
   })
 
@@ -95,5 +96,29 @@ describe('TrackPlaylistMembershipMenu', () => {
     await nextTick()
 
     expect(wrapper.emitted('addToPlaylist')).toHaveLength(1)
+  })
+
+  it('removes the track from a selected playlist through the membership action', async () => {
+    const wrapper = await mountMenu([{
+      id: 3,
+      name: 'Road trip',
+      folder: null,
+      firstItemId: 12,
+      occurrenceCount: 2,
+    }])
+    const removeTrack = vi.spyOn(usePlaylistsStore(), 'removeTrackFromPlaylist')
+      .mockResolvedValue(2)
+
+    await wrapper.get('button').trigger('click')
+    await nextTick()
+    const removeButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove from Road trip"]',
+    )
+
+    expect(removeButton).not.toBeNull()
+    removeButton?.click()
+    await flushPromises()
+
+    expect(removeTrack).toHaveBeenCalledWith(3, 7)
   })
 })

@@ -287,6 +287,20 @@ class PlaylistsController extends Controller
         return response()->json(null, 204);
     }
 
+    public function removeTrack(Playlist $playlist, Track $track): JsonResponse
+    {
+        $removedCount = DB::transaction(function () use ($playlist, $track): int {
+            $removedCount = $playlist->items()->where('track_id', $track->id)->delete();
+            abort_if($removedCount === 0, 404);
+            $this->normalizeItemPositions($playlist);
+
+            return $removedCount;
+        });
+        $this->synchronizationDispatcher->playlist($playlist);
+
+        return response()->json(['removedCount' => $removedCount]);
+    }
+
     public function removeItems(Request $request, Playlist $playlist): JsonResponse
     {
         $validated = $request->validate([

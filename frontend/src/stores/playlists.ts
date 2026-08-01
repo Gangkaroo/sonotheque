@@ -381,6 +381,42 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     }
   }
 
+  async function removeTrackFromPlaylist(playlistId: number, trackId: number) {
+    saving.value = true
+    error.value = null
+    try {
+      const result = await apiRequest<{ removedCount: number }>(
+        `/playlists/${playlistId}/tracks/${trackId}`,
+        { method: 'DELETE' },
+      )
+      incrementPlaylistCount(playlistId, -result.removedCount)
+      if (current.value?.id === playlistId) {
+        const items = current.value.items
+          .filter((item) => item.track.id !== trackId)
+          .map((item, position) => ({ ...item, position }))
+        current.value = {
+          ...current.value,
+          items,
+          trackCount: Math.max(0, current.value.trackCount - result.removedCount),
+        }
+      }
+      if (trackId in trackMemberships.value) {
+        trackMemberships.value = {
+          ...trackMemberships.value,
+          [trackId]: (trackMemberships.value[trackId] ?? [])
+            .filter((membership) => membership.id !== playlistId),
+        }
+      }
+
+      return result.removedCount
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   async function removeItems(playlistId: number, itemIds: number[]) {
     if (!itemIds.length) return current.value
 
@@ -529,6 +565,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     addTrack,
     addTracks,
     removeItem,
+    removeTrackFromPlaylist,
     removeItems,
     reorderItems,
   }
