@@ -10,7 +10,7 @@ mkdir -p \
     storage/app/private \
     storage/app/artwork \
     storage/app/public \
-    storage/framework/cache \
+    storage/framework/cache/data \
     storage/framework/sessions \
     storage/framework/testing \
     storage/framework/views \
@@ -18,7 +18,6 @@ mkdir -p \
     bootstrap/cache
 
 rm -f bootstrap/cache/*.php
-find storage/framework/cache -mindepth 1 -exec rm -rf {} +
 
 php artisan package:discover --ansi
 

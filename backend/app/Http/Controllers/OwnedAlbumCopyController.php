@@ -4,14 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Album;
 use App\Models\OwnedAlbumCopy;
+use App\Music\Enrichment\DiscogsMusicianCreditImporter;
 use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class OwnedAlbumCopyController extends Controller
 {
-    public function __construct(private readonly CatalogPayloads $payloads)
-    {
+    public function __construct(
+        private readonly CatalogPayloads $payloads,
+        private readonly DiscogsMusicianCreditImporter $musicianCredits,
+    ) {
     }
 
     public function store(Request $request, Album $album): JsonResponse
@@ -32,6 +35,7 @@ class OwnedAlbumCopyController extends Controller
     public function destroy(Album $album, OwnedAlbumCopy $ownedAlbumCopy): JsonResponse
     {
         $this->ensureCopyBelongsToAlbum($album, $ownedAlbumCopy);
+        $this->musicianCredits->clearIfSelected($album, $ownedAlbumCopy);
         $ownedAlbumCopy->delete();
 
         return response()->json($this->personalMetadata($album));

@@ -24,6 +24,8 @@ class OnlineEnrichmentManager
 {
     private const LASTFM_CACHE_VARIANT = 'full-description-v1';
 
+    private const MUSICBRAINZ_ALBUM_CACHE_VARIANT = 'punctuation-tolerant-v2';
+
     public function __construct(
         private readonly OnlineContentCacheRepository $cache,
         private readonly ProviderRequestGate $requestGate,
@@ -89,6 +91,7 @@ class OnlineEnrichmentManager
                 'musicbrainz_release' => $identifiers['release'] ?? null,
                 'musicbrainz_release_group' => $identifiers['releaseGroup'] ?? null,
             ]),
+            cacheVariant: self::MUSICBRAINZ_ALBUM_CACHE_VARIANT,
         );
 
         return [

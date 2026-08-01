@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'album_id',
@@ -30,6 +31,12 @@ class OwnedAlbumCopy extends Model
     public function album(): BelongsTo
     {
         return $this->belongsTo(Album::class);
+    }
+
+    /** @return HasOne<AlbumDiscogsMusicianSource, $this> */
+    public function discogsMusicianSource(): HasOne
+    {
+        return $this->hasOne(AlbumDiscogsMusicianSource::class);
     }
 
     protected function casts(): array

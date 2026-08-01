@@ -9,6 +9,7 @@ use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Music\Streaming\TrackStreamActivity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -36,6 +37,10 @@ class AudioStreamingApiTest extends TestCase
 
     public function test_it_streams_a_complete_audio_file(): void
     {
+        config([
+            'cache.default' => 'array',
+            'sonotheque.audio_stream_activity_grace_seconds' => 300,
+        ]);
         $track = $this->createTrack('0123456789');
 
         $response = $this->get("/api/tracks/{$track->id}/stream");
@@ -45,6 +50,10 @@ class AudioStreamingApiTest extends TestCase
             ->assertHeader('Content-Length', '10')
             ->assertHeader('Content-Type', 'audio/mpeg');
         $this->assertSame('0123456789', $response->streamedContent());
+        $this->assertGreaterThan(
+            0,
+            app(TrackStreamActivity::class)->retryAfterSeconds($track->id),
+        );
     }
 
     public function test_it_streams_requested_byte_ranges(): void

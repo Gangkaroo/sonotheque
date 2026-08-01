@@ -11,6 +11,7 @@ use App\Models\MediaFile;
 use App\Models\Playlist;
 use App\Models\PlaylistFolder;
 use App\Models\Track;
+use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -93,6 +94,12 @@ class PlaylistsApiTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('position', 1)
             ->assertJsonPath('track.title', 'Second track');
+        TrackPlayStatistic::create([
+            'track_id' => $firstTrack->id,
+            'play_count' => 3,
+            'first_played_at' => now()->subDays(2),
+            'last_played_at' => now()->subDay(),
+        ]);
 
         $playlistItems = $playlist->items()->orderBy('position')->pluck('id')->values();
 
@@ -111,6 +118,7 @@ class PlaylistsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('trackCount', 1)
             ->assertJsonPath('items.0.track.title', 'First track')
+            ->assertJsonPath('items.0.track.playStatistics.playCount', 3)
             ->assertJsonPath('items.0.position', 0);
     }
 

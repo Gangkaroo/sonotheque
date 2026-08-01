@@ -6,7 +6,9 @@ use App\Models\Album;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
+use App\Models\MediaFile;
 use App\Models\OwnedAlbumCopy;
+use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -242,6 +244,139 @@ class AlbumDiscogsApiTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_linking_an_owned_release_imports_and_unlinking_removes_discogs_musician_credits(): void
+    {
+        [$album, $copy] = $this->createOwnedAlbum();
+        $firstTrack = $this->createTrack($album, 'First Song', 1);
+        $secondTrack = $this->createTrack($album, 'Second Song', 2);
+        Http::fake([
+            'api.discogs.com/releases/456' => Http::response([
+                'id' => 456,
+                'master_id' => 78,
+                'title' => 'Album',
+                'artists_sort' => 'Artist',
+                'uri' => '/release/456-Artist-Album',
+                'extraartists' => [[
+                    'id' => 101,
+                    'name' => 'Album Producer',
+                    'role' => 'Producer',
+                ]],
+                'tracklist' => [
+                    [
+                        'position' => '1',
+                        'title' => 'First Song',
+                        'extraartists' => [[
+                            'id' => 102,
+                            'name' => 'Guest Singer',
+                            'anv' => 'The Guest',
+                            'role' => 'Vocals [Guest]',
+                        ]],
+                    ],
+                    [
+                        'position' => 'A2',
+                        'title' => 'Second Song',
+                        'extraartists' => [[
+                            'id' => 103,
+                            'name' => 'Guitar Player',
+                            'role' => 'Guitar',
+                        ]],
+                    ],
+                ],
+            ]),
+            'api.discogs.com/users/collector/collection/releases/456*' => Http::response([
+                'releases' => [],
+            ]),
+        ]);
+
+        $this->putJson("/api/albums/{$album->id}/owned-copies/{$copy->id}/discogs", [
+            'releaseId' => 456,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('album_discogs_musician_sources', [
+            'album_id' => $album->id,
+            'owned_album_copy_id' => $copy->id,
+            'release_id' => 456,
+        ]);
+        $this->assertDatabaseHas('album_musician_credits', [
+            'album_id' => $album->id,
+            'track_id' => null,
+            'provider' => 'discogs',
+            'role' => 'Producer',
+        ]);
+        $this->assertDatabaseHas('album_musician_credits', [
+            'album_id' => $album->id,
+            'track_id' => $firstTrack->id,
+            'provider' => 'discogs',
+            'role' => 'Vocals [Guest]',
+        ]);
+        $this->assertDatabaseHas('album_musician_credits', [
+            'album_id' => $album->id,
+            'track_id' => $secondTrack->id,
+            'provider' => 'discogs',
+            'role' => 'Guitar',
+        ]);
+
+        $this->getJson("/api/albums/{$album->id}/musician-credits")
+            ->assertOk()
+            ->assertJsonPath('discogs.selectedOwnedCopyId', $copy->id)
+            ->assertJsonPath('discogs.selectedReleaseId', 456)
+            ->assertJsonCount(3, 'items');
+        $this->getJson("/api/enrichment/albums/{$album->id}/musicians")
+            ->assertOk()
+            ->assertJsonPath('status', 'ready')
+            ->assertJsonCount(3, 'data.musicians');
+
+        $this->deleteJson("/api/albums/{$album->id}/owned-copies/{$copy->id}/discogs")
+            ->assertOk();
+        $this->assertDatabaseMissing('album_discogs_musician_sources', ['album_id' => $album->id]);
+        $this->assertDatabaseMissing('album_musician_credits', [
+            'album_id' => $album->id,
+            'provider' => 'discogs',
+        ]);
+    }
+
+    public function test_a_user_can_choose_the_discogs_edition_used_for_musician_credits(): void
+    {
+        [$album, $firstCopy] = $this->createOwnedAlbum();
+        $firstCopy->update(['provider' => 'discogs', 'external_release_id' => 456]);
+        $secondCopy = $album->ownedCopies()->create([
+            'is_physical' => true,
+            'physical_format' => 'vinyl',
+            'provider' => 'discogs',
+            'external_release_id' => 789,
+        ]);
+        Http::fake(['api.discogs.com/releases/789' => Http::response([
+            'id' => 789,
+            'title' => 'Album',
+            'artists_sort' => 'Artist',
+            'uri' => '/release/789-Artist-Album',
+            'extraartists' => [[
+                'id' => 201,
+                'name' => 'Vinyl Edition Player',
+                'role' => 'Piano',
+            ]],
+        ])]);
+
+        $this->getJson("/api/albums/{$album->id}/musician-credits")
+            ->assertOk()
+            ->assertJsonCount(2, 'discogs.options')
+            ->assertJsonPath('discogs.selectedOwnedCopyId', null);
+        $this->putJson("/api/albums/{$album->id}/musician-credits/discogs-source", [
+            'sourceType' => 'owned_copy',
+            'ownedCopyId' => $secondCopy->id,
+        ])
+            ->assertOk()
+            ->assertJsonPath('discogs.selectedOwnedCopyId', $secondCopy->id)
+            ->assertJsonPath('discogs.selectedReleaseId', 789)
+            ->assertJsonPath('items.0.musician.name', 'Vinyl Edition Player')
+            ->assertJsonPath('items.0.provider', 'discogs');
+
+        $this->deleteJson("/api/albums/{$album->id}/musician-credits/discogs-source")
+            ->assertOk()
+            ->assertJsonPath('discogs.selectedOwnedCopyId', null)
+            ->assertJsonCount(0, 'items');
+    }
+
     /** @return array{Album, OwnedAlbumCopy} */
     private function createOwnedAlbum(string $title = 'Album'): array
     {
@@ -272,5 +407,29 @@ class AlbumDiscogsApiTest extends TestCase
         ]);
 
         return [$album, $copy];
+    }
+
+    private function createTrack(Album $album, string $title, int $trackNumber): Track
+    {
+        $relativePath = "Artist/{$album->title}/{$trackNumber}.mp3";
+        $mediaFile = MediaFile::create([
+            'library_root_id' => $album->library_root_id,
+            'album_id' => $album->id,
+            'relative_path' => $relativePath,
+            'relative_path_hash' => hash('sha256', mb_strtolower($relativePath)),
+            'file_size' => 1,
+            'modified_at' => now(),
+            'last_seen_at' => now(),
+            'raw_metadata' => [],
+        ]);
+
+        return Track::create([
+            'album_id' => $album->id,
+            'media_file_id' => $mediaFile->id,
+            'title' => $title,
+            'sort_title' => $title,
+            'disc_number' => 1,
+            'track_number' => $trackNumber,
+        ]);
     }
 }

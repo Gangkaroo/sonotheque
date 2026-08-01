@@ -13,6 +13,7 @@ export interface PlaybackHandoffMediaElement {
 export type PlaybackHandoffAction = 'playing' | 'play' | 'wait' | 'reload'
 
 const HAVE_METADATA = 1
+const HAVE_FUTURE_DATA = 3
 const NETWORK_LOADING = 2
 
 export function releaseMediaSource(element: ReleasableMediaElement) {
@@ -24,7 +25,12 @@ export function releaseMediaSource(element: ReleasableMediaElement) {
 export function playbackHandoffAction(
   element: PlaybackHandoffMediaElement,
 ): PlaybackHandoffAction {
-  if (!element.paused) return 'playing'
+  if (!element.paused) {
+    if (element.readyState >= HAVE_FUTURE_DATA) return 'playing'
+    if (element.networkState === NETWORK_LOADING) return 'wait'
+
+    return 'reload'
+  }
   if (element.readyState >= HAVE_METADATA) return 'play'
   if (element.networkState === NETWORK_LOADING) return 'wait'
 

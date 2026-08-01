@@ -131,6 +131,12 @@ class Track extends Model
         return $this->hasMany(PlaylistItem::class);
     }
 
+    /** @return HasMany<AlbumMusicianCredit, $this> */
+    public function musicianCredits(): HasMany
+    {
+        return $this->hasMany(AlbumMusicianCredit::class);
+    }
+
     protected function casts(): array
     {
         return [

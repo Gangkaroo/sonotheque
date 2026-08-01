@@ -5,6 +5,7 @@ namespace App\Music\Enrichment;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class MusicBrainzApiClient
 {
@@ -36,6 +37,17 @@ class MusicBrainzApiClient
     public function phrase(string $value): string
     {
         return '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], trim($value)).'"';
+    }
+
+    public function terms(string $value): string
+    {
+        $terms = Str::of($value)
+            ->ascii()
+            ->replaceMatches('/[^a-z0-9]+/i', ' ')
+            ->squish()
+            ->toString();
+
+        return '('.$terms.')';
     }
 
     /** @param array<string, mixed> $parameters */

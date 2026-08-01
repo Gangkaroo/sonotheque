@@ -8,6 +8,7 @@ use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
 use App\Music\Streaming\ByteRangeParser;
 use App\Music\Streaming\InvalidByteRange;
+use App\Music\Streaming\TrackStreamActivity;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -18,6 +19,7 @@ class AudioStreamController extends Controller
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
         private readonly ByteRangeParser $rangeParser,
+        private readonly TrackStreamActivity $streamActivity,
     ) {
     }
 
@@ -72,6 +74,8 @@ class AudioStreamController extends Controller
         if ($range !== null) {
             $headers['Content-Range'] = "bytes {$range->start}-{$range->end}/{$fileSize}";
         }
+
+        $this->streamActivity->touch($track->id);
 
         return response()->stream(
             fn () => $this->stream($path, $start, $length),

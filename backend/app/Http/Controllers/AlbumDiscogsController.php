@@ -7,6 +7,7 @@ use App\Models\ApplicationSetting;
 use App\Models\OwnedAlbumCopy;
 use App\Music\Discogs\DiscogsApiClient;
 use App\Music\Discogs\DiscogsApiException;
+use App\Music\Enrichment\DiscogsMusicianCreditImporter;
 use App\Support\CatalogPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ class AlbumDiscogsController extends Controller
 {
     public function __construct(
         private readonly DiscogsApiClient $discogs,
+        private readonly DiscogsMusicianCreditImporter $musicianCredits,
         private readonly CatalogPayloads $payloads,
     ) {
     }
@@ -117,6 +119,8 @@ class AlbumDiscogsController extends Controller
 
         $instance = $this->selectInstance($instances, $validated['collectionInstanceId'] ?? null);
         $this->updateLink($ownedAlbumCopy, $release, $instance);
+        $this->musicianCredits->syncIfSelected($album, $ownedAlbumCopy, $release);
+        $this->musicianCredits->syncIfUnselected($album, $ownedAlbumCopy, $release);
 
         return response()->json($this->personalMetadata($album));
     }
@@ -145,6 +149,7 @@ class AlbumDiscogsController extends Controller
             ?? $ownedAlbumCopy->external_collection_instance_id;
         $instance = $this->selectInstance($instances, $requestedInstanceId);
         $this->updateLink($ownedAlbumCopy, $release, $instance);
+        $this->musicianCredits->syncIfSelected($album, $ownedAlbumCopy, $release);
 
         return response()->json($this->personalMetadata($album));
     }
@@ -152,6 +157,7 @@ class AlbumDiscogsController extends Controller
     public function unlink(Album $album, OwnedAlbumCopy $ownedAlbumCopy): JsonResponse
     {
         $this->ensureCopyBelongsToAlbum($album, $ownedAlbumCopy);
+        $this->musicianCredits->clearIfSelected($album, $ownedAlbumCopy);
         $ownedAlbumCopy->update([
             'provider' => null,
             'external_release_id' => null,

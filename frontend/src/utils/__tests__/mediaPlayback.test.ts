@@ -27,6 +27,22 @@ describe('playbackHandoffAction', () => {
     })).toBe('playing')
   })
 
+  it('waits when active playback is buffering an ongoing request', () => {
+    expect(playbackHandoffAction({
+      networkState: 2,
+      paused: false,
+      readyState: 2,
+    })).toBe('wait')
+  })
+
+  it('reloads active playback when buffering has stopped making progress', () => {
+    expect(playbackHandoffAction({
+      networkState: 1,
+      paused: false,
+      readyState: 2,
+    })).toBe('reload')
+  })
+
   it('plays media that has metadata but remains paused', () => {
     expect(playbackHandoffAction({
       networkState: 1,

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdminAccessController;
 use App\Http\Controllers\AlbumDiscogsController;
 use App\Http\Controllers\AlbumMetadataController;
+use App\Http\Controllers\AlbumMusicianCreditController;
 use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumPlaylistExportController;
 use App\Http\Controllers\AlbumTrackMetadataController;
@@ -64,6 +65,16 @@ Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class,
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
 Route::post('/albums/{album}/tracks/metadata/preview', [AlbumTrackMetadataController::class, 'preview']);
 Route::post('/albums/{album}/tracks/metadata-edits', [AlbumTrackMetadataController::class, 'store']);
+Route::get('/albums/{album}/musician-credits', [AlbumMusicianCreditController::class, 'index']);
+Route::post('/albums/{album}/musician-credits', [AlbumMusicianCreditController::class, 'store']);
+Route::put('/albums/{album}/musician-credits/discogs-source', [AlbumMusicianCreditController::class, 'selectDiscogsSource']);
+Route::delete('/albums/{album}/musician-credits/discogs-source', [AlbumMusicianCreditController::class, 'clearDiscogsSource']);
+Route::patch('/albums/{album}/musician-credits/{manualCredit}', [AlbumMusicianCreditController::class, 'update']);
+Route::delete('/albums/{album}/musician-credits/{manualCredit}', [AlbumMusicianCreditController::class, 'destroy']);
+Route::put('/albums/{album}/musician-credits/suppressions/{sourceKey}', [AlbumMusicianCreditController::class, 'suppress'])
+    ->where('sourceKey', '[a-f0-9]{64}');
+Route::delete('/albums/{album}/musician-credits/suppressions/{sourceKey}', [AlbumMusicianCreditController::class, 'restore'])
+    ->where('sourceKey', '[a-f0-9]{64}');
 Route::get('/catalog/tracks', [CatalogBrowseController::class, 'tracks']);
 Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track']);
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
@@ -175,6 +186,8 @@ Route::get('/enrichment/tracks/{track}/identity', [OnlineEnrichmentController::c
 Route::get('/enrichment/tracks/{track}/artist-image', [OnlineEnrichmentController::class, 'artistImage']);
 Route::get('/enrichment/tracks/{track}/artist-image-information', [OnlineEnrichmentController::class, 'artistImageInformation']);
 Route::get('/enrichment/tracks/{track}/lyrics', [OnlineEnrichmentController::class, 'lyrics']);
+Route::get('/enrichment/albums/{album}/musicians', [OnlineEnrichmentController::class, 'albumMusicians']);
+Route::put('/enrichment/albums/{album}/musicians/release', [OnlineEnrichmentController::class, 'resolveAlbumMusicians']);
 Route::get('/dashboard-metrics', DashboardMetricsController::class);
 Route::get('/folders', FolderBrowserController::class);
 Route::get('/trash/tracks', [TrashController::class, 'index']);

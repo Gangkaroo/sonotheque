@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
@@ -15,8 +15,12 @@ import type {
 } from '@/stores/onlineEnrichment'
 import { openExternalUrl } from '@/utils/externalLinks'
 
+import MusicianCreditsEditor from './MusicianCreditsEditor.vue'
+import TooltipIconButton from './TooltipIconButton.vue'
+
 const props = withDefaults(defineProps<{
   trackId: number
+  albumId?: number
   content?: 'all' | 'artist'
 }>(), {
   content: 'all',
@@ -25,15 +29,80 @@ const emit = defineEmits<{
   artistImage: [url: string | null]
 }>()
 const { locale, t } = useI18n()
-const activeTab = ref<'album' | 'artist'>(props.content === 'artist' ? 'artist' : 'album')
+const activeTab = ref<'album' | 'artist' | 'musicians'>(props.content === 'artist' ? 'artist' : 'album')
 const identity = ref<TrackIdentity | null>(null)
 const information = ref<TrackInformation | null>(null)
 const artistImage = ref<EnrichmentResult<ArtistImageInformation> | null>(null)
+const musicians = ref<AlbumMusicianResult | null>(null)
 const loading = ref(false)
+const musiciansLoading = ref(false)
+const musicianReleaseDialog = ref(false)
+const selectedMusicianReleaseId = ref<string | null>(null)
+const resolvingMusicianRelease = ref(false)
+const musicianReleaseError = ref<string | null>(null)
 const error = ref<string | null>(null)
 const albumExpanded = ref(false)
 const artistExpanded = ref(false)
 let requestId = 0
+let musiciansPoll: ReturnType<typeof setTimeout> | null = null
+
+interface MusicianCreditTrack {
+  id: number
+  title: string
+  discNumber?: number | null
+  trackNumber?: number | null
+}
+
+interface MusicianCredit {
+  provider?: string
+  manual?: boolean
+  relationshipType: string
+  role: string
+  creditedAs?: string | null
+  guest: boolean
+  additional: boolean
+  scope: 'recording' | 'release'
+  tracks: MusicianCreditTrack[]
+}
+
+interface AlbumMusician {
+  id: number
+  name: string
+  sortName?: string | null
+  disambiguation?: string | null
+  entityType?: string | null
+  credits: MusicianCredit[]
+}
+
+interface MusicBrainzReleaseCandidate {
+  id: string
+  title?: string | null
+  artistName?: string | null
+  date?: string | null
+  country?: string | null
+  status?: string | null
+  formats: string[]
+  trackCount?: number | null
+  barcode?: string | null
+  score?: number | null
+  sourceUrl?: string | null
+}
+
+interface AlbumMusicianResult {
+  status: EnrichmentStatus
+  provider: string
+  lookupVersion: number
+  data?: {
+    providerStatus?: EnrichmentStatus | 'disabled'
+    releaseId?: string | null
+    selectedReleaseId?: string | null
+    candidateReleases: MusicBrainzReleaseCandidate[]
+    sourceUrl?: string | null
+    fetchedAt?: string | null
+    musicians: AlbumMusician[]
+  } | null
+  errorCode?: EnrichmentErrorCode | null
+}
 
 const isVisible = computed(() => {
   if (loading.value || error.value) return true
@@ -45,6 +114,7 @@ const isVisible = computed(() => {
         identity.value?.artist.status,
         information.value?.album.status,
         information.value?.artist.status,
+        musicians.value?.status,
       ]
 
   return statuses.some((status) => status && !['disabled', 'not_configured', 'not_found'].includes(status))
@@ -53,22 +123,29 @@ const albumDescription = computed(() => information.value?.album.data?.summary ?
 const artistDescription = computed(() => information.value?.artist.data?.biography ?? '')
 const albumDescriptionIsLong = computed(() => albumDescription.value.length > 500)
 const artistDescriptionIsLong = computed(() => artistDescription.value.length > 500)
+const musicianReleaseCandidates = computed(() => musicians.value?.data?.candidateReleases ?? [])
 
 watch(
-  [() => props.trackId, () => locale.value],
-  ([trackId, language]) => void load(trackId, language),
+  [() => props.trackId, () => props.albumId, () => locale.value],
+  ([trackId, albumId, language]) => void load(trackId, albumId, language),
   { immediate: true },
 )
+
+onUnmounted(clearMusiciansPoll)
 
 watch(() => props.content, (content) => {
   activeTab.value = content === 'artist' ? 'artist' : 'album'
 })
 
-async function load(trackId: number, language: string) {
+async function load(trackId: number, albumId: number | undefined, language: string) {
   const request = ++requestId
+  clearMusiciansPoll()
   loading.value = true
   error.value = null
   artistImage.value = null
+  musicians.value = null
+  musicianReleaseDialog.value = false
+  musicianReleaseError.value = null
   emit('artistImage', null)
   albumExpanded.value = false
   artistExpanded.value = false
@@ -85,6 +162,7 @@ async function load(trackId: number, language: string) {
     identity.value = nextIdentity
     information.value = nextInformation
     if (props.content === 'artist') void loadArtistImage(trackId, request)
+    if (props.content === 'all' && albumId) void loadMusicians(albumId, request, true)
   } catch (cause) {
     if (request === requestId) {
       error.value = cause instanceof Error ? cause.message : t('player.enrichmentLoadFailed')
@@ -92,6 +170,42 @@ async function load(trackId: number, language: string) {
   } finally {
     if (request === requestId) loading.value = false
   }
+}
+
+async function loadMusicians(albumId: number, request: number, initial = false) {
+  if (initial) musiciansLoading.value = true
+
+  try {
+    const result = await apiRequest<AlbumMusicianResult>(`/enrichment/albums/${albumId}/musicians`)
+    if (request !== requestId) return
+
+    musicians.value = result
+    if (result.status === 'pending' || result.data?.providerStatus === 'pending') {
+      musiciansPoll = setTimeout(() => void loadMusicians(albumId, request), 5000)
+    }
+  } catch (cause) {
+    if (request === requestId) {
+      musicians.value = {
+        status: 'error',
+        provider: 'musicbrainz',
+        lookupVersion: 4,
+        data: null,
+        errorCode: cause instanceof Error ? 'provider_error' : 'connection',
+      }
+    }
+  } finally {
+    if (request === requestId && initial) musiciansLoading.value = false
+  }
+}
+
+function reloadMusicians() {
+  clearMusiciansPoll()
+  if (props.albumId) void loadMusicians(props.albumId, requestId, true)
+}
+
+function clearMusiciansPoll() {
+  if (musiciansPoll !== null) clearTimeout(musiciansPoll)
+  musiciansPoll = null
 }
 
 async function loadArtistImage(trackId: number, request: number) {
@@ -132,6 +246,79 @@ function activePeriod(data?: ArtistInformation | null) {
 function ready<T>(result?: EnrichmentResult<T> | null): result is EnrichmentResult<T> & { data: T } {
   return result?.status === 'ready' && result.data !== null && result.data !== undefined
 }
+
+function musicianCreditLabel(credit: MusicianCredit) {
+  const modifiers = [
+    credit.guest ? t('albums.guestMusician') : null,
+    credit.additional ? t('albums.additionalMusician') : null,
+  ].filter(Boolean)
+
+  return modifiers.length ? `${credit.role} (${modifiers.join(', ')})` : credit.role
+}
+
+function musicianCreditProvider(credit: MusicianCredit) {
+  if (credit.manual) return t('albums.manualMusicianCredit')
+  if (credit.provider === 'discogs') return 'Discogs'
+  return 'MusicBrainz'
+}
+
+function musicianTrackScope(credit: MusicianCredit) {
+  if (credit.scope === 'release') return t('albums.albumWideCredit')
+  if (!credit.tracks.length) return t('albums.recordingCredit')
+
+  return credit.tracks
+    .map((track) => {
+      const number = [track.discNumber, track.trackNumber].filter((value) => value !== null && value !== undefined).join('.')
+      return number ? `${number} ${track.title}` : track.title
+    })
+    .join(', ')
+}
+
+function openMusicianReleaseDialog() {
+  selectedMusicianReleaseId.value = musicians.value?.data?.selectedReleaseId
+    ?? musicianReleaseCandidates.value[0]?.id
+    ?? null
+  musicianReleaseError.value = null
+  musicianReleaseDialog.value = true
+}
+
+function musicianReleaseDetails(candidate: MusicBrainzReleaseCandidate) {
+  return [
+    candidate.date,
+    candidate.country,
+    candidate.formats.join(', ') || null,
+    candidate.trackCount ? t('albums.trackCount', { count: candidate.trackCount }) : null,
+    candidate.barcode ? t('albums.musicianReleaseBarcode', { barcode: candidate.barcode }) : null,
+  ].filter(Boolean).join(' · ')
+}
+
+async function resolveMusicianRelease() {
+  if (!props.albumId || !selectedMusicianReleaseId.value) return
+
+  resolvingMusicianRelease.value = true
+  musicianReleaseError.value = null
+  clearMusiciansPoll()
+  try {
+    const result = await apiRequest<AlbumMusicianResult>(
+      `/enrichment/albums/${props.albumId}/musicians/release`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ releaseId: selectedMusicianReleaseId.value }),
+      },
+    )
+    musicians.value = result
+    musicianReleaseDialog.value = false
+    if (result.status === 'pending') {
+      musiciansPoll = setTimeout(() => void loadMusicians(props.albumId!, requestId), 1000)
+    }
+  } catch (cause) {
+    musicianReleaseError.value = cause instanceof Error
+      ? cause.message
+      : t('albums.musicianReleaseResolveFailed')
+  } finally {
+    resolvingMusicianRelease.value = false
+  }
+}
 </script>
 
 <template>
@@ -146,6 +333,7 @@ function ready<T>(result?: EnrichmentResult<T> | null): result is EnrichmentResu
     <v-tabs v-if="props.content === 'all'" v-model="activeTab" color="primary" grow>
       <v-tab prepend-icon="mdi-album" value="album">{{ t('player.albumInformation') }}</v-tab>
       <v-tab prepend-icon="mdi-account-music-outline" value="artist">{{ t('player.artistInformation') }}</v-tab>
+      <v-tab prepend-icon="mdi-account-group-outline" value="musicians">{{ t('albums.musicians') }}</v-tab>
     </v-tabs>
     <v-divider v-if="props.content === 'all'" />
 
@@ -318,7 +506,157 @@ function ready<T>(result?: EnrichmentResult<T> | null): result is EnrichmentResu
           </div>
         </v-card-text>
       </v-window-item>
+
+      <v-window-item v-if="props.content === 'all'" value="musicians">
+        <div v-if="props.albumId" class="d-flex justify-end px-4 pt-4">
+          <MusicianCreditsEditor :album-id="props.albumId" @updated="reloadMusicians" />
+        </div>
+        <v-card-text v-if="musiciansLoading">
+          <v-skeleton-loader type="list-item-three-line@3" />
+        </v-card-text>
+        <v-card-text v-else-if="musicians?.status === 'pending'">
+          <v-progress-linear class="mb-4" color="primary" indeterminate rounded />
+          <p class="text-medium-emphasis mb-0">{{ t('albums.musicianCreditsPending') }}</p>
+        </v-card-text>
+        <v-card-text v-else-if="musicians?.status === 'ready'">
+          <p class="text-medium-emphasis mb-4">{{ t('albums.musicianCreditsDescription') }}</p>
+          <v-list v-if="musicians.data?.musicians.length" lines="three">
+            <v-list-item
+              v-for="musician in musicians.data.musicians"
+              :key="musician.id"
+              class="musician-list-item px-0"
+              prepend-icon="mdi-account-music-outline"
+            >
+              <v-list-item-title>
+                {{ musician.name }}
+                <span v-if="musician.disambiguation" class="text-medium-emphasis text-caption">
+                  ({{ musician.disambiguation }})
+                </span>
+              </v-list-item-title>
+              <div class="d-flex flex-wrap ga-2 mt-2">
+                <v-chip
+                  v-for="(credit, creditIndex) in musician.credits"
+                  :key="`${musician.id}-${creditIndex}`"
+                  size="small"
+                  variant="tonal"
+                >
+                  <strong>{{ musicianCreditLabel(credit) }}</strong>
+                  <span class="ml-1 text-medium-emphasis">· {{ musicianTrackScope(credit) }}</span>
+                  <span class="ml-1 text-medium-emphasis">· {{ musicianCreditProvider(credit) }}</span>
+                </v-chip>
+              </div>
+            </v-list-item>
+          </v-list>
+          <v-alert
+            v-else
+            density="compact"
+            icon="mdi-account-question-outline"
+            :text="t('albums.noMusicianCredits')"
+            type="info"
+            variant="tonal"
+          />
+          <v-btn
+            v-if="musicians.data?.sourceUrl"
+            class="mt-4 px-0"
+            append-icon="mdi-open-in-new"
+            variant="text"
+            @click="openExternalUrl(musicians.data.sourceUrl)"
+          >
+            MusicBrainz
+          </v-btn>
+          <v-btn
+            v-if="musicianReleaseCandidates.length > 1"
+            class="mt-4 ml-2"
+            prepend-icon="mdi-swap-horizontal"
+            variant="tonal"
+            @click="openMusicianReleaseDialog"
+          >
+            {{ t('albums.changeMusicianRelease') }}
+          </v-btn>
+        </v-card-text>
+        <v-card-text v-else-if="musicians?.status === 'ambiguous'">
+          <v-alert class="mb-4" type="warning" variant="tonal">
+            {{ stateText(musicians.status, musicians.errorCode) }}
+          </v-alert>
+          <v-btn
+            v-if="musicianReleaseCandidates.length"
+            color="primary"
+            prepend-icon="mdi-source-branch"
+            variant="tonal"
+            @click="openMusicianReleaseDialog"
+          >
+            {{ t('albums.chooseMusicianRelease') }}
+          </v-btn>
+        </v-card-text>
+        <v-card-text v-else>
+          <v-alert
+            type="info"
+            variant="tonal"
+          >
+            {{ stateText(musicians?.status, musicians?.errorCode) }}
+          </v-alert>
+        </v-card-text>
+      </v-window-item>
     </v-window>
+
+    <v-dialog v-model="musicianReleaseDialog" max-width="820" scrollable>
+      <v-card prepend-icon="mdi-source-branch" :title="t('albums.musicianReleaseTitle')">
+        <v-card-text>
+          <v-alert v-if="musicianReleaseError" class="mb-4" type="error" variant="tonal">
+            {{ musicianReleaseError }}
+          </v-alert>
+          <p class="text-body-2 text-medium-emphasis mb-4">{{ t('albums.musicianReleaseHint') }}</p>
+          <v-radio-group v-model="selectedMusicianReleaseId" hide-details>
+            <v-list border lines="three" rounded="lg">
+              <v-list-item
+                v-for="candidate in musicianReleaseCandidates"
+                :key="candidate.id"
+                class="musician-release-candidate"
+                @click="selectedMusicianReleaseId = candidate.id"
+              >
+                <template #prepend>
+                  <v-radio class="mr-3" :value="candidate.id" @click.stop />
+                </template>
+                <v-list-item-title>{{ candidate.title }}</v-list-item-title>
+                <v-list-item-subtitle v-if="candidate.artistName">{{ candidate.artistName }}</v-list-item-subtitle>
+                <v-list-item-subtitle v-if="musicianReleaseDetails(candidate)">
+                  {{ musicianReleaseDetails(candidate) }}
+                </v-list-item-subtitle>
+                <template #append>
+                  <div class="d-flex align-center ga-2">
+                    <v-chip v-if="candidate.score" size="x-small" variant="tonal">
+                      {{ t('albums.musicianReleaseScore', { score: candidate.score }) }}
+                    </v-chip>
+                    <TooltipIconButton
+                      v-if="candidate.sourceUrl"
+                      :aria-label="t('albums.openMusicianRelease')"
+                      icon="mdi-open-in-new"
+                      size="small"
+                      :text="t('albums.openMusicianRelease')"
+                      variant="text"
+                      @click.stop="openExternalUrl(candidate.sourceUrl)"
+                    />
+                  </div>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-radio-group>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="musicianReleaseDialog = false">{{ t('settings.close') }}</v-btn>
+          <v-btn
+            color="primary"
+            :disabled="!selectedMusicianReleaseId"
+            :loading="resolvingMusicianRelease"
+            variant="flat"
+            @click="void resolveMusicianRelease()"
+          >
+            {{ t('albums.useMusicianRelease') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-card>
 </template>
 
@@ -338,5 +676,13 @@ function ready<T>(result?: EnrichmentResult<T> | null): result is EnrichmentResu
 
 .artist-image-attribution {
   color: rgb(var(--v-theme-on-surface-variant));
+}
+
+.musician-list-item + .musician-list-item {
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.musician-release-candidate {
+  cursor: pointer;
 }
 </style>

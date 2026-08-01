@@ -18,6 +18,7 @@ return [
     'counted_play_maximum_threshold_seconds' => (int) env('PLAY_STATISTICS_MAXIMUM_THRESHOLD_SECONDS', 240),
     'play_statistics_sync_delay_seconds' => (int) env('PLAY_STATISTICS_SYNC_DELAY_SECONDS', 30),
     'audio_stream_open_ended_range_bytes' => (int) env('AUDIO_STREAM_OPEN_ENDED_RANGE_BYTES', 2 * 1024 * 1024),
+    'audio_stream_activity_grace_seconds' => (int) env('AUDIO_STREAM_ACTIVITY_GRACE_SECONDS', 300),
 
     'metadata_probe' => [
         'ffprobe_binary' => env('FFPROBE_BINARY', 'ffprobe'),
@@ -184,7 +185,9 @@ return [
             'api/albums/*/personal-notes',
             'api/albums/*/discogs*',
             'api/albums/*/owned-copies*',
+            'api/albums/*/musician-credits*',
             'api/metadata-edits*',
+            'api/enrichment/albums/*/musicians/release',
         ],
     ],
 

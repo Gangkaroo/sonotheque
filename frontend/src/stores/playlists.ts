@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
 import { withLibraryRootScope } from '@/stores/libraryRootScope'
-import type { Track } from '@/stores/catalog'
+import type { Track, TrackPlayStatistics } from '@/stores/catalog'
 
 export interface PlaylistFolder {
   id: number
@@ -75,6 +75,9 @@ interface MembershipResponse {
   }>
 }
 
+// Keep GET query strings comfortably below common proxy and web-server limits.
+const MEMBERSHIP_BATCH_SIZE = 200
+
 export const usePlaylistsStore = defineStore('playlists', () => {
   const folders = ref<PlaylistFolder[]>([])
   const playlists = ref<PlaylistSummary[]>([])
@@ -124,27 +127,44 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     const requestId = ++membershipRequestId
     membershipsLoading.value = true
     membershipsError.value = null
-    const parameters = new URLSearchParams()
-    requestedTrackIds.forEach((trackId) => parameters.append('trackIds[]', String(trackId)))
-
     try {
-      const result = await apiRequest<MembershipResponse>(
-        withLibraryRootScope(`/playlists/memberships?${parameters.toString()}`),
-      )
+      const batches: number[][] = []
+      for (let index = 0; index < requestedTrackIds.length; index += MEMBERSHIP_BATCH_SIZE) {
+        batches.push(requestedTrackIds.slice(index, index + MEMBERSHIP_BATCH_SIZE))
+      }
+      const results = await Promise.all(batches.map((batch) => {
+        const parameters = new URLSearchParams()
+        batch.forEach((trackId) => parameters.append('trackIds[]', String(trackId)))
+
+        return apiRequest<MembershipResponse>(
+          withLibraryRootScope(`/playlists/memberships?${parameters.toString()}`),
+        )
+      }))
       if (requestId !== membershipRequestId) return
 
       const nextMemberships = { ...trackMemberships.value }
       requestedTrackIds.forEach((trackId) => {
         nextMemberships[trackId] = []
       })
-      result.items.forEach((item) => {
+      results.forEach((result) => result.items.forEach((item) => {
         nextMemberships[item.trackId] = item.playlists
-      })
+      }))
       trackMemberships.value = nextMemberships
     } catch (cause) {
       if (requestId === membershipRequestId) membershipsError.value = errorMessage(cause)
     } finally {
       if (requestId === membershipRequestId) membershipsLoading.value = false
+    }
+  }
+
+  function updateTrackPlayStatistics(trackId: number, statistics: TrackPlayStatistics) {
+    if (!current.value) return
+
+    current.value = {
+      ...current.value,
+      items: current.value.items.map((item) => item.track.id === trackId
+        ? { ...item, track: { ...item.track, playStatistics: statistics } }
+        : item),
     }
   }
 
@@ -497,6 +517,7 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     loadAll,
     loadPlaylist,
     loadMemberships,
+    updateTrackPlayStatistics,
     membershipsForTrack,
     createFolder,
     updateFolder,

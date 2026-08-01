@@ -184,7 +184,8 @@ class CatalogBrowseController extends Controller
             ...$this->trackFilterRules(),
         ]);
 
-        $tracks = $this->filteredTrackQuery($libraryRootId, $filters)
+        $filteredTracks = $this->filteredTrackQuery($libraryRootId, $filters);
+        $tracks = (clone $filteredTracks)
             ->leftJoin('albums as sort_albums', 'sort_albums.id', '=', 'tracks.album_id')
             ->leftJoin('artists as sort_artists', 'sort_artists.id', '=', 'sort_albums.primary_artist_id')
             ->leftJoin('track_play_statistics as sort_statistics', 'sort_statistics.track_id', '=', 'tracks.id')
@@ -201,7 +202,10 @@ class CatalogBrowseController extends Controller
             ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
 
         $tracks = $this->applyTrackSort($tracks, $filters['sort'] ?? 'album')
-            ->paginate(50);
+            ->paginate(
+                perPage: 50,
+                total: fn (): int => (clone $filteredTracks)->count(),
+            );
 
         return response()->json($this->payloads->paginated($tracks, fn (Track $track) => $this->payloads->trackSummary($track)));
     }

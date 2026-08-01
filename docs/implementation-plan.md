@@ -457,6 +457,39 @@ requests should run through queued jobs with provider-specific throttling.
 Expired cached data may be displayed immediately while a background refresh
 runs when the provider's terms permit it.
 
+Musician credits are a structured extension of album enrichment. The user-facing
+section is named **Musicians** and should describe people or credited groups that
+performed on the matched release or its recordings, including instruments,
+vocal roles, guest/additional attributes, credited-as names, and the tracks to
+which each credit applies. Do not infer album participation from historical band
+membership alone. Prefer an exact MusicBrainz release ID; a release-group match
+is not sufficient to silently attach edition-specific personnel.
+
+Retrieved credits must not remain only in the general enrichment cache. Store
+normalized musician identities, provider identifiers, album-wide credits, and
+track-specific credits in indexed PostgreSQL tables so a later milestone can
+filter albums and tracks by musician. Keep the provider, source release, fetch
+time, and credit scope, and retain credited names separately from normalized
+identity. Cross-provider records must not be merged by name alone.
+
+Collection building is lazy by default. Opening an album may enqueue a bounded,
+rate-limited MusicBrainz personnel lookup when that album has not been checked;
+existing album data and playback remain immediately available. Persist positive,
+negative, ambiguous, and failed outcomes so repeat visits do not repeat work.
+Expose how many albums have musician data, because filters over a partially
+enriched collection must not imply that unchecked albums have no matching
+musician. A disabled-by-default, root-scoped, pausable, resumable backfill may be
+added later and must skip albums whose current musician lookup version is
+already complete.
+
+MusicBrainz musician retrieval requires a new cache/payload schema version.
+Previously cached album identity responses did not request recording-level
+relationships and therefore cannot be interpreted as complete musician data.
+Treat older positive and negative MusicBrainz album cache entries as missing for
+this lookup and refetch them once, lazily, under the new versioned lookup key.
+Do not require users to clear all enrichment caches, and do not repeatedly
+refetch entries that have already completed the new musician-credit version.
+
 Playback startup, seeking, queue progression, and navigation must never wait
 for enrichment. The player should start from local catalog data and request
 optional information independently. A slow, rate-limited, offline, or failing
@@ -1140,6 +1173,72 @@ Last.fm integration.
 - Extend cached enrichment to detail pages after the current-playing workflow
   is stable. (Complete for album details with separate album/artist tabs and
   for dedicated artist details; multiple-provider fallback remains later.)
+- Add a **Musicians** section to album information. Resolve an exact MusicBrainz
+  release where possible, request release- and recording-level artist
+  relationships, and aggregate performer, instrument, vocal, guest/additional,
+  credited-as, and per-track scope without treating general band membership as
+  proof of participation. Keep the lookup asynchronous and independent from
+  playback. (Complete for lazy per-album retrieval, the album-information tab,
+  and persisted manual selection among ambiguous MusicBrainz editions.)
+- Add normalized, indexed musician identities plus album- and track-credit
+  tables. Preserve source provider/release and credited names so later album
+  and track filters can use stable identities rather than free-text names.
+  (Normalized identities and scoped credits complete; collection coverage and
+  musician filters remain pending.)
+- Add manual musician-credit curation from the album page. Users may add a
+  musician, select album-wide or specific-track scope, assign a role,
+  retain the printed credited-as name, edit locally curated credits, and hide an
+  incorrect imported credit. Imported provider rows remain immutable source
+  records; local additions and suppressions form a separate effective-credit
+  overlay so a background refresh can never overwrite user decisions. Preserve
+  provenance in the UI and allow each hidden provider credit to be restored.
+  Do not merge two musician identities by display name alone; cross-provider
+  identity links must use a shared external identifier or an explicit user
+  decision. (Complete: local credits and provider suppressions use separate
+  normalized tables, protected CRUD endpoints, and an album dialog. Local
+  credits remain available when online enrichment is disabled and both kinds
+  of user decision survive MusicBrainz refreshes.)
+- Supplement MusicBrainz with Discogs credits when an owned copy is explicitly
+  linked to an exact Discogs release or when the selected MusicBrainz release
+  links to an exact Discogs release. Extend the existing cached release payload
+  to normalize release-level `extraartists` and track-level credits from the
+  Discogs track list, including role, credited name variation, artist ID, and
+  track position. Match track credits conservatively by release position and
+  title; leave uncertain mappings album-wide or unresolved rather than attaching
+  them to the wrong local track. If several owned copies link to different
+  Discogs editions, let the user choose which edition supplies credits. Keep
+  MusicBrainz and Discogs source records separate and combine them only in the
+  effective display layer, with duplicate identities requiring a stable mapping
+  or manual confirmation. Automatically import a single exact Discogs release
+  linked by the selected MusicBrainz release; require an explicit choice when
+  several linked editions are available. (Complete: linking the first owned Discogs edition
+  imports its release- and track-level `extraartists`; albums with several
+  linked editions expose an explicit source selector. A selected MusicBrainz
+  release also exposes its exact Discogs release links without implying album
+  ownership. Refresh/unlink operations keep normalized Discogs rows synchronized.
+  Numeric positions are matched conservatively and unique normalized titles
+  provide a fallback; unresolved track credits remain album-wide.)
+- Version the MusicBrainz musician payload and lookup key. Existing cached album
+  responses, including negative results, predate relationship retrieval and
+  must be refetched once as albums are encountered. A completed current-version
+  result must be reused. (Complete through a versioned per-album enrichment
+  state that treats albums without a current musician lookup as pending.)
+- Consider a disabled-by-default musician-credit backfill after the lazy
+  workflow is stable. It must be rate-limited, root-scoped, pausable, resumable,
+  progress-aware, and skip current-version completed albums. Discogs credits
+  may later supplement an exact linked owned release, but providers must not be
+  merged by name alone. Place the backfill controls in **Settings >
+  Connections** beside the MusicBrainz and Discogs provider configuration,
+  with a root selector, coverage, progress, pause/resume, and an ETA. (Pending)
+- Add a dedicated **Musicians** catalog section with a searchable, root-scoped
+  list of normalized musicians, album/track credit counts, and honest coverage
+  context for the partially enriched collection. Link musician names in album
+  information to this page, and later let users browse the credited albums and
+  tracks without relying on free-text matching. (Pending)
+- Add a dashboard KPI for the number of distinct musicians currently present in
+  effective credits. The KPI should link to the Musicians section and remain
+  explicit that its value grows as lazy enrichment or the optional backfill
+  covers more albums. (Pending)
 
 ### 5e. Local Audio Intelligence And Similarity
 
@@ -1445,7 +1544,25 @@ paginated album and track tabs, playback actions, and cached artist context.
 Optional artist portraits are resolved from MusicBrainz IDs through Wikidata,
 downloaded from Wikimedia Commons through a host-restricted Laravel proxy,
 attributed, validated, cached privately, and shown with a local fallback.
-Additional provider fallback remains a later refinement.
+Additional provider fallback remains a later refinement. Lazy MusicBrainz
+**Musicians** retrieval is now available from album information. It persists
+normalized release-wide and recording-scoped performance credits, excludes
+ordinary membership relationships, and uses a versioned per-album state so
+existing MusicBrainz album cache entries are refetched once when encountered.
+Ambiguous searches now retain compact release candidates and let the user select
+or later change the exact edition; that choice is reused for subsequent cached
+refreshes. Album pages also provide a local musician-credit editor: user-owned
+album-wide or track-scoped credits and per-source suppressions are kept separate
+from imported MusicBrainz rows, visibly attributed, and retained across provider
+refreshes. Exact owned Discogs editions may now supplement those records with
+release- and track-level credits. MusicBrainz-linked Discogs releases can also
+supply credits without implying ownership; exact owned editions remain the
+preferred source when available. The selected source is explicit, provider
+identities remain separate, and imported Discogs rows are refreshed or removed
+with their source link. Collection coverage, musician filters, and the optional
+backfill remain later work. The next musician milestone is a dedicated catalog
+section and dashboard KPI; provider-related, root-scoped backfill controls
+belong under Settings > Connections rather than on ordinary album pages.
 
 The player now includes an optional Web Audio API visualizer in the expanded
 footer. It is local-only, dependency-free, persisted in player preferences, and

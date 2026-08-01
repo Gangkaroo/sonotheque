@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\ApplicationSetting;
 use App\Models\Track;
 use App\Music\PlaybackStatistics\PlaybackStatisticsFileSynchronizer;
+use App\Music\Streaming\TrackStreamActivity;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -34,9 +35,19 @@ class SynchronizeTrackPlaybackStatistics implements ShouldBeUniqueUntilProcessin
         return [30, 120, 300];
     }
 
-    public function handle(PlaybackStatisticsFileSynchronizer $synchronizer): void
-    {
+    public function handle(
+        PlaybackStatisticsFileSynchronizer $synchronizer,
+        TrackStreamActivity $streamActivity,
+    ): void {
         if (! ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags()) {
+            return;
+        }
+
+        $retryAfterSeconds = $streamActivity->retryAfterSeconds($this->trackId);
+        if ($retryAfterSeconds > 0) {
+            self::dispatch($this->trackId)
+                ->delay(now()->addSeconds($retryAfterSeconds + 1));
+
             return;
         }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -44,6 +44,7 @@ const playlists = usePlaylistsStore()
 const storageKey = 'sonotheque:track-filters'
 const restoredFilters = initialFilters()
 const search = ref(restoredFilters.search)
+const searchInput = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
@@ -53,7 +54,6 @@ const page = ref(restoredFilters.page)
 const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
-let searchTimer: ReturnType<typeof setTimeout> | null = null
 let applyingRouteFilters = false
 const routeQuerySyncGuard = createRouteQuerySyncGuard()
 const physicalCopyOptions = computed(() => [
@@ -164,6 +164,7 @@ function applyFilters(filters: TrackFilters) {
   applyingRouteFilters = true
   page.value = filters.page
   search.value = filters.search
+  searchInput.value = filters.search
   genre.value = filters.genre
   genreName.value = filters.genreName
   playStatus.value = filters.playStatus
@@ -273,6 +274,20 @@ function load() {
   })
 }
 
+function applySearch() {
+  const nextSearch = searchInput.value.trim()
+
+  page.value = 1
+  search.value = nextSearch
+  saveFilters()
+  syncFiltersToRoute()
+}
+
+function clearSearch() {
+  searchInput.value = ''
+  applySearch()
+}
+
 function playRandomTrack() {
   const filters = currentFilters()
   const selectedRoot = libraryRoots.roots.find(root => root.id === libraryRootScope.selectedRootId)
@@ -336,34 +351,13 @@ watch([genre, genreName, playStatus, physicalCopy, sort], () => {
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, genre, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, search, genre, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch([
   () => catalog.tracks.items.map((track) => track.id),
   () => libraryRootScope.selectedRootId,
 ], ([trackIds]) => {
   if (trackIds.length) void playlists.loadMemberships(trackIds)
 }, { immediate: true })
-watch(search, () => {
-  const wasNotFirstPage = page.value !== 1
-  if (searchTimer) clearTimeout(searchTimer)
-
-  if (!applyingRouteFilters) {
-    page.value = 1
-    saveFilters()
-  } else if (wasNotFirstPage) {
-    page.value = 1
-  }
-
-  if (wasNotFirstPage) return
-
-  searchTimer = setTimeout(() => {
-    syncFiltersToRoute()
-    load()
-  }, 300)
-})
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
 </script>
 
 <template>
@@ -382,7 +376,16 @@ onUnmounted(() => {
     </v-btn>
   </div>
   <div class="track-filter-row d-flex flex-column flex-sm-row flex-sm-wrap flex-lg-nowrap ga-3 mb-6">
-    <v-text-field v-model="search" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('tracks.search')" />
+    <v-text-field
+      v-model="searchInput"
+      append-inner-icon="mdi-magnify"
+      clearable
+      hide-details
+      :label="t('tracks.search')"
+      @click:append-inner="applySearch"
+      @click:clear="clearSearch"
+      @keyup.enter="applySearch"
+    />
     <v-switch
       v-model="playStatus"
       class="never-played-filter"

@@ -193,6 +193,7 @@ class PlaylistsController extends Controller
                     'track.album.ownedCopies',
                     'track.artists:id,name',
                     'track.mediaFile:id,library_root_id,status',
+                    'track.playStatistic:track_id,play_count,first_played_at,last_played_at',
                 ]),
         ])->loadCount(['items' => fn (Builder $items) => $items->whereHas(
             'track',
@@ -471,6 +472,7 @@ class PlaylistsController extends Controller
                 'track.album.ownedCopies',
                 'track.artists:id,name',
                 'track.mediaFile:id,library_root_id,status',
+                'track.playStatistic:track_id,play_count,first_played_at,last_played_at',
             ])
             ->orderBy('position')
             ->get();

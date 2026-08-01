@@ -105,6 +105,17 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
                 $lookup->title,
                 'title',
             );
+            if ($album === null) {
+                $album = $this->searchCandidate(
+                    $this->client->search(
+                        'release-group',
+                        'releasegroup:'.$this->client->terms($lookup->title)
+                        .' AND artist:'.$this->client->phrase($lookup->artistName),
+                    )['release-groups'] ?? [],
+                    $lookup->title,
+                    'title',
+                );
+            }
             if (is_array($album) && ! $this->artistMatches($album, $lookup->artistName)) {
                 return null;
             }

@@ -12,6 +12,8 @@ use App\Models\MediaFile;
 use App\Models\Track;
 use App\Models\TrackPlayEvent;
 use App\Music\LastFm\LastFmApiClient;
+use App\Music\PlaybackStatistics\PlaybackStatisticsFileSynchronizer;
+use App\Music\Streaming\TrackStreamActivity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -193,6 +195,33 @@ class TrackPlayStatisticsApiTest extends TestCase
             'sessionKey' => 'synchronized-play',
         ])->assertOk()->assertJsonPath('duplicate', true);
         Queue::assertNothingPushed();
+    }
+
+    public function test_file_synchronization_is_deferred_while_the_track_is_being_streamed(): void
+    {
+        Queue::fake();
+        $this->freezeTime();
+        config([
+            'cache.default' => 'array',
+            'sonotheque.audio_stream_activity_grace_seconds' => 300,
+        ]);
+        ApplicationSetting::current()->update([
+            'import_play_statistics_from_tags' => true,
+            'export_play_statistics_to_tags' => true,
+        ]);
+        $track = $this->createTrack(durationMs: 120_000);
+        $activity = app(TrackStreamActivity::class);
+        $activity->touch($track->id);
+        $synchronizer = $this->mock(PlaybackStatisticsFileSynchronizer::class);
+        $synchronizer->shouldNotReceive('synchronize');
+
+        (new SynchronizeTrackPlaybackStatistics($track->id))->handle($synchronizer, $activity);
+
+        Queue::assertPushed(
+            SynchronizeTrackPlaybackStatistics::class,
+            fn ($job): bool => $job->trackId === $track->id
+                && $job->delay?->equalTo(now()->addSeconds(301)) === true,
+        );
     }
 
     public function test_it_does_not_queue_file_synchronization_when_disabled(): void

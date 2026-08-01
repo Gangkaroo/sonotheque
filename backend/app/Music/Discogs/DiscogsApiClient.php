@@ -267,7 +267,143 @@ class DiscogsApiClient
             ),
             'thumbnailUrl' => $this->images->register(is_array($image) ? $image['uri150'] : null),
             'webUrl' => $this->releaseWebUrl($payload['uri'] ?? null, (int) $payload['id']),
+            'musicianCredits' => $this->musicianCredits($payload),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<array<string, mixed>>
+     */
+    private function musicianCredits(array $payload): array
+    {
+        $releaseId = (int) $payload['id'];
+        $credits = [];
+
+        foreach ($this->arrays($payload['extraartists'] ?? null) as $artist) {
+            $positions = $this->creditPositions($artist['tracks'] ?? null);
+            if ($positions === []) {
+                $this->appendMusicianCredit($credits, $artist, $releaseId, null, null);
+
+                continue;
+            }
+
+            foreach ($positions as $position) {
+                $this->appendMusicianCredit($credits, $artist, $releaseId, $position, null);
+            }
+        }
+
+        foreach ($this->trackEntries($payload['tracklist'] ?? null) as $track) {
+            $position = $this->text($track['position'] ?? null);
+            $title = $this->text($track['title'] ?? null);
+            foreach ($this->arrays($track['extraartists'] ?? null) as $artist) {
+                $this->appendMusicianCredit($credits, $artist, $releaseId, $position, $title);
+            }
+        }
+
+        return array_values($credits);
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $credits
+     * @param  array<string, mixed>  $artist
+     */
+    private function appendMusicianCredit(
+        array &$credits,
+        array $artist,
+        int $releaseId,
+        ?string $trackPosition,
+        ?string $trackTitle,
+    ): void {
+        $name = $this->text($artist['name'] ?? null, 255);
+        if ($name === null) {
+            return;
+        }
+
+        $providerReference = is_numeric($artist['id'] ?? null) && (int) $artist['id'] > 0
+            ? (string) (int) $artist['id']
+            : 'release-'.$releaseId.'-'.hash('sha256', mb_strtolower($name));
+        $role = $this->text($artist['role'] ?? null, 255) ?? 'performer';
+        $sourceReference = 'release:'.$releaseId;
+        if ($trackPosition !== null) {
+            $sourceReference .= ':track:'.$trackPosition;
+        }
+        $lowerRole = mb_strtolower($role);
+        $credit = [
+            'providerReference' => $providerReference,
+            'name' => $name,
+            'sortName' => null,
+            'entityType' => 'person',
+            'trackPosition' => $trackPosition,
+            'trackTitle' => $trackTitle,
+            'sourceEntityType' => $trackPosition === null ? 'release' : 'recording',
+            'sourceEntityReference' => mb_substr($sourceReference, 0, 128),
+            'relationshipType' => 'extraartist',
+            'role' => $role,
+            'creditedAs' => $this->text($artist['anv'] ?? null, 255),
+            'attributes' => [$role],
+            'guest' => str_contains($lowerRole, 'guest'),
+            'additional' => str_contains($lowerRole, 'additional'),
+        ];
+        $key = hash('sha256', implode('|', [
+            $providerReference,
+            $trackPosition ?? 'album',
+            $role,
+            $credit['creditedAs'] ?? '',
+        ]));
+        $credits[$key] = $credit;
+    }
+
+    /** @return list<string> */
+    private function creditPositions(mixed $value): array
+    {
+        $tracks = $this->text($value);
+        if ($tracks === null || preg_match('/\b(?:to|through)\b|\s-\s/i', $tracks) === 1) {
+            return [];
+        }
+
+        return collect(preg_split('/[,;\s]+/', $tracks) ?: [])
+            ->map(fn (string $position): string => trim($position))
+            ->filter(fn (string $position): bool => $position !== '' && mb_strlen($position) <= 24)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function trackEntries(mixed $tracklist): array
+    {
+        $tracks = [];
+        foreach ($this->arrays($tracklist) as $track) {
+            if ($this->text($track['position'] ?? null) !== null) {
+                $tracks[] = $track;
+            }
+            $tracks = [...$tracks, ...$this->trackEntries($track['sub_tracks'] ?? null)];
+        }
+
+        return $tracks;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function arrays(mixed $values): array
+    {
+        return is_array($values)
+            ? array_values(array_filter($values, 'is_array'))
+            : [];
+    }
+
+    private function text(mixed $value, ?int $maximumLength = null): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $text = trim((string) $value);
+        if ($text === '') {
+            return null;
+        }
+
+        return $maximumLength === null ? $text : mb_substr($text, 0, $maximumLength);
     }
 
     private function releaseWebUrl(mixed $uri, int $releaseId): string

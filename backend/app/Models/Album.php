@@ -148,6 +148,36 @@ class Album extends Model
         return $this->hasMany(OwnedAlbumCopy::class)->orderBy('id');
     }
 
+    /** @return HasOne<AlbumMusicianEnrichment, $this> */
+    public function musicianEnrichment(): HasOne
+    {
+        return $this->hasOne(AlbumMusicianEnrichment::class);
+    }
+
+    /** @return HasMany<AlbumMusicianCredit, $this> */
+    public function musicianCredits(): HasMany
+    {
+        return $this->hasMany(AlbumMusicianCredit::class);
+    }
+
+    /** @return HasMany<ManualAlbumMusicianCredit, $this> */
+    public function manualMusicianCredits(): HasMany
+    {
+        return $this->hasMany(ManualAlbumMusicianCredit::class);
+    }
+
+    /** @return HasMany<AlbumMusicianCreditSuppression, $this> */
+    public function musicianCreditSuppressions(): HasMany
+    {
+        return $this->hasMany(AlbumMusicianCreditSuppression::class);
+    }
+
+    /** @return HasOne<AlbumDiscogsMusicianSource, $this> */
+    public function discogsMusicianSource(): HasOne
+    {
+        return $this->hasOne(AlbumDiscogsMusicianSource::class);
+    }
+
     protected function casts(): array
     {
         return [

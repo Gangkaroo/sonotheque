@@ -186,6 +186,41 @@ class OnlineEnrichmentProvidersTest extends TestCase
         $this->assertSame(100, $artist?->matchConfidence);
     }
 
+    public function test_musicbrainz_retries_album_search_with_terms_for_punctuation_variants(): void
+    {
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        Http::fakeSequence()
+            ->push(['release-groups' => []])
+            ->push(['release-groups' => [[
+                'id' => 'd8ae7015-d78b-307e-bcde-5b0dd1e61528',
+                'title' => 'Metropolis, Pt. 2: Scenes From a Memory',
+                'artist-credit' => [['name' => 'Dream Theater']],
+                'score' => 100,
+                'first-release-date' => '1999-10-26',
+                'primary-type' => 'Album',
+            ], [
+                'id' => 'ed4ae3fc-fffb-3eff-9aa3-88a7089ffff7',
+                'title' => 'Scenes From a Memory',
+                'artist-credit' => [['name' => 'Dream Theater']],
+                'score' => 41,
+            ]]]);
+
+        $album = app(MusicBrainzInformationProvider::class)->fetchAlbum(new AlbumLookup(
+            2,
+            'Metropolis Pt. 2 - Scenes From A Memory',
+            'Dream Theater',
+        ));
+
+        $this->assertSame('Metropolis, Pt. 2: Scenes From a Memory', $album?->title);
+        $this->assertSame(100, $album?->matchConfidence);
+        $this->assertSame('1999-10-26', $album?->releaseDate);
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request): bool => str_contains(
+            (string) $request['query'],
+            'releasegroup:(Metropolis Pt 2 Scenes From A Memory)',
+        ));
+    }
+
     public function test_musicbrainz_rejects_ambiguous_search_results(): void
     {
         config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);

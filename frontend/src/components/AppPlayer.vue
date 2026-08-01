@@ -551,7 +551,20 @@ function onLoading(event: Event) {
   }
 
   suspendListenedPlayback(audio.value?.currentTime)
-  if (player.isPlaying) player.setPlaybackState('loading')
+  if (player.isPlaying) {
+    if (audio.value) player.setPlaybackPosition(audio.value.currentTime)
+    player.setPlaybackState('loading')
+    if (
+      (event.type === 'waiting' || event.type === 'stalled')
+      && currentPlayKey.value
+    ) {
+      if (playbackHandoffTimeoutTimer) {
+        schedulePlaybackHandoffRetry(currentPlayKey.value)
+      } else {
+        schedulePlaybackHandoff(currentPlayKey.value)
+      }
+    }
+  }
 }
 
 function onPause(event?: Event) {
@@ -695,6 +708,7 @@ function maybeRecordCountedPlay() {
 
     player.markCurrentPlayCounted(sessionKey)
     catalog.updateTrackPlayStatistics(trackId, result.statistics)
+    playlists.updateTrackPlayStatistics(trackId, result.statistics)
     statistics.markHistoryStale()
   }).catch(() => {
     if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
@@ -788,14 +802,21 @@ function schedulePlaybackHandoff(playKey: string) {
     || player.playbackState !== 'loading'
   ) return
 
-  playbackHandoffRetryTimer = window.setTimeout(() => {
-    playbackHandoffRetryTimer = null
-    recoverPlaybackHandoff(playKey)
-  }, PLAYBACK_HANDOFF_RETRY_MS)
+  schedulePlaybackHandoffRetry(playKey)
   playbackHandoffTimeoutTimer = window.setTimeout(() => {
     playbackHandoffTimeoutTimer = null
     failStalledPlaybackHandoff(playKey)
   }, PLAYBACK_HANDOFF_TIMEOUT_MS)
+}
+
+function schedulePlaybackHandoffRetry(playKey: string) {
+  if (playbackHandoffRetryTimer) {
+    window.clearTimeout(playbackHandoffRetryTimer)
+  }
+  playbackHandoffRetryTimer = window.setTimeout(() => {
+    playbackHandoffRetryTimer = null
+    recoverPlaybackHandoff(playKey)
+  }, PLAYBACK_HANDOFF_RETRY_MS)
 }
 
 function recoverPlaybackHandoff(playKey: string) {
@@ -814,6 +835,8 @@ function recoverPlaybackHandoff(playKey: string) {
     restoredTrackId.value = null
     isRestoringPosition.value = player.playbackPosition > 0
     element.load()
+  } else {
+    schedulePlaybackHandoffRetry(playKey)
   }
 }
 
@@ -822,7 +845,7 @@ function failStalledPlaybackHandoff(playKey: string) {
   if (!isPendingPlaybackHandoff(playKey, element)) return
 
   clearPlaybackHandoffTimers()
-  if (!element.paused) {
+  if (playbackHandoffAction(element) === 'playing') {
     player.setPlaybackState('playing')
     return
   }

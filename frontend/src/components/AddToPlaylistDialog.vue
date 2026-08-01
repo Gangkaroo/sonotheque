@@ -150,11 +150,14 @@ watch(dialogOpen, async (open) => {
           </v-btn>
         </template>
         <template v-else>
-          <v-select
+          <v-autocomplete
             v-model="selectedPlaylistId"
+            auto-select-first
+            clearable
             :disabled="playlists.saving || submitting"
             :items="playlistOptions"
             :label="t('playlists.selectPlaylist')"
+            :no-data-text="t('playlists.noMatchingPlaylists')"
             variant="outlined"
           />
           <v-btn prepend-icon="mdi-plus" variant="tonal" @click="showCreatePlaylist">

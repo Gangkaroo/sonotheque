@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Album;
 use App\Models\Track;
+use App\Music\Enrichment\AlbumMusicianCreditManager;
 use App\Music\Enrichment\ArtistImageCache;
 use App\Music\Enrichment\OnlineEnrichmentManager;
 use Illuminate\Http\JsonResponse;
@@ -55,5 +57,24 @@ class OnlineEnrichmentController extends Controller
         }
 
         return response()->json($result);
+    }
+
+    public function albumMusicians(
+        Album $album,
+        AlbumMusicianCreditManager $musicians,
+    ): JsonResponse {
+        return response()->json($musicians->forAlbum($album));
+    }
+
+    public function resolveAlbumMusicians(
+        Request $request,
+        Album $album,
+        AlbumMusicianCreditManager $musicians,
+    ): JsonResponse {
+        $validated = $request->validate([
+            'releaseId' => ['required', 'uuid'],
+        ]);
+
+        return response()->json($musicians->resolveRelease($album, $validated['releaseId']));
     }
 }

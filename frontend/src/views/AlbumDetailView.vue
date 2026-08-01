@@ -942,7 +942,12 @@ onUnmounted(() => {
     </v-list>
     <EmptyCatalogState v-else :title="t('albums.noTracksTitle')" :description="t('catalog.scanPrompt')" icon="mdi-music-note-outline" />
 
-    <AlbumOnlineInformation v-if="tracks[0]" class="mt-8" :track-id="tracks[0].id" />
+    <AlbumOnlineInformation
+      v-if="tracks[0]"
+      :album-id="albumId"
+      class="mt-8"
+      :track-id="tracks[0].id"
+    />
   </template>
 
   <v-dialog v-model="artworkDialog" class="album-artwork-dialog" max-width="none">

@@ -62,6 +62,25 @@ describe('playlists store', () => {
     expect(store.membershipsForTrack(2)).toEqual([])
   })
 
+  it('loads memberships in bounded batches for large playlists', async () => {
+    const batchSizes: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const parsedUrl = new URL(url, 'http://sonotheque.local')
+      const trackIds = parsedUrl.searchParams.getAll('trackIds[]')
+      batchSizes.push(trackIds.length)
+
+      return jsonResponse({
+        items: trackIds.map((trackId) => ({ trackId: Number(trackId), playlists: [] })),
+      })
+    }))
+
+    const store = usePlaylistsStore()
+    await store.loadMemberships(Array.from({ length: 501 }, (_, index) => index + 1))
+
+    expect(batchSizes).toEqual([200, 200, 101])
+    expect(store.membershipsForTrack(501)).toEqual([])
+  })
+
   it('orders playlists by folder and then name with unfiled playlists last', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url === '/api/playlist-folders') return jsonResponse({ items: [] })
@@ -322,6 +341,28 @@ describe('playlists store', () => {
 
     expect(store.current?.items.map((item) => item.id)).toEqual([101, 100])
   })
+
+  it('updates play statistics for every occurrence of a track in the open playlist', () => {
+    const store = usePlaylistsStore()
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 3,
+      items: [
+        { id: 100, position: 0, track: trackResponse(1) },
+        { id: 101, position: 1, track: trackResponse(2) },
+        { id: 102, position: 2, track: trackResponse(1) },
+      ],
+    }
+
+    store.updateTrackPlayStatistics(1, {
+      playCount: 4,
+      firstPlayedAt: '2026-07-01T12:00:00Z',
+      lastPlayedAt: '2026-08-01T12:00:00Z',
+    })
+
+    expect(store.current.items.map((item) => item.track.playStatistics.playCount)).toEqual([4, 0, 4])
+  })
 })
 
 function jsonResponse(body: unknown, status = 200) {
@@ -339,5 +380,10 @@ function trackResponse(id: number) {
     streamUrl: `/api/tracks/${id}/stream`,
     album: null,
     artists: [],
+    playStatistics: {
+      playCount: 0,
+      firstPlayedAt: null,
+      lastPlayedAt: null,
+    },
   }
 }

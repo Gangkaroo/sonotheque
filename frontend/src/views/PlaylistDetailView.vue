@@ -3,18 +3,20 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
+import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PlaylistFileExportDialog from '@/components/PlaylistFileExportDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import type { Track } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import type { PlaylistItem } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 import type { PlaylistFileExportResult } from '@/types/playlistExport'
-import { formatDuration as duration, formatTotalDuration } from '@/utils/formatters'
+import { formatDateTime, formatDuration as duration, formatTotalDuration } from '@/utils/formatters'
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const route = useRoute()
 const playlists = usePlaylistsStore()
 const player = usePlayerStore()
@@ -34,6 +36,43 @@ const playlistPlayingTime = computed(() => {
 
   return total > 0 ? formatTotalDuration(total) : null
 })
+const distinctTracks = computed(() => [...new Map(
+  tracks.value.map((track) => [track.id, track]),
+).values()])
+const playlistPlaybackStats = computed(() => {
+  const totalTrackPlays = distinctTracks.value.reduce(
+    (total, track) => total + track.playStatistics.playCount,
+    0,
+  )
+  if (!totalTrackPlays) return []
+
+  const playedTracks = distinctTracks.value.filter((track) => track.playStatistics.playCount > 0).length
+  const lastPlayedAt = distinctTracks.value
+    .map((track) => track.playStatistics.lastPlayedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null
+
+  return [
+    {
+      key: 'totalTrackPlays',
+      label: t('playlists.totalTrackPlays'),
+      value: t('tracks.playCountTooltip', { count: totalTrackPlays }),
+      icon: 'mdi-headphones-box',
+    },
+    {
+      key: 'playedTracks',
+      label: t('playlists.playedTracks'),
+      value: t('playlists.playedTracksCount', { played: playedTracks, total: distinctTracks.value.length }),
+      icon: 'mdi-music-note-outline',
+    },
+    {
+      key: 'lastPlayedAt',
+      label: t('tracks.lastPlayedAt'),
+      value: formatDate(lastPlayedAt),
+      icon: 'mdi-calendar-clock',
+    },
+  ]
+})
 const selectionMode = ref(false)
 const selectedItemIds = ref<number[]>([])
 const draggedItemId = ref<number | null>(null)
@@ -44,10 +83,24 @@ const itemToRemove = ref<PlaylistItem | null>(null)
 const exportDialog = ref(false)
 const exportMessage = ref('')
 const exportMessageVisible = ref(false)
+const addToPlaylistDialog = ref(false)
+const playlistTracks = ref<Track[]>([])
 const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [])
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
 const canReorder = computed(() => libraryRootScope.selectedRootId === null)
+
+function formatDate(value?: string | null) {
+  return formatDateTime(value, locale.value)
+}
+
+function playCountTooltip(track: Track) {
+  return [
+    t('tracks.playCountTooltip', { count: track.playStatistics.playCount }),
+    t('tracks.firstPlayedAtTooltip', { value: formatDate(track.playStatistics.firstPlayedAt) }),
+    t('tracks.lastPlayedAtTooltip', { value: formatDate(track.playStatistics.lastPlayedAt) }),
+  ]
+}
 
 function playPlaylist() {
   const [firstTrack] = playableTracks.value
@@ -58,6 +111,11 @@ function playPlaylist() {
 
 function queuePlaylist() {
   player.queueTracks(playableTracks.value, 'track-list')
+}
+
+function openAddToPlaylist(track: Track) {
+  playlistTracks.value = [track]
+  addToPlaylistDialog.value = true
 }
 
 function handlePlaylistExported(result: PlaylistFileExportResult) {
@@ -212,6 +270,14 @@ watch(itemIds, (ids) => {
   selectedItemIds.value = selectedItemIds.value.filter((id) => ids.includes(id))
 })
 
+watch(
+  () => distinctTracks.value.map((track) => track.id),
+  (trackIds) => {
+    if (trackIds.length) void playlists.loadMemberships(trackIds)
+  },
+  { immediate: true },
+)
+
 watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
   if (itemId === null) return
 
@@ -247,8 +313,22 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
           {{ playlist.folder?.name ?? t('playlists.noFolder') }} · {{ t('playlists.trackCount', { count: playlist.trackCount }) }}<span v-if="playlistPlayingTime"> · {{ t('catalog.playingTime', { duration: playlistPlayingTime }) }}</span>
         </v-card-subtitle>
       </v-card-item>
-      <v-card-text v-if="playlist.description" class="text-medium-emphasis">
-        {{ playlist.description }}
+      <v-card-text v-if="playlist.description || playlistPlaybackStats.length">
+        <p v-if="playlist.description" class="text-medium-emphasis mb-0">{{ playlist.description }}</p>
+        <div
+          v-if="playlistPlaybackStats.length"
+          class="playlist-stat-grid"
+          :class="{ 'mt-4': playlist.description }"
+          :title="t('playlists.playStatisticsHint')"
+        >
+          <div v-for="stat in playlistPlaybackStats" :key="stat.key" class="playlist-stat-tile">
+            <v-icon color="primary" :icon="stat.icon" size="small" />
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ stat.label }}</div>
+              <div class="text-body-2 font-weight-medium">{{ stat.value }}</div>
+            </div>
+          </div>
+        </div>
       </v-card-text>
       <v-card-actions>
         <v-btn color="primary" variant="flat" prepend-icon="mdi-play" :disabled="!tracks.length" @click="playPlaylist">
@@ -427,6 +507,17 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
                 {{ t('playlists.unavailable') }}
               </v-chip>
               <span class="text-caption text-medium-emphasis">{{ duration(item.track.durationMs) }}</span>
+              <v-tooltip location="top">
+                <template #activator="{ props }">
+                  <span v-bind="props" class="play-count text-caption text-medium-emphasis">
+                    <v-icon class="play-count-icon" icon="mdi-headphones" size="x-small" />
+                    {{ item.track.playStatistics.playCount }}
+                  </span>
+                </template>
+                <div class="play-count-tooltip">
+                  <div v-for="(line, lineIndex) in playCountTooltip(item.track)" :key="lineIndex">{{ line }}</div>
+                </div>
+              </v-tooltip>
               <TooltipIconButton
                 :text="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                 :aria-label="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
@@ -443,6 +534,11 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
                 icon="mdi-playlist-plus"
                 variant="text"
                 @click="player.queueTrack(item.track, 'track-list')"
+              />
+              <TrackPlaylistMembershipMenu
+                icon-only
+                :track-id="item.track.id"
+                @add-to-playlist="openAddToPlaylist(item.track)"
               />
               <TooltipIconButton
                 :text="t('playlists.removeTrack')"
@@ -511,6 +607,8 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
     @saved="handlePlaylistExported"
   />
 
+  <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
+
   <v-snackbar v-model="exportMessageVisible" color="success" timeout="3000">
     {{ exportMessage }}
   </v-snackbar>
@@ -532,6 +630,22 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
 .playlist-item {
   cursor: grab;
   position: relative;
+}
+
+.playlist-stat-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+
+.playlist-stat-tile {
+  align-items: center;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 14px;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
 }
 
 .playlist-item:active {
@@ -623,6 +737,23 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
   justify-content: flex-end;
 }
 
+.play-count {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.play-count-icon {
+  align-self: center;
+  transform: translateY(1px);
+}
+
+.play-count-tooltip {
+  line-height: 1.5;
+}
+
 .playlist-track-link {
   color: inherit;
   text-decoration: none;
@@ -630,5 +761,11 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
 
 .playlist-track-link:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .play-count {
+    display: none;
+  }
 }
 </style>
