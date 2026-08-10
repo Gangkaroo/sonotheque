@@ -798,6 +798,75 @@ async function toggleMatchFeedback(
 
         <v-divider class="my-6" />
 
+        <section>
+          <div class="d-flex flex-wrap align-start justify-space-between ga-4">
+            <div class="audio-method-copy">
+              <div class="text-subtitle-1 font-weight-bold">
+                {{ t('settings.audioAnalyzerMethod') }}
+              </div>
+              <div class="text-body-2 text-medium-emphasis">
+                {{ t('settings.audioAnalyzerMethodDescription') }}
+              </div>
+            </div>
+            <v-btn-toggle
+              color="primary"
+              density="comfortable"
+              divided
+              mandatory
+              :disabled="acceleratorChangeDisabled"
+              :model-value="audioIntelligence.settings.analyzerSelection.selected"
+              variant="outlined"
+              @update:model-value="setAccelerator"
+            >
+              <v-btn prepend-icon="mdi-cpu-64-bit" value="cpu">
+                {{ t('settings.audioBenchmarkCpu') }}
+              </v-btn>
+              <v-btn prepend-icon="mdi-expansion-card-variant" value="cuda">
+                {{ t('settings.audioBenchmarkCuda') }}
+              </v-btn>
+            </v-btn-toggle>
+          </div>
+          <div class="d-flex flex-wrap ga-2 mt-3">
+            <v-chip
+              v-for="accelerator in ACCELERATORS"
+              :key="accelerator"
+              :color="acceleratorStatusColor(accelerator)"
+              size="small"
+              variant="tonal"
+            >
+              {{ t('settings.audioAnalyzerMethodStatus', {
+                method: benchmarkMethod(accelerator),
+                status: t(`settings.audioAnalyzerMethodStatuses.${acceleratorStatus(accelerator)}`),
+              }) }}
+            </v-chip>
+            <v-chip
+              v-if="audioIntelligence.settings.analyzerSelection.recommended"
+              color="primary"
+              prepend-icon="mdi-speedometer"
+              size="small"
+              variant="tonal"
+            >
+              {{ t('settings.audioAnalyzerMethodRecommended', {
+                method: benchmarkMethod(audioIntelligence.settings.analyzerSelection.recommended),
+              }) }}
+            </v-chip>
+          </div>
+          <v-alert
+            v-if="acceleratorStatus(audioIntelligence.settings.analyzerSelection.selected)
+              === 'unavailable'"
+            class="mt-3"
+            icon="mdi-alert-outline"
+            :text="t('settings.audioAnalyzerMethodUnavailable')"
+            type="warning"
+            variant="tonal"
+          />
+          <div class="text-caption text-medium-emphasis mt-3">
+            {{ t('settings.audioAnalyzerMethodApplicationHint') }}
+          </div>
+        </section>
+
+        <v-divider class="my-6" />
+
         <v-expansion-panels variant="accordion">
           <v-expansion-panel>
             <v-expansion-panel-title>
@@ -811,73 +880,6 @@ async function toggleMatchFeedback(
               </div>
             </v-expansion-panel-title>
             <v-expansion-panel-text>
-        <div class="d-flex flex-wrap align-start justify-space-between ga-4">
-          <div class="audio-method-copy">
-            <div class="text-subtitle-1 font-weight-bold">
-              {{ t('settings.audioAnalyzerMethod') }}
-            </div>
-            <div class="text-body-2 text-medium-emphasis">
-              {{ t('settings.audioAnalyzerMethodDescription') }}
-            </div>
-          </div>
-          <v-btn-toggle
-            color="primary"
-            density="comfortable"
-            divided
-            mandatory
-            :disabled="acceleratorChangeDisabled"
-            :model-value="audioIntelligence.settings.analyzerSelection.selected"
-            variant="outlined"
-            @update:model-value="setAccelerator"
-          >
-            <v-btn prepend-icon="mdi-cpu-64-bit" value="cpu">
-              {{ t('settings.audioBenchmarkCpu') }}
-            </v-btn>
-            <v-btn prepend-icon="mdi-expansion-card-variant" value="cuda">
-              {{ t('settings.audioBenchmarkCuda') }}
-            </v-btn>
-          </v-btn-toggle>
-        </div>
-        <div class="d-flex flex-wrap ga-2 mt-3">
-          <v-chip
-            v-for="accelerator in ACCELERATORS"
-            :key="accelerator"
-            :color="acceleratorStatusColor(accelerator)"
-            size="small"
-            variant="tonal"
-          >
-            {{ t('settings.audioAnalyzerMethodStatus', {
-              method: benchmarkMethod(accelerator),
-              status: t(`settings.audioAnalyzerMethodStatuses.${acceleratorStatus(accelerator)}`),
-            }) }}
-          </v-chip>
-          <v-chip
-            v-if="audioIntelligence.settings.analyzerSelection.recommended"
-            color="primary"
-            prepend-icon="mdi-speedometer"
-            size="small"
-            variant="tonal"
-          >
-            {{ t('settings.audioAnalyzerMethodRecommended', {
-              method: benchmarkMethod(audioIntelligence.settings.analyzerSelection.recommended),
-            }) }}
-          </v-chip>
-        </div>
-        <v-alert
-          v-if="acceleratorStatus(audioIntelligence.settings.analyzerSelection.selected)
-            === 'unavailable'"
-          class="mt-3"
-          icon="mdi-alert-outline"
-          :text="t('settings.audioAnalyzerMethodUnavailable')"
-          type="warning"
-          variant="tonal"
-        />
-        <div class="text-caption text-medium-emphasis mt-3">
-          {{ t('settings.audioAnalyzerMethodApplicationHint') }}
-        </div>
-
-        <v-divider class="my-6" />
-
         <div class="d-flex flex-wrap align-start justify-space-between ga-4">
           <div>
             <div class="text-subtitle-1 font-weight-bold">{{ t('settings.audioAnalyzer') }}</div>
@@ -1259,36 +1261,28 @@ async function toggleMatchFeedback(
           class="mt-5"
           :run="validationRun"
         />
-            </v-expansion-panel-text>
-          </v-expansion-panel>
-        </v-expansion-panels>
 
         <v-divider class="my-6" />
 
-        <v-expansion-panels variant="accordion">
-          <v-expansion-panel>
-            <v-expansion-panel-title>
-              <div class="audio-expansion-title">
-                <div>
-                  <div class="text-subtitle-1 font-weight-bold">
-                    {{ t('settings.audioSimilarityEvaluation') }}
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    {{ t('settings.audioSimilarityEvaluationDescription') }}
-                  </div>
-                </div>
-                <v-chip
-                  prepend-icon="mdi-music-box-multiple-outline"
-                  size="small"
-                  variant="tonal"
-                >
-                  {{ t('settings.audioSimilarityAnalyzedTracks', {
-                    count: audioIntelligence.evaluation.analyzedTrackCount,
-                  }) }}
-                </v-chip>
-              </div>
-            </v-expansion-panel-title>
-            <v-expansion-panel-text>
+        <div class="audio-expansion-title mb-5">
+          <div>
+            <div class="text-subtitle-1 font-weight-bold">
+              {{ t('settings.audioSimilarityEvaluation') }}
+            </div>
+            <div class="text-body-2 text-medium-emphasis">
+              {{ t('settings.audioSimilarityEvaluationDescription') }}
+            </div>
+          </div>
+          <v-chip
+            prepend-icon="mdi-music-box-multiple-outline"
+            size="small"
+            variant="tonal"
+          >
+            {{ t('settings.audioSimilarityAnalyzedTracks', {
+              count: audioIntelligence.evaluation.analyzedTrackCount,
+            }) }}
+          </v-chip>
+        </div>
 
         <v-alert
           v-if="audioIntelligence.evaluationError"

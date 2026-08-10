@@ -556,12 +556,11 @@ be opt-in and inspectable.
 
 The ordinary Audio intelligence settings should expose only controls that help
 the listener: independent enablement, collection coverage, current analysis
-progress, pause/resume, conservative resource limits, and recommendation
-preferences such as tempo/key/energy influence, artist diversity, duplicate
-handling, and library-root scope. If matches are poor, the user should be able
-to rate them and see subsequent recommendations change through the local
-reranker. Until that reranker exists, relevant/not-relevant ratings are quality
-evaluation data only and must not be described as training or personalization.
+progress, pause/resume, the CPU/CUDA execution choice, and recommendation
+preferences such as tempo/key/energy influence and library-root scope. If
+matches are poor, the user can rate them and train a small, reversible local
+reranker. The base embedding remains unchanged, and implicit behavioral signals
+remain deferred until they have been evaluated separately.
 
 Analyzer health, model identity and license, validation samples, bounded pool
 expansion, feature distributions, and baseline-quality measurements are
@@ -741,10 +740,9 @@ Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
-- Completion of any remaining root-scoped audio analysis, explicit-feedback
-  personalization, similarity-based playlist ordering, and final separation of
-  listener controls from advanced diagnostics
 - Remaining audio-analyzer zero-overhead and failure-path coverage
+- Optional measured playlist-order refinements such as inspectable transition
+  penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
 - Local collection assistant over guarded Sonotheque tools
 - Optional remote access with trusted-browser enrollment, explicit local
@@ -1387,12 +1385,10 @@ Last.fm integration.
   applies to future work, and never falls back silently.)
 - Split listener-facing controls from experimental diagnostics. The normal view
   should show enablement, coverage, collection-run progress, pause/resume,
-  resource limits, and actionable recommendation preferences. Analyzer details,
-  validation runs, pool expansion, distributions, and baseline evaluation
-  should remain collapsed under Advanced diagnostics and need not be used by a
-  normal listener. (UI separation is partial: collection analysis and validation
-  state are distinct, but the advanced section still needs its final
-  listener-versus-diagnostics simplification.)
+  the execution method, and actionable recommendation preferences. Analyzer
+  details, benchmarks, validation runs, pool expansion, distributions, and
+  baseline evaluation should remain collapsed under Advanced diagnostics and
+  need not be used by a normal listener. (Complete)
 - Verify that a default installation performs no model downloads, starts no AI
   services, schedules no analysis jobs, and has no additional steady-state CPU,
   GPU, or memory usage. (Pending)
@@ -1528,10 +1524,11 @@ and automatic indexing of new artifacts. Existing files were not analyzed
 again. Warm similarity requests over 33,164 vectors complete in well under one
 second on the development machine instead of failing after 30 seconds.
 
-The Advanced diagnostics section now includes an explicit persisted CPU/CUDA
-method selector. It preserves the installation's previous environment choice on
-upgrade, shows benchmark-derived availability and recommendation state, applies
-to newly started or resumed analysis jobs, and never falls back silently.
+The standard Audio intelligence workflow includes an explicit persisted
+CPU/CUDA method selector. It preserves the installation's previous environment
+choice on upgrade, shows benchmark-derived availability and recommendation
+state, applies to newly started or resumed analysis jobs, and never falls back
+silently. The benchmark itself remains in Advanced diagnostics.
 
 Optional feature reranking is now implemented and remains disabled by default.
 It expands only a bounded nearest-neighbour pool, applies configurable maximum
@@ -1544,20 +1541,21 @@ visible influence, and can be enabled, re-trained, disabled, or reset without
 changing embeddings. Behavioral signals remain out of scope until separately
 evaluated.
 
-The playlist roadmap now also includes audio-similarity ordering from a
-user-selected opening track. Its first implementation should use deterministic
-nearest-neighbour construction followed by 2-opt/relocation, with a reviewable
-and reversible preview. Seeded simulated annealing is reserved for a measured
-optional thorough mode rather than being required for the initial workflow.
+Audio-similarity playlist ordering from a user-selected opening track is now
+implemented with deterministic nearest-neighbour construction followed by
+bounded 2-opt refinement. The preview is reviewable and reversible, supports
+applying the order or saving it as a new playlist, and retains unanalyzed tracks
+in their relative order at the end. Seeded simulated annealing remains reserved
+for a measured optional Thorough mode rather than being part of the baseline.
 
-Once that workflow is useful, simplify the standard settings surface to
-enablement, collection coverage/progress, resource limits, and recommendation
-preferences. Keep analyzer setup, validation samples, distributions, and model
-diagnostics in a collapsed Advanced diagnostics area. GPU acceleration remains
-an optional independent optimization. The packaged CUDA adapter, persistent
-networkless service, CPU-preparation pipeline, and benchmark are complete; they
-preserve artifact identity and do not force completed audio to be analyzed
-again.
+The standard settings surface is now limited to enablement, collection
+coverage/progress, the execution method, refinement, and personalization.
+Analyzer health and model details, benchmarks, validation/pool tools,
+distributions, and similarity evaluation share one collapsed Advanced
+diagnostics area. GPU acceleration remains an optional independent optimization.
+The packaged CUDA adapter, persistent networkless service, CPU-preparation
+pipeline, and benchmark are complete; they preserve artifact identity and do
+not force completed audio to be analyzed again.
 
 Playlist file import, export, and custom-playlist synchronization are complete.
 Imports accept simple and extended M3U/M3U8 files, resolve paths relative to the
