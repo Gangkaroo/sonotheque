@@ -203,11 +203,6 @@ class AudioIntelligenceSettingsController extends Controller
             $health->message ?? 'The audio analyzer is not ready.',
         );
         $profile = $this->profileRegistry->resolve($health->profile);
-        abort_if(
-            $this->runPlanner->analyzedTrackCount($profile) === 0,
-            409,
-            'Complete an initial validation run before analyzing the collection.',
-        );
 
         $libraryRoot = isset($validated['libraryRootId'])
             ? LibraryRoot::query()->findOrFail($validated['libraryRootId'])

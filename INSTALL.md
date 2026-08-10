@@ -81,6 +81,14 @@ Replace the address with a private IPv4 address assigned to this computer.
 The command prints the admin token and a narrow Windows Firewall command when
 one is needed. LAN mode is never enabled automatically.
 
+## Optional Audio Intelligence
+
+Audio Intelligence is disabled by default and requires a separately
+provisioned local analyzer and model. It is not part of the ordinary first-run
+workflow. Read [`docs/audio-intelligence.md`](docs/audio-intelligence.md) before
+enabling it, including the current development-runtime limitation and the
+model-license guidance.
+
 ## Troubleshooting
 
 - If Docker cannot be reached, start Docker Desktop and retry.

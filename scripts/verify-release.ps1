@@ -39,6 +39,7 @@ try {
         "${prefix}Sonotheque Status.cmd",
         "${prefix}Configure Sonotheque Folders.cmd",
         "${prefix}INSTALL.md",
+        "${prefix}docs/audio-intelligence.md",
         "${prefix}compose.packaged.yaml",
         "${prefix}backend/Dockerfile.packaged",
         "${prefix}frontend/Dockerfile.packaged",

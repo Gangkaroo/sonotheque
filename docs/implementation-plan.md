@@ -91,11 +91,11 @@ The implemented release baseline and active roadmap include:
   delivery log
 - Optional cached artist, album, identity, portrait, and lyrics enrichment
   through Last.fm, MusicBrainz, Wikidata, Wikimedia Commons, and LRCLIB
-- Disabled-by-default local audio analysis and semantic similarity
+- Disabled-by-default local audio analysis and musical similarity
   recommendations using versioned pretrained models, reusable background
   analysis, pgvector HNSW neighbour search, a persisted CPU/CUDA method
   selector, and optional transparent tempo/key/intensity refinement
-- Independently disabled-by-default local collection assistant that answers
+- Planned, independently disabled-by-default local collection assistant that answers
   questions and prepares searches or queue previews through validated,
   read-only Sonotheque tools
 - English and German translations
@@ -507,19 +507,19 @@ Neither feature may run on the playback, seeking, queue-progression, or ordinary
 scan critical path.
 
 Both features are disabled by default. A normal Sonotheque installation must not
-download models, install or enable pgvector, start AI workers, reserve GPU
-memory, run background analysis, or start an LLM runtime. Enabling audio
-analysis does not enable the collection assistant, and enabling the assistant
-does not implicitly start full-library audio analysis.
+download models, start analyzers, reserve GPU memory, run background analysis,
+or start an LLM runtime. The pgvector extension may be present in the standard
+PostgreSQL image, but it remains idle until analysis artifacts are indexed.
+Enabling audio analysis does not enable the collection assistant, and enabling
+the assistant must not implicitly start full-library audio analysis.
 
 The local audio-intelligence feature analyzes audio asynchronously and stores
-versioned results independently from scanned tags. A dedicated Python worker is
-preferred over embedding the machine-learning runtime in PHP. Candidate
-analyzers include Essentia for BPM, beat, key, loudness, energy, danceability,
-vocal/instrumental, and mood estimates, plus a pretrained music/audio-text
-embedding model such as CLAP for semantic and track-to-track similarity. The
-exact model remains replaceable and must be recorded with its version,
-dimensions, checksum, and license.
+versioned results independently from scanned tags. A dedicated Python worker
+keeps the machine-learning runtime outside PHP. The implemented analyzer uses
+Essentia for conventional features and the Discogs multi-similarity EffNet model
+for track-to-track embeddings. The model remains replaceable and is recorded
+with its version, dimensions, checksum, and license. Audio-to-text semantic
+search is not part of the current feature.
 
 Analysis is keyed by the existing tag-independent audio-content fingerprint.
 Renames, moves, and ID3/APEv2 edits therefore reuse results, while changed audio
@@ -571,11 +571,11 @@ Model downloads and all analysis remain local by default. A packaged optional
 AI profile must degrade cleanly when no supported GPU, sufficient memory, model,
 or pgvector extension is available.
 
-Disabling a feature stops its workers and scheduled jobs without deleting
-previously calculated results unless the user explicitly requests cleanup.
-Analysis should support configurable concurrency, CPU/GPU limits, idle-only
-operation, and automatic pausing during scans or when resource pressure would
-affect playback.
+Disabling Audio Intelligence requests a pause or cancellation for active work
+without deleting previously calculated results. CPU/GPU selection, resource
+limits, and bounded preparation concurrency are implemented. Idle-only
+scheduling and automatic resource-pressure pausing remain optional future
+optimizations rather than current behavior.
 
 ## Implementation Phases
 
@@ -738,8 +738,15 @@ Completed:
 
 Open roadmap work:
 
+- Packaged Audio Intelligence delivery that provisions the optional analyzer
+  images, reviewed model mount, and narrowly scoped Docker access without
+  weakening the packaged backend boundary
+- Disabled-by-default, root-scoped musician-credit backfill in Connections,
+  with provider rate limits, pause/resume, coverage, progress, and ETA
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
+- Optional playback-statistics conflict review and detailed unsupported-codec
+  guidance
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
@@ -1256,8 +1263,9 @@ Last.fm integration.
   completed work. (Complete)
 - Add an optional Python analysis worker that shares read-only access to mounted
   library roots and receives versioned jobs from Laravel. Keep the service
-  stopped and unprovisioned until the user opts in. (Initial CLI analysis worker
-  complete; packaged optional service remains pending.)
+  stopped and unprovisioned until the user opts in. (The development Docker
+  analyzer, isolated persistent service, and CPU/CUDA variants are complete;
+  packaged analyzer provisioning remains pending.)
 - Add an optional pgvector extension and separate model, feature, embedding,
   status, confidence, and error records keyed by track and audio-content
   fingerprint. (Versioned model and reusable content-addressed feature and
@@ -1507,10 +1515,16 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
 The filesystem-monitoring milestone is complete: watcher events now create
 durable multi-path delta runs, missing files retain their catalog and playlist
 identity as unavailable entries, and unambiguous audio fingerprints reconnect
-cross-root moves without depending on root processing order. The next practical
-step is observing these deltas on the real multi-root collection and using the
-activity/scan logs to tune only demonstrably noisy edge cases; periodic full
-reconciliation remains the bounded safety net.
+cross-root moves without depending on root processing order. Real-collection
+observation and periodic full reconciliation remain operational safeguards, not
+unfinished implementation milestones.
+
+The current Audio Intelligence milestone is also complete for the development
+runtime. Normal collection analysis no longer depends on the earlier validation
+stage; validation, bounded pool expansion, benchmarking, and structured review
+remain optional Advanced diagnostics. The next substantial product milestone is
+the disabled-by-default musician-credit backfill. Packaged delivery of the
+optional analyzer is the remaining distribution task for Audio Intelligence.
 
 The expanded similarity review produced predominantly useful matches and is
 accepted as the go decision for the unweighted embedding baseline. Sonotheque

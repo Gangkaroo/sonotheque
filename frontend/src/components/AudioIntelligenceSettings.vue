@@ -503,8 +503,6 @@ async function toggleMatchFeedback(
                     <v-btn
                       color="primary"
                       :disabled="!audioIntelligence.settings.enabled
-                        || audioIntelligence.settings.analyzerStatus !== 'ready'
-                        || analyzedTrackCount === 0
                         || audioIntelligence.settings.eligibleTrackCount === 0
                         || analysisRunBlocksNewWork"
                       :loading="audioIntelligence.preparingCollection"

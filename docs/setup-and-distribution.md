@@ -53,6 +53,13 @@ Packaged local mode is the default for non-developer users:
   local packaged mode. LAN mode disables that local-proxy shortcut and uses the
   admin-token boundary instead.
 
+The packaged `analysis` queue worker is shared application infrastructure and
+remains idle when Audio Intelligence is disabled. The current portable package
+does not yet provision the optional analyzer images, model mount, or restricted
+Docker access required to execute analysis. That delivery work is tracked
+separately; the completed development-runtime feature must not be presented as
+available in a portable release until this boundary is implemented and tested.
+
 The runtime for this mode is defined in:
 
 - `compose.packaged.yaml`

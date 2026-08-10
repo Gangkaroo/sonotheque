@@ -15,6 +15,9 @@
 - Add disabled-by-default local audio intelligence with resumable collection
   analysis, similarity review, CPU/CUDA benchmarking, and reusable
   content-addressed analysis artifacts.
+- Complete Audio Intelligence with pgvector similarity search, transparent
+  refinement and personalization, reversible playlist ordering, safe model
+  profile cutover, and collection analysis independent from validation tools.
 - Add a root-scoped folder view with lazy directory navigation, virtualized
   large-folder rendering, file/folder playback and playlist actions, and safe
   subtree rescans.

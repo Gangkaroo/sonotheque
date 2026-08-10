@@ -84,6 +84,10 @@ not install Python packages, download a model, start an analyzer, or inspect
 audio for this feature. Enabling the workspace only permits preparation; it
 does not dispatch analysis or reserve CPU, GPU, or memory.
 
+For the listener-facing setup and usage workflow, read
+[`docs/audio-intelligence.md`](audio-intelligence.md). The remainder of this
+section is the developer and operator reference.
+
 Sonotheque's PostgreSQL 18 Compose service uses the pinned
 `pgvector/pgvector:0.8.2-pg18-trixie` image. The application keeps the complete
 embedding in JSONB as its portable source of truth and maintains a matching
@@ -163,11 +167,12 @@ created artifacts; existing reusable artifacts remain valid and are not
 recomputed merely to populate timing data.
 
 Restart the backend and queue worker after changing these values. In Settings,
-enable the Audio intelligence workspace, prepare the bounded validation sample,
-use **Check analyzer**, and explicitly start the validation run. Preparation
-selects catalog candidates first and calculates fingerprints only for that
-sample plus a small reserve. The analysis worker analyzes at most three
-representative 30-second windows per long track. Each window is
+enable the Audio intelligence workspace, choose a collection scope, prepare the
+collection, and explicitly start its analysis run. A validation sample and
+**Check analyzer** remain available under Advanced diagnostics but are not
+prerequisites for collection analysis. Preparation selects catalog candidates
+and calculates missing fingerprints before model work starts. The analysis
+worker analyzes at most three representative 30-second windows per long track. Each window is
 decoded directly rather than loading the entire track. The worker stores the
 exact analyzer/model versions, model checksum, licenses, features,
 embedding, total runtime, decode/feature/embedding timings, hardware

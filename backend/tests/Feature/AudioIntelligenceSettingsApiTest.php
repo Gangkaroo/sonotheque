@@ -739,6 +739,33 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('latestCollectionRun.pauseRequestedAt', null);
     }
 
+    public function test_collection_analysis_can_be_prepared_without_a_validation_run(): void
+    {
+        Queue::fake();
+        $library = Library::create(['name' => 'Direct collection analysis']);
+        $genre = Genre::create(['name' => 'Rock']);
+        $root = $this->createCatalog($library, 'Direct root', 3, [$genre]);
+        $analyzer = FakeAudioAnalyzer::ready();
+        $this->app->instance(AudioAnalyzer::class, $analyzer);
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+
+        $response = $this->postJson('/api/settings/audio-intelligence/collections', [
+            'libraryRootId' => $root->id,
+        ])
+            ->assertAccepted()
+            ->assertJsonPath('latestCollectionRun.kind', 'collection')
+            ->assertJsonPath('latestCollectionRun.status', 'fingerprinting')
+            ->assertJsonPath('latestCollectionRun.summary.baselineAnalyzedTrackCount', 0);
+
+        $runId = $response->json('latestCollectionRun.id');
+        $this->assertDatabaseCount('audio_analysis_artifacts', 0);
+        Queue::assertPushed(
+            PrepareAudioAnalysisRun::class,
+            fn (PrepareAudioAnalysisRun $job): bool => $job->audioAnalysisRunId === $runId
+                && $job->queue === 'analysis',
+        );
+    }
+
     /**
      * @param  list<Genre>  $genres
      */
