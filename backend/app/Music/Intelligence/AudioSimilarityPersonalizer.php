@@ -19,6 +19,7 @@ class AudioSimilarityPersonalizer
 
     public function __construct(
         private readonly AudioSimilarityReranker $reranker,
+        private readonly AudioAnalysisProfileSelector $profileSelector,
     ) {
     }
 
@@ -271,10 +272,7 @@ class AudioSimilarityPersonalizer
 
     private function latestProfile(): ?AudioAnalysisProfile
     {
-        return AudioAnalysisProfile::query()
-            ->whereHas('artifacts.runItems.track')
-            ->latest('id')
-            ->first();
+        return $this->profileSelector->current();
     }
 
     /** @param array{feedbackCount: int, relevantCount: int, irrelevantCount: int} $counts */

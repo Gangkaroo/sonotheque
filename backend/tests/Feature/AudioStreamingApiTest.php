@@ -4,13 +4,16 @@ namespace Tests\Feature;
 
 use App\Enums\MediaFileStatus;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
+use App\Models\AudioAnalysisRun;
 use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Track;
 use App\Music\Streaming\TrackStreamActivity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -54,6 +57,31 @@ class AudioStreamingApiTest extends TestCase
             0,
             app(TrackStreamActivity::class)->retryAfterSeconds($track->id),
         );
+    }
+
+    public function test_analyzer_failure_does_not_affect_audio_streaming(): void
+    {
+        config(['sonotheque.audio_intelligence.driver' => 'essentia_docker']);
+        Process::fake();
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        AudioAnalysisRun::create([
+            'phase' => 'analysis',
+            'status' => 'failed',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+            'summary' => ['analysisError' => 'The analyzer worker stopped unexpectedly.'],
+            'finished_at' => now(),
+        ]);
+        $track = $this->createTrack('0123456789');
+
+        $response = $this->get("/api/tracks/{$track->id}/stream");
+
+        $response->assertOk()
+            ->assertHeader('Content-Length', '10')
+            ->assertHeader('Content-Type', 'audio/mpeg');
+        $this->assertSame('0123456789', $response->streamedContent());
+        Process::assertNothingRan();
     }
 
     public function test_it_streams_requested_byte_ranges(): void

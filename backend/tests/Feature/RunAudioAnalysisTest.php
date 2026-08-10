@@ -11,6 +11,7 @@ use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
 use App\Music\Intelligence\AudioAnalyzerResult;
+use App\Music\Intelligence\AudioAnalysisProfileSelector;
 use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -122,6 +123,7 @@ class RunAudioAnalysisTest extends TestCase
             $analyzer,
             app(AudioVectorIndex::class),
             new LibraryPathGuard(),
+            app(AudioAnalysisProfileSelector::class),
         );
 
         $this->assertDatabaseHas('audio_analysis_run_items', [
@@ -175,6 +177,7 @@ class RunAudioAnalysisTest extends TestCase
                 $reuseAnalyzer,
                 app(AudioVectorIndex::class),
                 new LibraryPathGuard(),
+                app(AudioAnalysisProfileSelector::class),
             );
 
         $reusedItem->refresh();
@@ -203,6 +206,7 @@ class RunAudioAnalysisTest extends TestCase
             $analyzer,
             app(AudioVectorIndex::class),
             new LibraryPathGuard(),
+            app(AudioAnalysisProfileSelector::class),
         );
 
         $this->assertSame('paused', $run->fresh()->status);

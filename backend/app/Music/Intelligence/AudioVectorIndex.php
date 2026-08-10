@@ -13,6 +13,11 @@ class AudioVectorIndex
 
     private const SEARCH_CANDIDATE_POOL = 500;
 
+    public function __construct(
+        private readonly AudioAnalysisProfileSelector $profileSelector,
+    ) {
+    }
+
     /**
      * @param  list<float>  $embedding
      * @throws JsonException
@@ -62,10 +67,7 @@ class AudioVectorIndex
      */
     public function status(): array
     {
-        $profile = AudioAnalysisProfile::query()
-            ->whereHas('artifacts.runItems.track')
-            ->latest('id')
-            ->first();
+        $profile = $this->profileSelector->current();
         if ($profile === null) {
             return [
                 'status' => 'empty',

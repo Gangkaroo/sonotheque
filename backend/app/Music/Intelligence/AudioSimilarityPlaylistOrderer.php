@@ -22,6 +22,7 @@ class AudioSimilarityPlaylistOrderer
 
     public function __construct(
         private readonly AudioVectorIndex $vectorIndex,
+        private readonly AudioAnalysisProfileSelector $profileSelector,
     ) {
     }
 
@@ -221,10 +222,7 @@ class AudioSimilarityPlaylistOrderer
 
     private function latestProfile(): ?AudioAnalysisProfile
     {
-        return AudioAnalysisProfile::query()
-            ->whereHas('artifacts.runItems.track')
-            ->latest('id')
-            ->first();
+        return $this->profileSelector->current();
     }
 
     /**

@@ -18,6 +18,7 @@ use App\Models\Track;
 use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioAnalyzerBenchmarkRunner;
 use App\Music\Intelligence\AudioAnalyzerHealth;
+use App\Music\Intelligence\AudioAnalysisProfileSelector;
 use App\Music\Intelligence\AudioAnalysisProfileRegistry;
 use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Intelligence\EssentiaDockerAudioAnalyzer;
@@ -723,6 +724,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
                 $analyzer,
                 app(AudioVectorIndex::class),
                 new LibraryPathGuard(),
+                app(AudioAnalysisProfileSelector::class),
             );
 
         $run->refresh();

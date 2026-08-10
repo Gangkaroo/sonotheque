@@ -31,6 +31,7 @@ class AudioSimilarityEvaluator
         private readonly AudioVectorIndex $vectorIndex,
         private readonly AudioSimilarityReranker $reranker,
         private readonly AudioSimilarityPersonalizer $personalizer,
+        private readonly AudioAnalysisProfileSelector $profileSelector,
     ) {
     }
 
@@ -266,10 +267,7 @@ class AudioSimilarityEvaluator
 
     private function latestProfile(): ?AudioAnalysisProfile
     {
-        return AudioAnalysisProfile::query()
-            ->whereHas('artifacts.runItems.track')
-            ->latest('id')
-            ->first();
+        return $this->profileSelector->current();
     }
 
     /** @return Collection<int, int> */

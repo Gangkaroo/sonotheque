@@ -7,6 +7,7 @@ use App\Models\AudioAnalysisRun;
 use App\Models\AudioAnalysisRunItem;
 use App\Models\ApplicationSetting;
 use App\Music\Intelligence\AudioAnalyzer;
+use App\Music\Intelligence\AudioAnalysisProfileSelector;
 use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
@@ -33,6 +34,7 @@ class RunAudioAnalysis implements ShouldQueue
         AudioAnalyzer $analyzer,
         AudioVectorIndex $vectorIndex,
         LibraryPathGuard $pathGuard,
+        AudioAnalysisProfileSelector $profileSelector,
     ): void {
         $run = AudioAnalysisRun::with([
             'profile',
@@ -153,6 +155,7 @@ class RunAudioAnalysis implements ShouldQueue
 
             throw $exception;
         } finally {
+            $profileSelector->forget();
             $analyzer->shutdown();
         }
     }

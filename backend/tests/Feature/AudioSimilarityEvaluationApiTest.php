@@ -12,6 +12,9 @@ use App\Models\AudioSimilarityFeedback;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Music\Intelligence\AnalyzerProfile;
+use App\Music\Intelligence\AudioAnalysisProfileSelector;
+use App\Music\Intelligence\AudioAnalysisProfileRegistry;
 use App\Music\Intelligence\AudioVectorIndex;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -296,6 +299,110 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         )->assertUnprocessable();
     }
 
+    public function test_model_upgrade_keeps_the_best_covered_profile_active_until_it_catches_up(): void
+    {
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $library = Library::create(['name' => 'Profile upgrade']);
+        $root = $library->roots()->create([
+            'name' => 'Root',
+            'path' => 'G:/Profile-upgrade',
+            'path_hash' => hash('sha256', 'g:/profile-upgrade'),
+            'enabled' => true,
+        ]);
+        $artist = Artist::create(['name' => 'Upgrade artist', 'sort_name' => 'Upgrade artist']);
+        $album = Album::create([
+            'library_root_id' => $root->id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Upgrade album',
+            'sort_title' => 'Upgrade album',
+            'relative_path' => 'Upgrade artist/Upgrade album',
+            'relative_path_hash' => hash('sha256', 'upgrade artist/upgrade album'),
+        ]);
+        $oldProfile = $this->resolveProfile('1', str_repeat('a', 64));
+        $oldRun = AudioAnalysisRun::create([
+            'audio_analysis_profile_id' => $oldProfile->id,
+            'status' => 'completed',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 3,
+            'selected_track_count' => 3,
+        ]);
+        $source = $this->createAnalyzedTrack(
+            $oldRun,
+            $root->id,
+            $album,
+            $artist,
+            'Source',
+            $this->embedding(1.0, 0.0),
+            [],
+            0,
+        );
+        $near = $this->createAnalyzedTrack(
+            $oldRun,
+            $root->id,
+            $album,
+            $artist,
+            'Near',
+            $this->embedding(0.9, 0.1),
+            [],
+            1,
+        );
+        $far = $this->createAnalyzedTrack(
+            $oldRun,
+            $root->id,
+            $album,
+            $artist,
+            'Far',
+            $this->embedding(0.0, 1.0),
+            [],
+            2,
+        );
+
+        $newProfile = $this->resolveProfile('2', str_repeat('b', 64));
+        $newRun = AudioAnalysisRun::create([
+            'audio_analysis_profile_id' => $newProfile->id,
+            'status' => 'running',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 3,
+            'selected_track_count' => 3,
+        ]);
+        $this->attachAnalyzedTrack(
+            $newRun,
+            $source,
+            $this->embedding(1.0, 0.0),
+            [],
+            0,
+        );
+
+        $this->getJson('/api/settings/audio-intelligence/evaluation')
+            ->assertOk()
+            ->assertJsonPath('profile.modelVersion', '1')
+            ->assertJsonPath('analyzedTrackCount', 3);
+
+        $this->attachAnalyzedTrack(
+            $newRun,
+            $near,
+            $this->embedding(0.8, 0.2),
+            [],
+            1,
+        );
+        $this->attachAnalyzedTrack(
+            $newRun,
+            $far,
+            $this->embedding(0.1, 0.9),
+            [],
+            2,
+        );
+        $newRun->update(['status' => 'completed', 'finished_at' => now()]);
+        app(AudioAnalysisProfileSelector::class)->forget();
+
+        $this->getJson('/api/settings/audio-intelligence/evaluation')
+            ->assertOk()
+            ->assertJsonPath('profile.modelVersion', '2')
+            ->assertJsonPath('analyzedTrackCount', 3);
+        $this->assertSame(3, $oldProfile->artifacts()->count());
+        $this->assertSame(3, $newProfile->artifacts()->count());
+    }
+
     /**
      * @param  list<float>  $embedding
      * @param  array<string, mixed>  $features
@@ -333,6 +440,23 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             'year' => 2026,
         ]);
         $track->artists()->attach($artist->id, ['role' => 'primary', 'position' => 0]);
+        $this->attachAnalyzedTrack($run, $track, $embedding, $features, $position);
+
+        return $track;
+    }
+
+    /**
+     * @param  list<float>  $embedding
+     * @param  array<string, mixed>  $features
+     */
+    private function attachAnalyzedTrack(
+        AudioAnalysisRun $run,
+        Track $track,
+        array $embedding,
+        array $features,
+        int $position,
+    ): void {
+        $fingerprint = $track->mediaFile->content_fingerprint;
         $artifact = AudioAnalysisArtifact::create([
             'audio_analysis_profile_id' => $run->audio_analysis_profile_id,
             'content_fingerprint' => $fingerprint,
@@ -343,15 +467,30 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         app(AudioVectorIndex::class)->synchronize($artifact, $embedding);
         $run->items()->create([
             'track_id' => $track->id,
-            'library_root_id' => $rootId,
+            'library_root_id' => $track->mediaFile->library_root_id,
             'audio_analysis_artifact_id' => $artifact->id,
             'content_fingerprint' => $fingerprint,
             'content_fingerprint_version' => 1,
             'position' => $position,
             'status' => 'completed',
         ]);
+    }
 
-        return $track;
+    private function resolveProfile(string $modelVersion, string $checksum): AudioAnalysisProfile
+    {
+        return app(AudioAnalysisProfileRegistry::class)->resolve(new AnalyzerProfile(
+            key: 'profile-upgrade',
+            protocolVersion: 1,
+            analyzerName: 'Test analyzer',
+            analyzerVersion: '1',
+            analyzerLicense: 'Test license',
+            modelName: 'Test model',
+            modelVersion: $modelVersion,
+            modelChecksum: $checksum,
+            modelLicense: 'Test model license',
+            embeddingDimensions: AudioVectorIndex::DIMENSIONS,
+            sampleRate: 16000,
+        ));
     }
 
     /** @return list<float> */

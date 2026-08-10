@@ -740,7 +740,6 @@ Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
-- Remaining audio-analyzer model-upgrade and playback-independence coverage
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
@@ -1292,8 +1291,9 @@ Last.fm integration.
   library-root, artist-diversity, and duplicate controls. (Partially complete:
   pgvector provides bounded cosine-neighbour retrieval plus same-album and
   same-artist exclusion. An opt-in, bounded tempo/key/intensity reranker is now
-  available and keeps the original vector score visible; library-root,
-  diversity, duplicate, and richer mood controls remain pending.)
+  available and keeps the original vector score visible. The current listener-
+  facing baseline is complete; library-root, diversity, duplicate, and richer
+  mood controls remain optional future refinements.)
 - Add an inspectable, local personalization layer that learns only reranking
   weights from explicit relevant/not-relevant feedback. Completed plays, skips,
   favorites, and playlists may be evaluated later but must not affect the first
@@ -1362,7 +1362,10 @@ Last.fm integration.
   five-track comparison reduced wall time from 106.2 to 52.4 seconds with
   byte-for-byte identical embeddings and matching features. The pipeline is
   strictly CUDA-only; the default CPU path remains sequential and never
-  requests GPU devices. Model replacement and rebuild remain pending.)
+  requests GPU devices. Model upgrades create isolated, versioned profiles and
+  preserve the best-covered prior profile for similarity features until the new
+  profile reaches equal coverage; completed artifacts from either generation
+  remain reusable.)
 - Add a CPU-versus-CUDA benchmark to Advanced diagnostics. Run both analyzers
   against the same small, bounded set of readable tracks without modifying
   collection-analysis progress or stored artifacts. Report image/GPU health,
@@ -1401,9 +1404,16 @@ Last.fm integration.
   started.)
 - Add fixtures and quality tests for analysis invalidation, model upgrades,
   duplicate handling, unavailable workers, and playback independence.
-  (Fingerprint/profile reuse, guarded resume, disabled-job, and unavailable-
-  worker coverage are complete; model-upgrade and playback-independence
-  coverage remain.)
+  (Complete: coverage includes fingerprint/profile reuse, guarded resume,
+  disabled jobs, unavailable workers, profile-isolated model upgrades with
+  best-coverage cutover, and streaming that remains independent of analyzer
+  availability or failure.)
+
+The current Audio Intelligence milestone is complete. Its production baseline
+is optional and disabled by default, resumable and content-addressed, CPU-safe
+when CUDA is unavailable, explicitly benchmarked and selectable, profile-safe
+across model upgrades, and isolated from playback. Further reranking controls or
+playlist-order strategies are evidence-driven refinements rather than blockers.
 
 ### 5f. Local Collection Assistant
 
