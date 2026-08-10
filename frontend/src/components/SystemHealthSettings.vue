@@ -31,6 +31,7 @@ interface HealthStatus {
     delayed: number | null
     failed: number | null
     latestFailed: FailedQueueJob[]
+    workers: QueueWorkerCheck[]
     message: string | null
   }
   scheduler: {
@@ -86,6 +87,19 @@ interface FailedQueueJob {
   message: string
 }
 
+interface QueueWorkerCheck {
+  queue: 'default' | 'scans' | 'analysis'
+  status: SystemHealthStatus
+  state: 'idle' | 'busy' | 'stopped'
+  lastHeartbeatAt: string | null
+  ageSeconds: number | null
+  host: string | null
+  processId: number | null
+  pending: number
+  reserved: number
+  delayed: number
+}
+
 interface FailedScan {
   id: number
   libraryRootId: number
@@ -103,6 +117,24 @@ const error = ref<string | null>(null)
 const rootNames = computed(() => new Map(
   health.value?.libraryRoots.map((root) => [root.id, root.name]) ?? [],
 ))
+const runtimeCommands = computed(() => {
+  if (!health.value) return null
+
+  const lanArgument = health.value.app.lanEnabled ? ' -Lan' : ''
+  if (health.value.app.environment === 'production') {
+    return {
+      status: '.\\scripts\\status-packaged.ps1',
+      stop: '.\\scripts\\stop-packaged.ps1',
+      start: `.\\scripts\\start-packaged.ps1${lanArgument}`,
+    }
+  }
+
+  return {
+    status: '.\\scripts\\status.ps1',
+    stop: '.\\scripts\\stop.ps1',
+    start: `.\\scripts\\start.ps1${lanArgument}`,
+  }
+})
 const recoveryHints = computed(() => {
   if (!health.value) return []
 
@@ -110,6 +142,9 @@ const recoveryHints = computed(() => {
   if (health.value.database.status === 'error') hints.push(t('settings.databaseRecoveryHint'))
   if (health.value.queue.status === 'error' || (health.value.queue.failed ?? 0) > 0) {
     hints.push(t('settings.queueRecoveryHint'))
+  }
+  if (health.value.queue.workers.some((worker) => worker.status !== 'ok')) {
+    hints.push(t('settings.workerRecoveryHint'))
   }
   if (health.value.scheduler.status !== 'ok') hints.push(t('settings.schedulerRecoveryHint'))
   if (health.value.storage.some((entry) => entry.status === 'error')) hints.push(t('settings.storageRecoveryHint'))
@@ -153,6 +188,10 @@ function formatDate(value: string | null | undefined) {
 
 function rootName(id: number) {
   return rootNames.value.get(id) ?? t('settings.unknownRoot')
+}
+
+function workerName(queue: QueueWorkerCheck['queue']) {
+  return t(`settings.workerNames.${queue}`)
 }
 
 function schedulerMessage() {
@@ -271,6 +310,47 @@ function backupMode() {
             </v-card>
           </v-col>
         </v-row>
+
+        <v-card class="mt-5" border rounded="lg">
+          <v-card-item prepend-icon="mdi-account-hard-hat-outline">
+            <v-card-title class="text-subtitle-1">{{ t('settings.queueWorkers') }}</v-card-title>
+            <v-card-subtitle>{{ t('settings.queueWorkersDescription') }}</v-card-subtitle>
+          </v-card-item>
+          <v-table density="comfortable">
+            <thead>
+              <tr>
+                <th>{{ t('settings.worker') }}</th>
+                <th>{{ t('settings.status') }}</th>
+                <th>{{ t('settings.lastHeartbeat') }}</th>
+                <th>{{ t('settings.queue') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="worker in health.queue.workers" :key="worker.queue">
+                <td class="font-weight-medium">{{ workerName(worker.queue) }}</td>
+                <td>
+                  <v-chip :color="statusColor(worker.status)" size="small" variant="tonal">
+                    {{ t(`settings.workerStates.${worker.state}`) }}
+                  </v-chip>
+                </td>
+                <td>{{ formatDate(worker.lastHeartbeatAt) }}</td>
+                <td>
+                  {{ t('settings.workerQueueSummary', {
+                    pending: worker.pending,
+                    reserved: worker.reserved,
+                    delayed: worker.delayed,
+                  }) }}
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+          <v-card-text v-if="runtimeCommands" class="pt-4">
+            <p class="text-body-2 mb-3">{{ t('settings.workerCommandsHint') }}</p>
+            <code class="system-command d-block pa-3">{{ runtimeCommands.status }}</code>
+            <code class="system-command d-block pa-3 mt-2">{{ runtimeCommands.stop }}</code>
+            <code class="system-command d-block pa-3 mt-2">{{ runtimeCommands.start }}</code>
+          </v-card-text>
+        </v-card>
 
         <v-alert class="mt-5" :type="schedulerAlertType()" variant="tonal" :title="t('settings.scheduler')">
           {{ schedulerMessage() }}

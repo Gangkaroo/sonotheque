@@ -84,6 +84,9 @@ one is needed. LAN mode is never enabled automatically.
 ## Troubleshooting
 
 - If Docker cannot be reached, start Docker Desktop and retry.
+- If an upgrade cannot create the `vector` extension, run the one-time database
+  administrator command documented under Optional Audio Intelligence in
+  `docs/runtime.md`, then start Sonotheque again.
 - If port `8080` is occupied, change `APP_HTTP_PORT` in `.env.packaged`.
 - Use Settings > System after startup to inspect database, queue, scheduler,
   storage, library-root, and scan health.

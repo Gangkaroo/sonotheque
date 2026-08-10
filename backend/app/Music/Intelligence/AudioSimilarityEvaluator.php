@@ -6,6 +6,8 @@ use App\Models\AudioAnalysisProfile;
 use App\Models\AudioAnalysisRunItem;
 use App\Models\AudioSimilarityFeedback;
 use App\Models\Track;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 class AudioSimilarityEvaluator
@@ -16,12 +18,20 @@ class AudioSimilarityEvaluator
 
     private const REVIEW_SOURCE_COUNT = 30;
 
+    private const OVERVIEW_SAMPLE_COUNT = 500;
+
     private const CONFIGURATIONS = [
         'all',
         'exclude_album',
         'exclude_artist',
         'exclude_album_artist',
     ];
+
+    public function __construct(
+        private readonly AudioVectorIndex $vectorIndex,
+        private readonly AudioSimilarityReranker $reranker,
+    ) {
+    }
 
     /**
      * @return array{
@@ -56,17 +66,26 @@ class AudioSimilarityEvaluator
             ];
         }
 
-        $items = $this->itemsForProfile($profile, includeEmbeddings: false);
+        $items = $this->itemsForProfile(
+            $profile,
+            includeEmbeddings: false,
+            limit: self::OVERVIEW_SAMPLE_COUNT,
+        );
+        $review = $this->review($profile, $items);
 
         return [
             'profile' => $this->profilePayload($profile),
-            'analyzedTrackCount' => $items->count(),
-            'coverage' => $this->coverage($items),
+            'analyzedTrackCount' => $this->itemQueryForProfile($profile)->count(),
+            'coverage' => $this->coverage($profile),
             'distributions' => $this->distributions($items),
             'feedbackSummary' => $this->feedbackSummary($profile),
-            'review' => $this->review($profile, $items),
-            'tracks' => $items
-                ->map(fn (AudioAnalysisRunItem $item): array => $this->trackPayload($item))
+            'review' => $review,
+            'tracks' => collect($review['sources'])
+                ->map(function (array $source): array {
+                    unset($source['configurations']);
+
+                    return $source;
+                })
                 ->sortBy([
                     ['artistName', 'asc'],
                     ['albumTitle', 'asc'],
@@ -93,81 +112,87 @@ class AudioSimilarityEvaluator
         int $limit = 10,
         bool $excludeSameAlbum = false,
         bool $excludeSameArtist = false,
+        array $reranking = [
+            'enabled' => false,
+            'tempoInfluence' => 5,
+            'keyInfluence' => 3,
+            'intensityInfluence' => 4,
+        ],
     ): ?array {
         $profile = $this->latestProfile();
         if ($profile === null) {
             return null;
         }
 
-        $items = $this->itemsForProfile($profile, includeEmbeddings: true);
-        $source = $items->firstWhere('track_id', $trackId);
-        if ($source === null || ! is_array($source->artifact?->embedding)) {
+        $source = $this->itemsForTrackIds($profile, [$trackId])->first();
+        if ($source === null || $source->audio_analysis_artifact_id === null) {
             return null;
         }
 
         $limit = max(1, min(self::MAXIMUM_MATCHES, $limit));
+        $candidateLimit = $this->reranker->candidateLimit($limit, $reranking);
         $started = hrtime(true);
-        $matches = [];
         $sourcePayload = $this->trackPayload($source);
-        $sourceArtistIds = collect($sourcePayload['artists'])->pluck('id');
+        $search = $this->vectorIndex->nearestTracks(
+            $profile,
+            $source->audio_analysis_artifact_id,
+            $source->track_id,
+            $sourcePayload['albumId'],
+            collect($sourcePayload['artists'])->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            $candidateLimit,
+            $excludeSameAlbum,
+            $excludeSameArtist,
+        );
+        if ($search === null) {
+            return null;
+        }
+
         $configuration = $this->configuration($excludeSameAlbum, $excludeSameArtist);
         $feedback = AudioSimilarityFeedback::query()
             ->where('audio_analysis_profile_id', $profile->id)
             ->where('source_track_id', $source->track_id)
             ->where('configuration', $configuration)
             ->pluck('verdict', 'candidate_track_id');
+        $itemsByTrackId = $this->itemsForTrackIds(
+            $profile,
+            array_column($search['matches'], 'trackId'),
+        )->keyBy('track_id');
+        $matches = $this->reranker->rerank(
+            $sourcePayload,
+            collect($search['matches'])
+            ->map(function (array $match) use ($feedback, $itemsByTrackId): ?array {
+                $item = $itemsByTrackId->get($match['trackId']);
+                if ($item === null) {
+                    return null;
+                }
 
-        foreach ($items as $candidate) {
-            if ($candidate->track_id === $source->track_id
-                || ! is_array($candidate->artifact?->embedding)) {
-                continue;
-            }
-
-            $candidatePayload = $this->trackPayload($candidate);
-            if ($excludeSameAlbum
-                && $sourcePayload['albumId'] !== null
-                && $candidatePayload['albumId'] === $sourcePayload['albumId']) {
-                continue;
-            }
-            if ($excludeSameArtist
-                && $sourceArtistIds->intersect(
-                    collect($candidatePayload['artists'])->pluck('id'),
-                )->isNotEmpty()) {
-                continue;
-            }
-
-            $score = $this->cosineSimilarity(
-                $source->artifact->embedding,
-                $candidate->artifact->embedding,
-            );
-            if ($score === null) {
-                continue;
-            }
-
-            $matches[] = [
-                ...$candidatePayload,
-                'similarity' => round($score, 6),
-                'feedback' => $feedback[$candidate->track_id] ?? null,
-            ];
-        }
-
-        usort(
-            $matches,
-            static fn (array $left, array $right): int => $right['similarity'] <=> $left['similarity']
-                ?: strnatcasecmp($left['label'], $right['label']),
+                return [
+                    ...$this->trackPayload($item),
+                    'similarity' => round($match['similarity'], 6),
+                    'feedback' => $feedback[$match['trackId']] ?? null,
+                ];
+            })
+            ->filter()
+            ->values(),
+            $reranking,
         );
         $calculationMs = (hrtime(true) - $started) / 1_000_000;
 
         return [
             'profile' => $this->profilePayload($profile),
             'source' => $sourcePayload,
-            'candidateCount' => count($matches),
+            'candidateCount' => $search['candidateCount'],
             'calculationMs' => round($calculationMs, 3),
             'filters' => [
                 'excludeSameAlbum' => $excludeSameAlbum,
                 'excludeSameArtist' => $excludeSameArtist,
             ],
-            'matches' => array_slice($matches, 0, $limit),
+            'ranking' => [
+                'method' => $reranking['enabled'] ? 'feature_reranking' : 'embedding',
+                'candidatePoolSize' => count($search['matches']),
+                'preferences' => $reranking,
+            ],
+            'matches' => $matches->take($limit)->values()->all(),
         ];
     }
 
@@ -237,13 +262,14 @@ class AudioSimilarityEvaluator
     /** @return Collection<int, int> */
     private function trackIdsForProfile(AudioAnalysisProfile $profile): Collection
     {
-        return $this->itemsForProfile($profile, includeEmbeddings: false)->pluck('track_id');
+        return $this->itemQueryForProfile($profile)->pluck('track_id');
     }
 
     /** @return Collection<int, AudioAnalysisRunItem> */
     private function itemsForProfile(
         AudioAnalysisProfile $profile,
         bool $includeEmbeddings,
+        ?int $limit = null,
     ): Collection {
         $artifactColumns = [
             'id',
@@ -254,14 +280,7 @@ class AudioSimilarityEvaluator
             $artifactColumns[] = 'embedding';
         }
 
-        return AudioAnalysisRunItem::query()
-            ->whereNotNull('audio_analysis_artifact_id')
-            ->whereIn('status', ['completed', 'reused'])
-            ->whereHas(
-                'artifact',
-                fn ($query) => $query->where('audio_analysis_profile_id', $profile->id),
-            )
-            ->whereHas('track')
+        $query = $this->itemQueryForProfile($profile)
             ->with([
                 'artifact' => fn ($query) => $query->select($artifactColumns),
                 'libraryRoot:id,name',
@@ -269,10 +288,61 @@ class AudioSimilarityEvaluator
                 'track.artists',
                 'track.genres:id,name',
             ])
-            ->latest('id')
+            ->orderByRaw(
+                "MD5(CAST(track_id AS TEXT) || ?) ASC",
+                [$profile->profile_key],
+            );
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->values();
+    }
+
+    /**
+     * @param  list<int>  $trackIds
+     * @return Collection<int, AudioAnalysisRunItem>
+     */
+    private function itemsForTrackIds(
+        AudioAnalysisProfile $profile,
+        array $trackIds,
+    ): Collection {
+        if ($trackIds === []) {
+            return collect();
+        }
+
+        return $this->itemQueryForProfile($profile)
+            ->whereIn('track_id', $trackIds)
+            ->with([
+                'artifact:id,audio_analysis_profile_id,features',
+                'libraryRoot:id,name',
+                'track.album.primaryArtist',
+                'track.artists',
+                'track.genres:id,name',
+            ])
             ->get()
-            ->unique('track_id')
             ->values();
+    }
+
+    /** @return Builder<AudioAnalysisRunItem> */
+    private function itemQueryForProfile(AudioAnalysisProfile $profile): Builder
+    {
+        $latestItemIds = AudioAnalysisRunItem::query()
+            ->selectRaw('MAX(audio_analysis_run_items.id)')
+            ->join(
+                'audio_analysis_artifacts as profile_artifacts',
+                'profile_artifacts.id',
+                '=',
+                'audio_analysis_run_items.audio_analysis_artifact_id',
+            )
+            ->where('profile_artifacts.audio_analysis_profile_id', $profile->id)
+            ->whereIn('audio_analysis_run_items.status', ['completed', 'reused'])
+            ->whereNotNull('audio_analysis_run_items.track_id')
+            ->groupBy('audio_analysis_run_items.track_id');
+
+        return AudioAnalysisRunItem::query()
+            ->whereIn('audio_analysis_run_items.id', $latestItemIds);
     }
 
     /** @return array<string, mixed> */
@@ -597,21 +667,36 @@ class AudioSimilarityEvaluator
     }
 
     /**
-     * @param  Collection<int, AudioAnalysisRunItem>  $items
      * @return array{rootCount: int, artistCount: int, albumCount: int}
      */
-    private function coverage(Collection $items): array
+    private function coverage(AudioAnalysisProfile $profile): array
     {
-        $payloads = $items->map(fn (AudioAnalysisRunItem $item): array => $this->trackPayload($item));
+        $analyzedTracks = $this->itemQueryForProfile($profile)
+            ->select('audio_analysis_run_items.track_id');
+        $catalogCoverage = DB::table('tracks')
+            ->joinSub(
+                $analyzedTracks,
+                'analyzed_tracks',
+                'analyzed_tracks.track_id',
+                '=',
+                'tracks.id',
+            )
+            ->leftJoin('albums', 'albums.id', '=', 'tracks.album_id')
+            ->leftJoin('artist_track', 'artist_track.track_id', '=', 'tracks.id')
+            ->selectRaw('COUNT(DISTINCT tracks.album_id) AS album_count')
+            ->selectRaw(
+                'COUNT(DISTINCT COALESCE(artist_track.artist_id, albums.primary_artist_id))'
+                    .' AS artist_count',
+            )
+            ->first();
 
         return [
-            'rootCount' => $items->pluck('library_root_id')->filter()->unique()->count(),
-            'artistCount' => $payloads
-                ->flatMap(fn (array $track): array => $track['artists'])
-                ->pluck('id')
-                ->unique()
-                ->count(),
-            'albumCount' => $payloads->pluck('albumId')->filter()->unique()->count(),
+            'rootCount' => $this->itemQueryForProfile($profile)
+                ->whereNotNull('library_root_id')
+                ->distinct()
+                ->count('library_root_id'),
+            'artistCount' => (int) ($catalogCoverage?->artist_count ?? 0),
+            'albumCount' => (int) ($catalogCoverage?->album_count ?? 0),
         ];
     }
 
@@ -728,40 +813,4 @@ class AudioSimilarityEvaluator
         ]));
     }
 
-    /**
-     * @param  list<mixed>  $left
-     * @param  list<mixed>  $right
-     */
-    private function cosineSimilarity(array $left, array $right): ?float
-    {
-        if ($left === [] || count($left) !== count($right)) {
-            return null;
-        }
-
-        $dotProduct = 0.0;
-        $leftMagnitude = 0.0;
-        $rightMagnitude = 0.0;
-
-        foreach ($left as $index => $leftValue) {
-            $rightValue = $right[$index] ?? null;
-            if (! is_numeric($leftValue) || ! is_numeric($rightValue)) {
-                return null;
-            }
-
-            $leftFloat = (float) $leftValue;
-            $rightFloat = (float) $rightValue;
-            $dotProduct += $leftFloat * $rightFloat;
-            $leftMagnitude += $leftFloat * $leftFloat;
-            $rightMagnitude += $rightFloat * $rightFloat;
-        }
-
-        if ($leftMagnitude === 0.0 || $rightMagnitude === 0.0) {
-            return null;
-        }
-
-        return max(-1.0, min(
-            1.0,
-            $dotProduct / (sqrt($leftMagnitude) * sqrt($rightMagnitude)),
-        ));
-    }
 }

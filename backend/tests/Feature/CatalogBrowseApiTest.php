@@ -312,6 +312,35 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('total', 1);
     }
 
+    public function test_track_only_artists_include_their_tracks_albums_in_the_catalog(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+        $trackArtist = Artist::create([
+            'name' => 'Track Credit',
+            'sort_name' => 'Track Credit',
+            'browse_initial' => 'T',
+        ]);
+        $track->artists()->attach($trackArtist, ['role' => 'primary', 'position' => 1]);
+
+        $this->getJson('/api/catalog/artists?search=Track%20Credit')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $trackArtist->id)
+            ->assertJsonPath('items.0.albumCount', 1)
+            ->assertJsonPath('items.0.trackCount', 1);
+
+        $this->getJson("/api/catalog/artists/{$trackArtist->id}")
+            ->assertOk()
+            ->assertJsonPath('albumCount', 1)
+            ->assertJsonPath('trackCount', 1)
+            ->assertJsonPath('representativeTrackId', $track->id);
+
+        $this->getJson("/api/catalog/albums?artist={$trackArtist->id}")
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $album->id);
+    }
+
     public function test_track_detail_returns_catalog_and_media_file_metadata(): void
     {
         [$artist, $album, $track, $genre] = $this->createCatalog();

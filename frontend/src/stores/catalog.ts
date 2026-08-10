@@ -209,8 +209,25 @@ export interface Genre {
   trackCount: number
 }
 
+export interface Musician {
+  id: number
+  name: string
+  sortName?: string | null
+  disambiguation?: string | null
+  albumCount: number
+  trackCount: number
+}
+
+export interface MusicianCoverage {
+  checkedAlbums: number
+  creditedAlbums: number
+  totalAlbums: number
+  percentage: number
+}
+
 export interface CatalogMetrics {
   artists: number
+  musicians: number
   albums: number
   tracks: number
   genres: number
@@ -226,6 +243,15 @@ export interface CatalogPage<T> {
   lastPage: number
 }
 
+interface CatalogCacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
+export interface MusicianCatalogPage extends CatalogPage<Musician> {
+  coverage: MusicianCoverage
+}
+
 interface CatalogQuery {
   page?: number
   search?: string
@@ -233,6 +259,7 @@ interface CatalogQuery {
   year?: number | string | null
   genre?: number | string | null
   artist?: number | string | null
+  musician?: number | string | null
   playStatus?: string | null
   physicalCopy?: string | null
   sort?: string | null
@@ -255,14 +282,48 @@ function queryPath(path: string, query: CatalogQuery): string {
   if (query.artist !== undefined && query.artist !== null && String(query.artist).trim() !== '') {
     parameters.set('artist', String(query.artist).trim())
   }
+  if (query.musician !== undefined && query.musician !== null && String(query.musician).trim() !== '') {
+    parameters.set('musician', String(query.musician).trim())
+  }
   if (query.playStatus?.trim()) parameters.set('playStatus', query.playStatus.trim())
   if (query.physicalCopy?.trim()) parameters.set('physicalCopy', query.physicalCopy.trim())
   if (query.sort?.trim()) parameters.set('sort', query.sort.trim())
   return withLibraryRootScope(`${path}?${parameters}`)
 }
 
+const CATALOG_CACHE_TTL_MS = 10 * 60 * 1000
+const MAX_CACHED_PAGES = 40
+
+function readCachedPage<T>(cache: Map<string, CatalogCacheEntry<T>>, key: string): T | null {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key)
+    return null
+  }
+
+  cache.delete(key)
+  cache.set(key, entry)
+
+  return entry.value
+}
+
+function rememberPage<T>(cache: Map<string, CatalogCacheEntry<T>>, key: string, value: T) {
+  cache.delete(key)
+  cache.set(key, { value, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS })
+  if (cache.size <= MAX_CACHED_PAGES) return
+
+  const oldestKey = cache.keys().next().value
+  if (oldestKey) cache.delete(oldestKey)
+}
+
 export const useCatalogStore = defineStore('catalog', () => {
   const artists = ref<CatalogPage<Artist>>(emptyPage())
+  const musicians = ref<MusicianCatalogPage>({
+    ...emptyPage<Musician>(),
+    coverage: { checkedAlbums: 0, creditedAlbums: 0, totalAlbums: 0, percentage: 0 },
+  })
+  const musicianDetail = ref<Musician | null>(null)
   const artistDetail = ref<ArtistDetail | null>(null)
   const albums = ref<CatalogPage<Album>>(emptyPage())
   const albumDetail = ref<AlbumDetail | null>(null)
@@ -270,6 +331,8 @@ export const useCatalogStore = defineStore('catalog', () => {
   const trackDetail = ref<TrackDetail | null>(null)
   const genres = ref<CatalogPage<Genre>>(emptyPage())
   const artistsLoading = ref(false)
+  const musiciansLoading = ref(false)
+  const musicianDetailLoading = ref(false)
   const artistDetailLoading = ref(false)
   const albumsLoading = ref(false)
   const albumDetailLoading = ref(false)
@@ -277,18 +340,22 @@ export const useCatalogStore = defineStore('catalog', () => {
   const trackDetailLoading = ref(false)
   const genresLoading = ref(false)
   const artistsError = ref<string | null>(null)
+  const musiciansError = ref<string | null>(null)
+  const musicianDetailError = ref<string | null>(null)
   const artistDetailError = ref<string | null>(null)
   const albumsError = ref<string | null>(null)
   const albumDetailError = ref<string | null>(null)
   const tracksError = ref<string | null>(null)
   const trackDetailError = ref<string | null>(null)
   const genresError = ref<string | null>(null)
-  const metrics = ref<CatalogMetrics>({ artists: 0, albums: 0, tracks: 0, genres: 0, playedAlbums: 0, playedTracks: 0 })
+  const metrics = ref<CatalogMetrics>({ artists: 0, musicians: 0, albums: 0, tracks: 0, genres: 0, playedAlbums: 0, playedTracks: 0 })
   const metricsLoading = ref(false)
   const metricsLoaded = ref(false)
   const metricsError = ref<string | null>(null)
   let metricsRequest = 0
   let artistsRequest = 0
+  let musiciansRequest = 0
+  let musicianDetailRequest = 0
   let artistDetailRequest = 0
   let albumsRequest = 0
   let albumDetailRequest = 0
@@ -297,6 +364,11 @@ export const useCatalogStore = defineStore('catalog', () => {
   let genresRequest = 0
   let albumsAbortController: AbortController | null = null
   let tracksAbortController: AbortController | null = null
+  const artistPages = new Map<string, CatalogCacheEntry<CatalogPage<Artist>>>()
+  const musicianPages = new Map<string, CatalogCacheEntry<MusicianCatalogPage>>()
+  const albumPages = new Map<string, CatalogCacheEntry<CatalogPage<Album>>>()
+  const trackPages = new Map<string, CatalogCacheEntry<CatalogPage<Track>>>()
+  const genrePages = new Map<string, CatalogCacheEntry<CatalogPage<Genre>>>()
 
   const metricsHaveCatalog = computed(() => metrics.value.albums > 0 || metrics.value.tracks > 0)
 
@@ -325,17 +397,83 @@ export const useCatalogStore = defineStore('catalog', () => {
     metricsLoaded.value = false
   }
 
+  function invalidateBrowseCache() {
+    artistPages.clear()
+    musicianPages.clear()
+    albumPages.clear()
+    trackPages.clear()
+    genrePages.clear()
+  }
+
+  function invalidateCatalog() {
+    invalidateMetrics()
+    invalidateBrowseCache()
+  }
+
   async function loadArtists(query: CatalogQuery = {}) {
     const request = ++artistsRequest
+    const path = queryPath('/catalog/artists', query)
+    const cached = readCachedPage(artistPages, path)
+    if (cached) {
+      artists.value = cached
+      artistsLoading.value = false
+      artistsError.value = null
+      return
+    }
+
     artistsLoading.value = true
     artistsError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Artist>>(queryPath('/catalog/artists', query))
-      if (request === artistsRequest) artists.value = result
+      const result = await apiRequest<CatalogPage<Artist>>(path)
+      if (request === artistsRequest) {
+        rememberPage(artistPages, path, result)
+        artists.value = result
+      }
     } catch (cause) {
       if (request === artistsRequest) artistsError.value = errorMessage(cause)
     } finally {
       if (request === artistsRequest) artistsLoading.value = false
+    }
+  }
+
+  async function loadMusicians(query: CatalogQuery = {}) {
+    const request = ++musiciansRequest
+    const path = queryPath('/catalog/musicians', query)
+    const cached = readCachedPage(musicianPages, path)
+    if (cached) {
+      musicians.value = cached
+      musiciansLoading.value = false
+      musiciansError.value = null
+      return
+    }
+
+    musiciansLoading.value = true
+    musiciansError.value = null
+    try {
+      const result = await apiRequest<MusicianCatalogPage>(path)
+      if (request === musiciansRequest) {
+        rememberPage(musicianPages, path, result)
+        musicians.value = result
+      }
+    } catch (cause) {
+      if (request === musiciansRequest) musiciansError.value = errorMessage(cause)
+    } finally {
+      if (request === musiciansRequest) musiciansLoading.value = false
+    }
+  }
+
+  async function loadMusician(id: number) {
+    const request = ++musicianDetailRequest
+    musicianDetail.value = null
+    musicianDetailLoading.value = true
+    musicianDetailError.value = null
+    try {
+      const result = await apiRequest<Musician>(withLibraryRootScope(`/catalog/musicians/${id}`))
+      if (request === musicianDetailRequest) musicianDetail.value = result
+    } catch (cause) {
+      if (request === musicianDetailRequest) musicianDetailError.value = errorMessage(cause)
+    } finally {
+      if (request === musicianDetailRequest) musicianDetailLoading.value = false
     }
   }
 
@@ -356,15 +494,28 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadAlbums(query: CatalogQuery = {}) {
     const request = ++albumsRequest
+    const path = queryPath('/catalog/albums', query)
     albumsAbortController?.abort()
+    const cached = readCachedPage(albumPages, path)
+    if (cached) {
+      albums.value = cached
+      albumsLoading.value = false
+      albumsError.value = null
+      albumsAbortController = null
+      return
+    }
+
     albumsAbortController = new AbortController()
     albumsLoading.value = true
     albumsError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Album>>(queryPath('/catalog/albums', query), {
+      const result = await apiRequest<CatalogPage<Album>>(path, {
         signal: albumsAbortController.signal,
       })
-      if (request === albumsRequest) albums.value = result
+      if (request === albumsRequest) {
+        rememberPage(albumPages, path, result)
+        albums.value = result
+      }
     } catch (cause) {
       if (isAbortError(cause)) return
       if (request === albumsRequest) albumsError.value = errorMessage(cause)
@@ -393,15 +544,28 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadTracks(query: CatalogQuery = {}) {
     const request = ++tracksRequest
+    const path = queryPath('/catalog/tracks', query)
     tracksAbortController?.abort()
+    const cached = readCachedPage(trackPages, path)
+    if (cached) {
+      tracks.value = cached
+      tracksLoading.value = false
+      tracksError.value = null
+      tracksAbortController = null
+      return
+    }
+
     tracksAbortController = new AbortController()
     tracksLoading.value = true
     tracksError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Track>>(queryPath('/catalog/tracks', query), {
+      const result = await apiRequest<CatalogPage<Track>>(path, {
         signal: tracksAbortController.signal,
       })
-      if (request === tracksRequest) tracks.value = result
+      if (request === tracksRequest) {
+        rememberPage(trackPages, path, result)
+        tracks.value = result
+      }
     } catch (cause) {
       if (isAbortError(cause)) return
       if (request === tracksRequest) tracksError.value = errorMessage(cause)
@@ -563,6 +727,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   function applyAlbumPersonalMetadata(albumId: number, personalMetadata: AlbumPersonalMetadata) {
+    invalidateBrowseCache()
     albums.value = {
       ...albums.value,
       items: albums.value.items.map((album) => album.id === albumId ? { ...album, personalMetadata } : album),
@@ -587,11 +752,23 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function loadGenres(query: CatalogQuery = {}) {
     const request = ++genresRequest
+    const path = queryPath('/catalog/genres', query)
+    const cached = readCachedPage(genrePages, path)
+    if (cached) {
+      genres.value = cached
+      genresLoading.value = false
+      genresError.value = null
+      return
+    }
+
     genresLoading.value = true
     genresError.value = null
     try {
-      const result = await apiRequest<CatalogPage<Genre>>(queryPath('/catalog/genres', query))
-      if (request === genresRequest) genres.value = result
+      const result = await apiRequest<CatalogPage<Genre>>(path)
+      if (request === genresRequest) {
+        rememberPage(genrePages, path, result)
+        genres.value = result
+      }
     } catch (cause) {
       if (request === genresRequest) genresError.value = errorMessage(cause)
     } finally {
@@ -600,6 +777,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   function updateTrackPlayStatistics(trackId: number, statistics: TrackPlayStatistics) {
+    invalidateBrowseCache()
     const updateTrack = <T extends Track>(track: T): T => track.id === trackId
       ? { ...track, playStatistics: statistics }
       : track
@@ -623,6 +801,8 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   return {
     artists,
+    musicians,
+    musicianDetail,
     artistDetail,
     albums,
     albumDetail,
@@ -630,6 +810,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     trackDetail,
     genres,
     artistsLoading,
+    musiciansLoading,
+    musicianDetailLoading,
     artistDetailLoading,
     albumsLoading,
     albumDetailLoading,
@@ -637,6 +819,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     trackDetailLoading,
     genresLoading,
     artistsError,
+    musiciansError,
+    musicianDetailError,
     artistDetailError,
     albumsError,
     albumDetailError,
@@ -650,7 +834,10 @@ export const useCatalogStore = defineStore('catalog', () => {
     metricsHaveCatalog,
     loadMetrics,
     invalidateMetrics,
+    invalidateCatalog,
     loadArtists,
+    loadMusicians,
+    loadMusician,
     loadArtist,
     loadAlbums,
     loadAlbum,

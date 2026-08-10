@@ -9,6 +9,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -24,6 +25,8 @@ interface TrackFilters {
   search: string
   genre: number | null
   genreName: string
+  musician: number | null
+  musicianName: string
   playStatus: 'all' | 'never'
   physicalCopy: PhysicalCopyFilter
   sort: TrackSort
@@ -47,6 +50,8 @@ const search = ref(restoredFilters.search)
 const searchInput = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
+const musician = ref(restoredFilters.musician)
+const musicianName = ref(restoredFilters.musicianName)
 const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const sort = ref<TrackSort>(restoredFilters.sort)
@@ -77,6 +82,8 @@ function currentFilters(): TrackFilters {
     search: querySearch(search.value),
     genre: genre.value,
     genreName: genreName.value,
+    musician: musician.value,
+    musicianName: musicianName.value,
     playStatus: playStatus.value,
     physicalCopy: physicalCopy.value,
     sort: sort.value,
@@ -89,6 +96,8 @@ function defaultFilters(): TrackFilters {
     search: '',
     genre: null,
     genreName: '',
+    musician: null,
+    musicianName: '',
     playStatus: 'all',
     physicalCopy: 'all',
     sort: 'album',
@@ -111,6 +120,8 @@ function filtersFromQuery(): TrackFilters | null {
     search: querySearch(route.query.search),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    musician: queryNumber(route.query.musician),
+    musicianName: querySearch(route.query.musicianName),
     playStatus: queryPlayStatus(route.query.playStatus),
     physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
     sort: queryTrackSort(route.query.sort),
@@ -118,7 +129,7 @@ function filtersFromQuery(): TrackFilters | null {
 }
 
 function hasFilterQuery() {
-  return ['page', 'search', 'genre', 'genreName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
+  return ['page', 'search', 'genre', 'genreName', 'musician', 'musicianName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): TrackFilters | null {
@@ -133,6 +144,8 @@ function filtersFromStorage(): TrackFilters | null {
       search: typeof parsed.search === 'string' ? parsed.search : '',
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      musician: typeof parsed.musician === 'number' ? parsed.musician : null,
+      musicianName: typeof parsed.musicianName === 'string' ? parsed.musicianName : '',
       playStatus: queryPlayStatus(parsed.playStatus),
       physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
       sort: queryTrackSort(parsed.sort),
@@ -167,6 +180,8 @@ function applyFilters(filters: TrackFilters) {
   searchInput.value = filters.search
   genre.value = filters.genre
   genreName.value = filters.genreName
+  musician.value = filters.musician
+  musicianName.value = filters.musicianName
   playStatus.value = filters.playStatus
   physicalCopy.value = filters.physicalCopy
   sort.value = filters.sort
@@ -181,6 +196,8 @@ function filterQuery(filters: TrackFilters) {
   if (filters.search.trim()) query.search = filters.search.trim()
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.musician) query.musician = String(filters.musician)
+  if (filters.musicianName.trim()) query.musicianName = filters.musicianName.trim()
   if (filters.playStatus === 'never') query.playStatus = filters.playStatus
   if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
   if (filters.sort !== 'album') query.sort = filters.sort
@@ -194,6 +211,8 @@ function normalizedFilterQuery(query: typeof route.query) {
     search: querySearch(query.search),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    musician: queryNumber(query.musician),
+    musicianName: querySearch(query.musicianName),
     playStatus: queryPlayStatus(query.playStatus),
     physicalCopy: queryPhysicalCopy(query.physicalCopy),
     sort: queryTrackSort(query.sort),
@@ -236,6 +255,12 @@ function clearGenreFilter() {
   page.value = 1
 }
 
+function clearMusicianFilter() {
+  musician.value = null
+  musicianName.value = ''
+  page.value = 1
+}
+
 function changePage(value: number) {
   if (value === page.value) return
 
@@ -268,6 +293,7 @@ function load() {
     page: page.value,
     search: querySearch(search.value),
     genre: genre.value,
+    musician: musician.value,
     playStatus: playStatus.value === 'never' ? playStatus.value : null,
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
     sort: sort.value,
@@ -298,6 +324,8 @@ function playRandomTrack() {
     search: filters.search.trim(),
     genreId: filters.genre,
     genreName: filters.genreName,
+    musicianId: filters.musician,
+    musicianName: filters.musicianName,
     playStatus: filters.playStatus === 'never' ? 'never' : null,
     physicalCopy: filters.physicalCopy === 'all' ? null : filters.physicalCopy,
     sort: filters.sort,
@@ -329,6 +357,7 @@ function openAddToPlaylist(track: Track) {
 }
 
 saveFilters()
+useCachedViewActivation(load)
 
 watch(() => route.query, () => {
   if (route.name !== 'tracks') return
@@ -344,14 +373,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([genre, genreName, playStatus, physicalCopy, sort], () => {
+watch([genre, genreName, musician, musicianName, playStatus, physicalCopy, sort], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, search, genre, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, search, genre, musician, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch([
   () => catalog.tracks.items.map((track) => track.id),
   () => libraryRootScope.selectedRootId,
@@ -415,9 +444,12 @@ watch([
       :label="t('tracks.sortBy')"
     />
   </div>
-  <div v-if="genre" class="d-flex flex-wrap ga-2 mb-6">
+  <div v-if="genre || musician" class="d-flex flex-wrap ga-2 mb-6">
     <v-chip v-if="genre" closable color="primary" variant="tonal" @click:close="clearGenreFilter">
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
+    </v-chip>
+    <v-chip v-if="musician" closable color="primary" variant="tonal" @click:close="clearMusicianFilter">
+      {{ t('musicians.filterLabel', { name: musicianName || t('musicians.filterFallback', { id: musician }) }) }}
     </v-chip>
   </div>
   <div ref="resultsTop" class="catalog-results-anchor" />

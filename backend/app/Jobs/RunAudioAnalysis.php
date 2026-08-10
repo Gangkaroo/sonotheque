@@ -5,7 +5,9 @@ namespace App\Jobs;
 use App\Models\AudioAnalysisArtifact;
 use App\Models\AudioAnalysisRun;
 use App\Models\AudioAnalysisRunItem;
+use App\Models\ApplicationSetting;
 use App\Music\Intelligence\AudioAnalyzer;
+use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -27,11 +29,15 @@ class RunAudioAnalysis implements ShouldQueue
         $this->onQueue('analysis');
     }
 
-    public function handle(AudioAnalyzer $analyzer, LibraryPathGuard $pathGuard): void
-    {
+    public function handle(
+        AudioAnalyzer $analyzer,
+        AudioVectorIndex $vectorIndex,
+        LibraryPathGuard $pathGuard,
+    ): void {
         $run = AudioAnalysisRun::with([
             'profile',
         ])->findOrFail($this->audioAnalysisRunId);
+        $accelerator = ApplicationSetting::current()->audioIntelligenceAccelerator();
 
         if ($run->phase !== 'analysis') {
             return;
@@ -91,11 +97,12 @@ class RunAudioAnalysis implements ShouldQueue
                         1,
                         (int) round((hrtime(true) - $analysisStarted) / 1_000_000),
                     );
-                    $this->persistChunkResults($run, $chunk, $results);
+                    $this->persistChunkResults($run, $chunk, $results, $vectorIndex);
                     $this->recordAnalysisTiming(
                         $run,
                         $measuredTrackCount,
                         $analysisElapsedMs,
+                        $accelerator,
                     );
                 }
                 $run->update(['heartbeat_at' => now()]);
@@ -233,8 +240,12 @@ class RunAudioAnalysis implements ShouldQueue
      * @param  Collection<int, AudioAnalysisRunItem>  $chunk
      * @param  list<\App\Music\Intelligence\AudioAnalyzerResult>  $results
      */
-    private function persistChunkResults(AudioAnalysisRun $run, Collection $chunk, array $results): void
-    {
+    private function persistChunkResults(
+        AudioAnalysisRun $run,
+        Collection $chunk,
+        array $results,
+        AudioVectorIndex $vectorIndex,
+    ): void {
         $items = $chunk->keyBy('id');
         $handled = [];
 
@@ -281,6 +292,7 @@ class RunAudioAnalysis implements ShouldQueue
                     'hardware' => $result->hardware,
                 ],
             );
+            $vectorIndex->synchronize($artifact, $result->embedding);
             foreach ($matchingItems as $matchingItem) {
                 $matchingItem->update([
                     'audio_analysis_artifact_id' => $artifact->id,
@@ -356,12 +368,22 @@ class RunAudioAnalysis implements ShouldQueue
         AudioAnalysisRun $run,
         int $trackCount,
         int $elapsedMs,
+        string $accelerator,
     ): void {
         $summary = $run->summary ?? [];
+        $configuredAccelerator = strtolower((string) config(
+            'sonotheque.audio_intelligence.accelerator',
+            'cpu',
+        ));
+        $imageKey = $accelerator === $configuredAccelerator
+            ? 'sonotheque.audio_intelligence.docker_image'
+            : ($accelerator === 'cuda'
+                ? 'sonotheque.audio_intelligence.benchmark_cuda_image'
+                : 'sonotheque.audio_intelligence.benchmark_cpu_image');
         $performanceKey = hash('sha256', json_encode([
             'driver' => config('sonotheque.audio_intelligence.driver'),
-            'image' => config('sonotheque.audio_intelligence.docker_image'),
-            'accelerator' => config('sonotheque.audio_intelligence.accelerator'),
+            'image' => config($imageKey),
+            'accelerator' => $accelerator,
             'persistent' => config('sonotheque.audio_intelligence.persistent'),
             'cpuLimit' => config('sonotheque.audio_intelligence.cpu_limit'),
             'memoryLimit' => config('sonotheque.audio_intelligence.memory_limit'),

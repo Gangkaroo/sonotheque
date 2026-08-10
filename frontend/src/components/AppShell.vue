@@ -39,7 +39,7 @@ const canNavigateForward = computed(() => {
 
   return typeof window.history.state?.forward === 'string'
 })
-const filterableListRoutes = new Set(['artists', 'albums', 'tracks', 'genres'])
+const filterableListRoutes = new Set(['artists', 'musicians', 'albums', 'tracks', 'genres'])
 const viewKey = computed(() => {
   const routeName = String(route.name ?? 'unknown')
 
@@ -54,17 +54,26 @@ const libraryRootOptions = computed(() => [
     .map((root) => ({ title: root.name, value: root.id })),
 ])
 
-const navigation = computed(() => [
-  { title: t('navigation.dashboard'), icon: 'mdi-view-dashboard-outline', to: '/' },
-  { title: t('navigation.artists'), icon: 'mdi-account-music-outline', to: '/artists' },
-  { title: t('navigation.genres'), icon: 'mdi-tag-multiple-outline', to: '/genres' },
-  { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
-  { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
-  { title: t('navigation.folders'), icon: 'mdi-folder-music-outline', to: '/folders' },
-  { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
-  { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
-  { title: t('navigation.history'), icon: 'mdi-history', to: '/history' },
-  { title: t('navigation.trash'), icon: 'mdi-delete-clock-outline', to: '/trash' },
+const navigationGroups = computed(() => [
+  [
+    { title: t('navigation.dashboard'), icon: 'mdi-view-dashboard-outline', to: '/' },
+  ],
+  [
+    { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },
+    { title: t('navigation.tracks'), icon: 'mdi-music-note-outline', to: '/tracks' },
+    { title: t('navigation.playlists'), icon: 'mdi-playlist-music-outline', to: '/playlists' },
+    { title: t('navigation.favorites'), icon: 'mdi-heart-outline', to: '/favorites' },
+  ],
+  [
+    { title: t('navigation.genres'), icon: 'mdi-tag-multiple-outline', to: '/genres' },
+    { title: t('navigation.artists'), icon: 'mdi-account-music-outline', to: '/artists' },
+    { title: t('navigation.musicians'), icon: 'mdi-account-star-outline', to: '/musicians' },
+  ],
+  [
+    { title: t('navigation.folders'), icon: 'mdi-folder-music-outline', to: '/folders' },
+    { title: t('navigation.history'), icon: 'mdi-history', to: '/history' },
+    { title: t('navigation.trash'), icon: 'mdi-delete-clock-outline', to: '/trash' },
+  ],
 ])
 watch(
   () => preferences.locale,
@@ -129,16 +138,19 @@ watch(
 
       <v-divider />
 
-      <v-list nav class="pa-3">
-        <v-list-item
-          v-for="item in navigation"
-          :key="item.to"
-          :prepend-icon="item.icon"
-          :title="item.title"
-          :to="item.to"
-          rounded="lg"
-        />
-      </v-list>
+      <template v-for="(group, groupIndex) in navigationGroups" :key="groupIndex">
+        <v-divider v-if="groupIndex > 0" />
+        <v-list nav class="px-3 py-1">
+          <v-list-item
+            v-for="item in group"
+            :key="item.to"
+            :prepend-icon="item.icon"
+            :title="item.title"
+            :to="item.to"
+            rounded="lg"
+          />
+        </v-list>
+      </template>
 
       <template v-if="player.currentTrack">
         <v-divider />
@@ -226,7 +238,20 @@ watch(
 
     <v-main>
       <v-container class="page-container py-8" fluid>
-        <router-view :key="viewKey" />
+        <router-view v-slot="{ Component, route: currentRoute }">
+          <KeepAlive :max="12">
+            <component
+              :is="Component"
+              v-if="currentRoute.meta.keepAlive"
+              :key="viewKey"
+            />
+          </KeepAlive>
+          <component
+            :is="Component"
+            v-if="!currentRoute.meta.keepAlive"
+            :key="viewKey"
+          />
+        </router-view>
       </v-container>
     </v-main>
 

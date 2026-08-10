@@ -85,6 +85,7 @@ interface MetadataEditJob {
   trackId: number
   status: 'pending' | 'running' | 'completed' | 'failed'
   error?: string | null
+  failureReason?: string | null
   backup?: MetadataBackup | null
 }
 
@@ -419,7 +420,7 @@ async function pollMetadataEdit() {
     if (metadataJob.value.status === 'completed') {
       metadataDialog.value = false
       metadataSuccess.value = true
-      catalog.invalidateMetrics()
+      catalog.invalidateCatalog()
       await catalog.loadTrack(trackId.value)
       if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
       if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
@@ -427,7 +428,7 @@ async function pollMetadataEdit() {
       return
     }
     if (metadataJob.value.status === 'failed') {
-      metadataError.value = metadataJob.value.error ?? t('tracks.metadataEditFailed')
+      metadataError.value = metadataJob.value.failureReason ?? metadataJob.value.error ?? t('tracks.metadataEditFailed')
       return
     }
     scheduleMetadataPoll()

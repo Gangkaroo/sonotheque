@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'track_id',
     'musician_id',
     'provider',
+    'source_credit_key',
     'source_entity_type',
     'source_entity_reference',
     'relationship_type',

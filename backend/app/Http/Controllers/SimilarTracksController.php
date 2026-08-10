@@ -17,8 +17,9 @@ class SimilarTracksController extends Controller
 
     public function __invoke(Request $request, Track $track): JsonResponse
     {
+        $settings = ApplicationSetting::current();
         abort_unless(
-            ApplicationSetting::current()->audio_intelligence_enabled,
+            $settings->audio_intelligence_enabled,
             409,
             'Enable audio intelligence before finding similar tracks.',
         );
@@ -33,6 +34,7 @@ class SimilarTracksController extends Controller
             $validated['limit'] ?? 10,
             $validated['excludeSameAlbum'] ?? true,
             $validated['excludeSameArtist'] ?? true,
+            $settings->audioSimilarityReranking(),
         );
 
         abort_if($result === null, 404, 'This track has no compatible audio analysis artifact.');

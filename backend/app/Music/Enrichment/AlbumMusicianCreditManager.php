@@ -385,6 +385,18 @@ class AlbumMusicianCreditManager
                     'track_id' => $credit->trackId,
                     'musician_id' => $musician->id,
                     'provider' => self::PROVIDER,
+                    'source_credit_key' => MusicianCreditSourceKey::make(
+                        provider: self::PROVIDER,
+                        musicianProvider: $musician->provider,
+                        musicianReference: $musician->provider_reference,
+                        sourceEntityType: $credit->sourceEntityType,
+                        sourceEntityReference: $credit->sourceEntityReference,
+                        relationshipType: $credit->relationshipType,
+                        role: $credit->role,
+                        creditedAs: $credit->creditedAs,
+                        guest: $credit->guest,
+                        additional: $credit->additional,
+                    ),
                     'source_entity_type' => $credit->sourceEntityType,
                     'source_entity_reference' => $credit->sourceEntityReference,
                     'relationship_type' => $credit->relationshipType,
@@ -651,18 +663,7 @@ class AlbumMusicianCreditManager
 
     private function sourceKey(AlbumMusicianCredit $credit): string
     {
-        return hash('sha256', implode('|', [
-            $credit->provider,
-            $credit->musician->provider,
-            $credit->musician->provider_reference,
-            $credit->source_entity_type,
-            $credit->source_entity_reference,
-            $credit->relationship_type,
-            $credit->role,
-            $credit->credited_as ?? '',
-            $credit->is_guest ? 'guest' : '',
-            $credit->is_additional ? 'additional' : '',
-        ]));
+        return $credit->source_credit_key;
     }
 
     /**

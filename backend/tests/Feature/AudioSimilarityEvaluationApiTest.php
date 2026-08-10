@@ -11,6 +11,7 @@ use App\Models\AudioAnalysisRun;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Music\Intelligence\AudioVectorIndex;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -48,7 +49,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             'model_version' => '1',
             'model_checksum' => str_repeat('a', 64),
             'model_license' => 'Test model license',
-            'embedding_dimensions' => 3,
+            'embedding_dimensions' => AudioVectorIndex::DIMENSIONS,
             'sample_rate' => 16000,
             'manifest' => [],
         ]);
@@ -67,7 +68,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             $album,
             $artist,
             'Source',
-            [1.0, 0.0, 0.0],
+            $this->embedding(1.0, 0.0),
             ['bpm' => 120.0, 'key' => 'C'],
             0,
         );
@@ -77,7 +78,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             $album,
             $artist,
             'Near',
-            [0.9, 0.1, 0.0],
+            $this->embedding(0.9, 0.1),
             ['bpm' => 121.0, 'key' => 'C'],
             1,
         );
@@ -87,7 +88,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             $album,
             $artist,
             'Far',
-            [0.0, 1.0, 0.0],
+            $this->embedding(0.0, 1.0),
             ['bpm' => 80.0, 'key' => 'G'],
             2,
         );
@@ -95,7 +96,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         $this->getJson('/api/settings/audio-intelligence/evaluation')
             ->assertOk()
             ->assertJsonPath('analyzedTrackCount', 3)
-            ->assertJsonPath('profile.embeddingDimensions', 3)
+            ->assertJsonPath('profile.embeddingDimensions', AudioVectorIndex::DIMENSIONS)
             ->assertJsonPath('coverage.rootCount', 1)
             ->assertJsonPath('coverage.artistCount', 1)
             ->assertJsonPath('coverage.albumCount', 1)
@@ -120,9 +121,12 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             ->assertJsonPath('source.durationMs', 123000)
             ->assertJsonPath('source.albumOriginalReleaseYear', 2026)
             ->assertJsonPath('candidateCount', 2)
+            ->assertJsonPath('ranking.method', 'embedding')
+            ->assertJsonPath('ranking.candidatePoolSize', 2)
             ->assertJsonPath('matches.0.id', $near->id)
             ->assertJsonPath('matches.1.id', $far->id)
             ->assertJsonPath('matches.0.features.bpm', 121)
+            ->assertJsonPath('matches.0.rankingScore', $response->json('matches.0.similarity'))
             ->assertJsonCount(2, 'matches');
         $this->assertGreaterThan(
             $response->json('matches.1.similarity'),
@@ -155,6 +159,24 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             ->assertJsonPath('matches.0.id', $near->id)
             ->assertJsonPath('matches.1.id', $far->id)
             ->assertJsonCount(2, 'matches');
+
+        ApplicationSetting::current()->update([
+            'audio_similarity_reranking_enabled' => true,
+            'audio_similarity_tempo_influence' => 10,
+            'audio_similarity_key_influence' => 0,
+            'audio_similarity_intensity_influence' => 0,
+        ]);
+        $this->getJson("/api/settings/audio-intelligence/evaluation/{$source->id}?limit=2")
+            ->assertOk()
+            ->assertJsonPath('ranking.method', 'feature_reranking')
+            ->assertJsonPath('ranking.preferences.tempoInfluence', 10)
+            ->assertJsonStructure([
+                'matches' => [[
+                    'similarity',
+                    'rankingScore',
+                    'featureCompatibility' => ['tempo', 'key', 'intensity'],
+                ]],
+            ]);
 
         $this->putJson(
             "/api/settings/audio-intelligence/evaluation/{$source->id}"
@@ -270,6 +292,7 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             'features' => $features,
             'embedding' => $embedding,
         ]);
+        app(AudioVectorIndex::class)->synchronize($artifact, $embedding);
         $run->items()->create([
             'track_id' => $track->id,
             'library_root_id' => $rootId,
@@ -281,5 +304,15 @@ class AudioSimilarityEvaluationApiTest extends TestCase
         ]);
 
         return $track;
+    }
+
+    /** @return list<float> */
+    private function embedding(float $first, float $second): array
+    {
+        $embedding = array_fill(0, AudioVectorIndex::DIMENSIONS, 0.0);
+        $embedding[0] = $first;
+        $embedding[1] = $second;
+
+        return $embedding;
     }
 }

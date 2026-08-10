@@ -24,7 +24,7 @@ class AudioSimilarityEvaluationController extends Controller
 
     public function show(Request $request, Track $track): JsonResponse
     {
-        $this->requireEnabledWorkspace();
+        $settings = $this->requireEnabledWorkspace();
         $validated = $request->validate([
             'limit' => ['sometimes', 'integer', 'min:1', 'max:25'],
             'excludeSameAlbum' => ['sometimes', 'boolean'],
@@ -35,6 +35,7 @@ class AudioSimilarityEvaluationController extends Controller
             $validated['limit'] ?? 10,
             $validated['excludeSameAlbum'] ?? false,
             $validated['excludeSameArtist'] ?? false,
+            $settings->audioSimilarityReranking(),
         );
 
         abort_if($result === null, 404, 'This track has no compatible audio analysis artifact.');
@@ -83,12 +84,15 @@ class AudioSimilarityEvaluationController extends Controller
         );
     }
 
-    private function requireEnabledWorkspace(): void
+    private function requireEnabledWorkspace(): ApplicationSetting
     {
+        $settings = ApplicationSetting::current();
         abort_unless(
-            ApplicationSetting::current()->audio_intelligence_enabled,
+            $settings->audio_intelligence_enabled,
             409,
             'Enable audio intelligence before evaluating similarity.',
         );
+
+        return $settings;
     }
 }

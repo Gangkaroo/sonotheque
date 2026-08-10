@@ -24,7 +24,18 @@ import { usePlaylistsStore } from '@/stores/playlists'
 import { useStatisticsStore } from '@/stores/statistics'
 import { openExternalUrl } from '@/utils/externalLinks'
 import { formatDuration as queueDuration, formatTotalDuration } from '@/utils/formatters'
-import { playbackHandoffAction, releaseMediaSource } from '@/utils/mediaPlayback'
+import {
+  playbackHandoffAction,
+  playbackProgressHasStalled,
+  releaseMediaSource,
+} from '@/utils/mediaPlayback'
+import {
+  clearMediaSession,
+  installMediaSessionHandlers,
+  updateMediaSessionMetadata,
+  updateMediaSessionPlaybackState,
+  updateMediaSessionPosition,
+} from '@/utils/mediaSession'
 import { PlaybackListenAccumulator } from '@/utils/playbackListenAccumulator'
 import { activeSynchronizedLyricIndex, parseSynchronizedLyrics } from '@/utils/synchronizedLyrics'
 
@@ -34,6 +45,9 @@ const MAXIMUM_COUNTED_PLAY_THRESHOLD_SECONDS = 240
 const PLAYBACK_HANDOFF_RETRY_MS = 2500
 const PLAYBACK_HANDOFF_TIMEOUT_MS = 30000
 const PLAYBACK_ERROR_RETRY_MS = 250
+const PLAYBACK_PROGRESS_CHECK_MS = 2000
+const PLAYBACK_STALL_TIMEOUT_MS = 10000
+const MAXIMUM_STALL_RECOVERY_ATTEMPTS = 2
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const nowPlayingPanel = useNowPlayingPanelStore()
@@ -75,6 +89,12 @@ let playbackHandoffRetryTimer: ReturnType<typeof window.setTimeout> | null = nul
 let playbackHandoffTimeoutTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackErrorRetryTimer: ReturnType<typeof window.setTimeout> | null = null
 let playbackErrorRetryKey: string | null = null
+let playbackProgressTimer: ReturnType<typeof window.setInterval> | null = null
+let lastPlaybackProgressAt = Date.now()
+let lastPlaybackMediaTime = player.playbackPosition
+let stallRecoveryAttempts = 0
+let reloadOnNextResume = false
+let removeMediaSessionHandlers: () => void = () => undefined
 let playbackAttemptId = 0
 const volumeSlider = computed({
   get: () => Math.round(player.volume * 100),
@@ -167,6 +187,9 @@ const playbackScopeLabels = computed(() => {
   if (scope.genreId !== null) {
     labels.push(t('player.playbackScopeGenre', { value: scope.genreName || `#${scope.genreId}` }))
   }
+  if (scope.musicianId !== null) {
+    labels.push(t('player.playbackScopeMusician', { value: scope.musicianName || `#${scope.musicianId}` }))
+  }
   if (scope.type === 'albums') {
     if (scope.initial) labels.push(t('player.playbackScopeInitial', { value: scope.initial }))
     if (scope.year !== null) labels.push(t('player.playbackScopeYear', { value: scope.year }))
@@ -225,6 +248,7 @@ watch(
     nextPlayReportListenedMs = 0
     listenedPlayback.reset(player.listenedPlaybackMs)
     currentTime.value = player.playbackPosition
+    resetPlaybackProgressWatchdog(player.playbackPosition)
     duration.value = 0
     isRestoringPosition.value = player.playbackPosition > 0
     resumeAfterMetadata.value = player.isPlaying
@@ -313,6 +337,10 @@ watch(
     if (isPlaying) {
       if (currentPlayKey.value) schedulePlaybackHandoff(currentPlayKey.value)
       if (resumeAfterMetadata.value) return
+      if (reloadOnNextResume) {
+        recoverStalledPlayback()
+        return
+      }
       await playAudio()
     } else {
       playbackAttemptId += 1
@@ -328,6 +356,33 @@ watch(
     if (audio.value) audio.value.volume = volume
   },
   { immediate: true },
+)
+
+watch(
+  [
+    () => player.currentTrack?.id,
+    trackTitle,
+    artistNames,
+    albumTitle,
+    albumArtworkThumbnailUrl,
+  ],
+  ([trackId, title, artist, album, artworkUrl]) => {
+    updateMediaSessionMetadata(trackId
+      ? { album, artist, artworkUrl, title }
+      : null)
+  },
+  { immediate: true },
+)
+
+watch(
+  [() => Boolean(player.currentTrack), () => player.isPlaying],
+  ([hasTrack, isPlaying]) => updateMediaSessionPlaybackState(hasTrack, isPlaying),
+  { immediate: true },
+)
+
+watch(
+  [currentTime, duration],
+  ([position, mediaDuration]) => updateMediaSessionPosition(position, mediaDuration),
 )
 
 watch(createQueuePlaylistDialog, (open) => {
@@ -396,6 +451,7 @@ async function playAudio(showError = true) {
 
 function togglePlayback() {
   if (player.isPlaying) {
+    reloadOnNextResume = reloadOnNextResume || playbackProgressIsStalled(3000)
     player.pause()
   } else if (player.playbackState === 'error') {
     retryPlaybackAfterError()
@@ -413,6 +469,7 @@ function retryPlaybackAfterError() {
   isRestoringPosition.value = player.playbackPosition > 0
   resumeAfterMetadata.value = true
   isRestoringPlayback.value = false
+  resetPlaybackProgressWatchdog(player.playbackPosition)
   player.resume()
   audio.value.load()
 }
@@ -421,6 +478,7 @@ function updateProgress(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
   syncAudioProgress(!isRestoringPosition.value)
+  observePlaybackProgress()
   observeListenedPlayback()
   maybeRecordCountedPlay()
 }
@@ -551,6 +609,9 @@ function onLoading(event: Event) {
   }
 
   suspendListenedPlayback(audio.value?.currentTime)
+  if (event.type === 'waiting' || event.type === 'stalled') {
+    reloadOnNextResume = true
+  }
   if (player.isPlaying) {
     if (audio.value) player.setPlaybackPosition(audio.value.currentTime)
     player.setPlaybackState('loading')
@@ -583,6 +644,7 @@ function onPlaying(event?: Event) {
   clearPlaybackHandoffTimers()
   endSeekFeedback()
   player.setPlaybackState('playing')
+  lastPlaybackProgressAt = Date.now()
   listenedPlayback.resume(audio.value?.currentTime ?? currentTime.value)
   maybeRecordCountedPlay()
 }
@@ -598,6 +660,7 @@ function onSeeked(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
   syncAudioProgress(true)
+  setPlaybackProgressBaseline(audio.value?.currentTime ?? currentTime.value)
   endSeekFeedback()
   if (player.isPlaying && audio.value && !audio.value.paused && !audio.value.seeking) {
     listenedPlayback.resume(audio.value.currentTime)
@@ -882,6 +945,78 @@ function clearPlaybackErrorRetry() {
   playbackErrorRetryTimer = null
 }
 
+function observePlaybackProgress() {
+  const mediaTime = audio.value?.currentTime ?? currentTime.value
+  if (mediaTime <= lastPlaybackMediaTime + 0.05) return
+
+  lastPlaybackMediaTime = mediaTime
+  lastPlaybackProgressAt = Date.now()
+  stallRecoveryAttempts = 0
+  reloadOnNextResume = false
+}
+
+function resetPlaybackProgressWatchdog(mediaTime = 0) {
+  setPlaybackProgressBaseline(mediaTime)
+  stallRecoveryAttempts = 0
+}
+
+function setPlaybackProgressBaseline(mediaTime: number) {
+  lastPlaybackMediaTime = mediaTime
+  lastPlaybackProgressAt = Date.now()
+  reloadOnNextResume = false
+}
+
+function playbackProgressIsStalled(timeoutMs = PLAYBACK_STALL_TIMEOUT_MS) {
+  const element = audio.value
+  if (!element || !player.isPlaying) return false
+
+  return playbackProgressHasStalled(
+    element,
+    Date.now() - lastPlaybackProgressAt,
+    timeoutMs,
+  )
+}
+
+function checkPlaybackProgress() {
+  if (!playbackProgressIsStalled()) return
+
+  recoverStalledPlayback()
+}
+
+function recoverStalledPlayback() {
+  const element = audio.value
+  const playKey = currentPlayKey.value
+  if (!element || !playKey || !player.isPlaying) return
+
+  if (stallRecoveryAttempts >= MAXIMUM_STALL_RECOVERY_ATTEMPTS) {
+    clearPlaybackHandoffTimers()
+    player.setError(t('player.playbackError'))
+    return
+  }
+
+  const recoveryPosition = Number.isFinite(element.currentTime)
+    ? element.currentTime
+    : currentTime.value
+
+  stallRecoveryAttempts += 1
+  reloadOnNextResume = false
+  lastPlaybackMediaTime = recoveryPosition
+  lastPlaybackProgressAt = Date.now()
+  suspendListenedPlayback(recoveryPosition)
+  player.setPlaybackPosition(recoveryPosition)
+  playbackAttemptId += 1
+  clearPlaybackHandoffTimers()
+  clearPlaybackErrorRetry()
+  playbackErrorRetryKey = null
+  restoredTrackId.value = null
+  isRestoringPosition.value = recoveryPosition > 0
+  resumeAfterMetadata.value = true
+  isRestoringPlayback.value = true
+  player.setPlaybackState('loading')
+  element.load()
+  schedulePlaybackHandoff(playKey)
+}
+
 function releasePreviousMediaSource(nextPlayKey: string | null) {
   const element = audio.value
   if (!element || element.dataset.playKey === nextPlayKey) return
@@ -918,12 +1053,22 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', persistCurrentPlaybackState)
   clearPlaybackHandoffTimers()
   clearPlaybackErrorRetry()
+  if (playbackProgressTimer) window.clearInterval(playbackProgressTimer)
   clearSeekFeedback()
+  removeMediaSessionHandlers()
+  clearMediaSession()
   if (audio.value) releasePlayerMediaSource(audio.value)
 })
 
 onMounted(() => {
   window.addEventListener('beforeunload', persistCurrentPlaybackState)
+  playbackProgressTimer = window.setInterval(checkPlaybackProgress, PLAYBACK_PROGRESS_CHECK_MS)
+  removeMediaSessionHandlers = installMediaSessionHandlers({
+    nextTrack: () => void player.next(),
+    pause: () => player.pause(),
+    play: () => player.playbackState === 'error' ? retryPlaybackAfterError() : player.resume(),
+    previousTrack: () => player.previous(),
+  })
 })
 </script>
 

@@ -98,7 +98,7 @@ async function confirmDeletion() {
   deleteDialog.value = false
   pendingDeletion.value = []
   selectedIds.value = selectedIds.value.filter((id) => !deletedIds.has(id))
-  catalog.invalidateMetrics()
+  catalog.invalidateCatalog()
   void favorites.loadIds(true)
 
   const nextPage = trash.tracks.items.length <= ids.length && page.value > 1

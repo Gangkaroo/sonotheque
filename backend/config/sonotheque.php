@@ -77,6 +77,9 @@ return [
         'backup_status_path' => storage_path('app/system-backups/latest.json'),
         'scheduler_heartbeat_key' => 'sonotheque:system-health:scheduler-heartbeat',
         'scheduler_stale_seconds' => (int) env('SYSTEM_HEALTH_SCHEDULER_STALE_SECONDS', 180),
+        'worker_heartbeat_interval_seconds' => (int) env('SYSTEM_HEALTH_WORKER_HEARTBEAT_INTERVAL_SECONDS', 10),
+        'worker_stale_seconds' => (int) env('SYSTEM_HEALTH_WORKER_STALE_SECONDS', 45),
+        'worker_busy_stale_seconds' => (int) env('SYSTEM_HEALTH_WORKER_BUSY_STALE_SECONDS', 300),
     ],
 
     'lastfm' => [

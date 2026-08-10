@@ -138,27 +138,30 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         $values = $edit->requested_changes;
         $changedFields = array_fill_keys(array_column($edit->preview['changes'], 'field'), true);
         $attributes = [];
+        $artistIdsToClean = collect();
+        $albumArtist = null;
         if (isset($changedFields['albumTitle'])) {
             $attributes['title'] = $values['albumTitle'];
             $attributes['sort_title'] = $values['albumTitle'];
         }
         if (isset($changedFields['albumArtist'])) {
             $previousArtistId = $edit->album->primary_artist_id;
-            $artist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$values['albumArtist']])->first();
-            if ($artist === null) {
-                $artist = Artist::create([
+            $artistIdsToClean->push($previousArtistId);
+            $albumArtist = Artist::query()->whereRaw('LOWER(name) = LOWER(?)', [$values['albumArtist']])->first();
+            if ($albumArtist === null) {
+                $albumArtist = Artist::create([
                     'name' => $values['albumArtist'],
                     'sort_name' => $values['albumArtist'],
                     'browse_initial' => $artistName->browseInitial($values['albumArtist']),
                 ]);
-            } elseif ($artist->name !== $values['albumArtist']) {
-                $artist->update([
+            } elseif ($albumArtist->name !== $values['albumArtist']) {
+                $albumArtist->update([
                     'name' => $values['albumArtist'],
                     'sort_name' => $values['albumArtist'],
                     'browse_initial' => $artistName->browseInitial($values['albumArtist']),
                 ]);
             }
-            $attributes['primary_artist_id'] = $artist->id;
+            $attributes['primary_artist_id'] = $albumArtist->id;
         }
         if (isset($changedFields['releaseYear'])) {
             $attributes['original_release_year'] = $values['releaseYear'];
@@ -169,9 +172,17 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         if ($attributes !== []) {
             $edit->album->update($attributes);
         }
-        if (isset($changedFields['albumArtist'])) {
+        if (($edit->preview['trackArtistsWillChange'] ?? false) && $albumArtist !== null) {
+            foreach ($edit->album->tracks as $track) {
+                $artistIdsToClean->push(...$track->artists()->pluck('artists.id')->all());
+                $track->artists()->sync([
+                    $albumArtist->id => ['role' => 'primary', 'position' => 0],
+                ]);
+            }
+        }
+        if ($artistIdsToClean->isNotEmpty()) {
             Artist::query()
-                ->whereKey($previousArtistId)
+                ->whereIn('id', $artistIdsToClean->unique()->all())
                 ->whereDoesntHave('albums')
                 ->whereDoesntHave('tracks')
                 ->delete();

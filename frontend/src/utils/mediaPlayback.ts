@@ -10,6 +10,14 @@ export interface PlaybackHandoffMediaElement {
   readyState: number
 }
 
+export interface PlaybackProgressState {
+  currentTime: number
+  duration: number
+  ended: boolean
+  paused: boolean
+  seeking: boolean
+}
+
 export type PlaybackHandoffAction = 'playing' | 'play' | 'wait' | 'reload'
 
 const HAVE_METADATA = 1
@@ -35,4 +43,21 @@ export function playbackHandoffAction(
   if (element.networkState === NETWORK_LOADING) return 'wait'
 
   return 'reload'
+}
+
+export function playbackProgressHasStalled(
+  element: PlaybackProgressState,
+  elapsedWithoutProgressMs: number,
+  timeoutMs: number,
+) {
+  if (
+    element.paused
+    || element.seeking
+    || element.ended
+    || elapsedWithoutProgressMs < timeoutMs
+  ) return false
+
+  const remaining = element.duration - element.currentTime
+
+  return !Number.isFinite(remaining) || remaining > 0.5
 }

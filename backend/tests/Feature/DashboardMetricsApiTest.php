@@ -69,6 +69,7 @@ class DashboardMetricsApiTest extends TestCase
             ->assertOk()
             ->assertExactJson([
                 'artists' => 1,
+                'musicians' => 0,
                 'albums' => 1,
                 'tracks' => 1,
                 'genres' => 1,

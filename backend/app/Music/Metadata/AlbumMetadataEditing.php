@@ -16,12 +16,13 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
      * @return array<string, mixed>
      */
     public function preview(Album $album, array $values): array
     {
-        $album->loadMissing(['primaryArtist', 'tracks.mediaFile', 'tracks.genres']);
+        $values['updateTrackArtists'] = $values['updateTrackArtists'] ?? true;
+        $album->loadMissing(['primaryArtist', 'tracks.mediaFile', 'tracks.artists', 'tracks.genres']);
         $currentGenres = $album->tracks
             ->flatMap(fn ($track) => $track->genres->pluck('name'))
             ->unique(fn (string $name) => mb_strtolower($name))
@@ -37,6 +38,12 @@ class AlbumMetadataEditing
             ->map(fn ($track): ?string => $this->fileAlbumArtist($track->mediaFile?->raw_metadata ?? []));
         $albumArtistFilesMatch = ! $albumArtistFileValues
             ->contains(fn (?string $artist): bool => $artist !== $values['albumArtist']);
+        $trackArtistsMatch = $album->tracks->every(
+            fn ($track): bool => $this->sameNames(
+                $track->artists->pluck('name')->values()->all(),
+                [$values['albumArtist']],
+            ),
+        );
         $current = [
             'albumTitle' => $album->title,
             'albumArtist' => $album->primaryArtist?->name ?? '',
@@ -45,24 +52,33 @@ class AlbumMetadataEditing
             'genres' => $currentGenres,
             'comment' => count($currentComments) === 1 ? $currentComments[0] : $currentComments,
         ];
+        $metadataValues = $values;
+        unset($metadataValues['updateTrackArtists']);
         $changes = [];
-        foreach ($values as $field => $proposed) {
+        foreach ($metadataValues as $field => $proposed) {
             $unchanged = match ($field) {
                 'genres' => $this->sameNames($current[$field], $proposed),
                 'comment' => count($currentComments) === 1 && $currentComments[0] === $proposed,
-                'albumArtist' => $current[$field] === $proposed && $albumArtistFilesMatch,
+                'albumArtist' => $current[$field] === $proposed
+                    && $albumArtistFilesMatch
+                    && (! $values['updateTrackArtists'] || $trackArtistsMatch),
                 default => $current[$field] === $proposed,
             };
             if (! $unchanged) {
                 $change = ['field' => $field, 'current' => $current[$field], 'proposed' => $proposed];
-                if ($field === 'albumArtist' && ! $albumArtistFilesMatch) {
+                if ($field === 'albumArtist'
+                    && (! $albumArtistFilesMatch || ($values['updateTrackArtists'] && ! $trackArtistsMatch))) {
                     $change['fileValuesDiffer'] = true;
                 }
                 $changes[] = $change;
             }
         }
         $changedFields = array_fill_keys(array_column($changes, 'field'), true);
-        $writeValues = array_intersect_key($values, $changedFields);
+        $writeValues = array_intersect_key($metadataValues, $changedFields);
+        $trackArtistsWillChange = $values['updateTrackArtists'] && ! $trackArtistsMatch;
+        if ($trackArtistsWillChange) {
+            $writeValues['artistNames'] = [$values['albumArtist']];
+        }
 
         $files = $album->tracks->map(function ($track) use ($writeValues): array {
             $file = $track->mediaFile?->relative_path;
@@ -85,6 +101,7 @@ class AlbumMetadataEditing
             'fingerprint' => $this->fingerprint($album),
             'values' => $values,
             'changes' => $changes,
+            'trackArtistsWillChange' => $trackArtistsWillChange,
             'files' => $files,
             'supportedFiles' => $files->where('supported', true)->count(),
             'unsupportedFiles' => $files->where('supported', false)->count(),
@@ -92,7 +109,7 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
      */
     public function queue(Album $album, array $values, string $fingerprint): MetadataEditJob
     {

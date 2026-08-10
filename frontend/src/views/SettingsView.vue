@@ -103,7 +103,7 @@ function schedulePolling() {
 
 async function loadProtectedSettings() {
   await Promise.all([libraryRoots.load(), scanRuns.load()])
-  if (scanRuns.hasActiveScans) catalog.invalidateMetrics()
+  if (scanRuns.hasActiveScans) catalog.invalidateCatalog()
 }
 
 async function handleAdminAccessChanged() {
@@ -132,6 +132,12 @@ async function pollScans() {
     scanRuns.load({ silent: true }),
     libraryRoots.load({ silent: true }),
   ])
+  const completedScan = scanRuns.scans.find((scan) =>
+    activeScanIds.has(scan.id)
+    && !isActive(scan)
+  )
+  if (completedScan) catalog.invalidateCatalog()
+
   const completedScanWithIssues = scanRuns.scans.find((scan) =>
     activeScanIds.has(scan.id)
     && !isActive(scan)
@@ -146,7 +152,7 @@ async function pollScans() {
 async function startScan(rootId) {
   try {
     await scanRuns.start(rootId)
-    catalog.invalidateMetrics()
+    catalog.invalidateCatalog()
   } finally {
     schedulePolling()
   }
@@ -156,6 +162,7 @@ async function startScan(rootId) {
 async function cancelScan(scanId) {
   try {
     await scanRuns.cancel(scanId)
+    catalog.invalidateCatalog()
   } finally {
     schedulePolling()
   }

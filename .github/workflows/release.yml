@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: pgvector/pgvector:0.8.2-pg18-trixie
         env:
           POSTGRES_DB: sonotheque_test
           POSTGRES_USER: sonotheque

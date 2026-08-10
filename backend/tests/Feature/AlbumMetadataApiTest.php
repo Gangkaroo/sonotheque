@@ -28,6 +28,8 @@ class AlbumMetadataApiTest extends TestCase
             ->assertJsonPath('supportedFiles', 2)
             ->assertJsonCount(2, 'files')
             ->assertJsonPath('changes.0.field', 'albumTitle')
+            ->assertJsonPath('trackArtistsWillChange', true)
+            ->assertJsonPath('files.0.writeValues.artistNames.0', 'Changed artist')
             ->json();
 
         $response = $this->postJson("/api/albums/{$album->id}/metadata-edits", [
@@ -44,6 +46,28 @@ class AlbumMetadataApiTest extends TestCase
             'status' => 'pending',
         ]);
         Queue::assertPushed(ApplyAlbumMetadataEdit::class);
+    }
+
+    public function test_it_can_preserve_track_artists_when_the_album_artist_changes(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $values = [
+            ...$this->values(),
+            'updateTrackArtists' => false,
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('trackArtistsWillChange', false)
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertArrayNotHasKey('artistNames', MetadataEditItem::firstOrFail()->requested_changes);
     }
 
     public function test_it_rejects_mixed_format_batches_before_writing(): void
@@ -142,6 +166,47 @@ class AlbumMetadataApiTest extends TestCase
             [['albumArtist' => 'Artist'], ['albumArtist' => 'Artist']],
             MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->all(),
         );
+        Queue::assertPushed(ApplyAlbumMetadataEdit::class);
+    }
+
+    public function test_it_can_repair_track_artists_after_the_album_artist_was_already_changed(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $correctArtist = Artist::create([
+            'name' => 'Correct artist',
+            'sort_name' => 'Correct artist',
+            'browse_initial' => 'C',
+        ]);
+        $album->update(['primary_artist_id' => $correctArtist->id]);
+        $album->mediaFiles()->update([
+            'raw_metadata' => ['comments' => ['album_artist' => ['Correct artist']]],
+        ]);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Correct artist',
+            'updateTrackArtists' => true,
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonCount(1, 'changes')
+            ->assertJsonPath('changes.0.field', 'albumArtist')
+            ->assertJsonPath('changes.0.current', 'Correct artist')
+            ->assertJsonPath('changes.0.proposed', 'Correct artist')
+            ->assertJsonPath('changes.0.fileValuesDiffer', true)
+            ->assertJsonPath('trackArtistsWillChange', true)
+            ->assertJsonPath('files.0.writeValues.artistNames.0', 'Correct artist')
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
         Queue::assertPushed(ApplyAlbumMetadataEdit::class);
     }
 

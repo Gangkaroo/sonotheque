@@ -21,6 +21,8 @@ export interface AlbumPlaybackScope {
   year: number | null
   genreId: number | null
   genreName: string
+  musicianId: number | null
+  musicianName: string
   physicalCopy: PlaybackPhysicalCopyFilter
   sort: AlbumPlaybackSort
 }
@@ -32,6 +34,8 @@ export interface TrackPlaybackScope {
   search: string
   genreId: number | null
   genreName: string
+  musicianId: number | null
+  musicianName: string
   playStatus: 'never' | null
   physicalCopy: PlaybackPhysicalCopyFilter
   sort: TrackPlaybackSort
@@ -633,6 +637,7 @@ function catalogPlaybackPath(
   if (scope.libraryRootId !== null) url.searchParams.set('libraryRoot', String(scope.libraryRootId))
   if (scope.search) url.searchParams.set('search', scope.search)
   if (scope.genreId !== null) url.searchParams.set('genre', String(scope.genreId))
+  if (scope.musicianId !== null) url.searchParams.set('musician', String(scope.musicianId))
   if (scope.physicalCopy !== null) url.searchParams.set('physicalCopy', scope.physicalCopy)
   if (scope.type === 'albums') {
     if (scope.initial) url.searchParams.set('initial', scope.initial)
@@ -683,6 +688,8 @@ function normalizeAlbumPlaybackScope(scope: unknown): AlbumPlaybackScope | null 
     year: positiveInteger(value.year),
     genreId: positiveInteger(value.genreId),
     genreName: typeof value.genreName === 'string' ? value.genreName.trim() : '',
+    musicianId: positiveInteger(value.musicianId),
+    musicianName: typeof value.musicianName === 'string' ? value.musicianName.trim() : '',
     physicalCopy,
     sort,
   }
@@ -710,6 +717,8 @@ function normalizeTrackPlaybackScope(scope: unknown): TrackPlaybackScope | null 
     search: typeof value.search === 'string' ? value.search.trim() : '',
     genreId: positiveInteger(value.genreId),
     genreName: typeof value.genreName === 'string' ? value.genreName.trim() : '',
+    musicianId: positiveInteger(value.musicianId),
+    musicianName: typeof value.musicianName === 'string' ? value.musicianName.trim() : '',
     playStatus: value.playStatus === 'never' ? 'never' : null,
     physicalCopy,
     sort,

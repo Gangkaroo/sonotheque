@@ -17,12 +17,13 @@ class FakeAlbumTrackMetadataWriter implements TrackMetadataWriter
         file_put_contents($path, 'written');
 
         return new AudioMetadata(
-            album: $values['albumTitle'],
-            albumArtist: $values['albumArtist'],
-            genres: $values['genres'],
-            year: $values['releaseYear'],
-            originalReleaseYear: $values['releaseYear'],
-            discTotal: $values['totalDiscs'],
+            album: $values['albumTitle'] ?? 'Album',
+            albumArtist: $values['albumArtist'] ?? 'Artist',
+            artists: $values['artistNames'] ?? ['Artist'],
+            genres: $values['genres'] ?? ['Old genre'],
+            year: $values['releaseYear'] ?? 2000,
+            originalReleaseYear: $values['releaseYear'] ?? 2000,
+            discTotal: $values['totalDiscs'] ?? null,
             comment: $values['comment'] ?? null,
             rawMetadata: ['verified' => true],
         );

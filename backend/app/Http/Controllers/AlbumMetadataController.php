@@ -27,12 +27,13 @@ class AlbumMetadataController extends Controller
         return response()->json($this->payloads->job($job), 202);
     }
 
-    /** @return array{albumTitle: string, albumArtist: string, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string} */
+    /** @return array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string} */
     private function values(Request $request): array
     {
         $validated = $request->validate([
             'albumTitle' => ['required', 'string', 'max:512', 'not_regex:/^\s*$/'],
             'albumArtist' => ['required', 'string', 'max:512', 'not_regex:/^\s*$/'],
+            'updateTrackArtists' => ['sometimes', 'boolean'],
             'releaseYear' => ['present', 'nullable', 'integer', 'min:1000', 'max:9999'],
             'totalDiscs' => ['present', 'nullable', 'integer', 'min:1', 'max:65535'],
             'genres' => ['present', 'array', 'max:50'],
@@ -48,6 +49,7 @@ class AlbumMetadataController extends Controller
         $values = [
             'albumTitle' => trim($validated['albumTitle']),
             'albumArtist' => trim($validated['albumArtist']),
+            'updateTrackArtists' => $validated['updateTrackArtists'] ?? true,
             'releaseYear' => $validated['releaseYear'],
             'totalDiscs' => $validated['totalDiscs'],
             'genres' => $genres,

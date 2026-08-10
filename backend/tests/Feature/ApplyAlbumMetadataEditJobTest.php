@@ -83,6 +83,13 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertSame('Changed album', $album->title);
         $this->assertSame('Changed artist', $album->primaryArtist->name);
         $this->assertDatabaseMissing(Artist::class, ['name' => 'Album-only artist']);
+        $this->assertDatabaseMissing(Artist::class, ['name' => 'Artist']);
+        $this->assertSame(
+            [['Changed artist'], ['Changed artist']],
+            $album->tracks()->orderBy('track_number')->get()->map(
+                fn (Track $track): array => $track->artists()->pluck('name')->all(),
+            )->all(),
+        );
         $this->assertSame(2025, $album->original_release_year);
         $this->assertSame(2, $album->disc_total);
         $this->assertEqualsCanonicalizing(['Doom', 'Metal'], $album->tracks->first()->genres()->pluck('name')->all());
@@ -127,6 +134,10 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
             'status' => 'failed',
             'error' => 'Simulated write failure.',
         ]);
+        $this->getJson("/api/metadata-edits/{$edit->id}")
+            ->assertOk()
+            ->assertJsonPath('error', 'One or more files could not be updated.')
+            ->assertJsonPath('failureReason', 'Simulated write failure.');
     }
 
     public function test_a_case_only_album_artist_edit_updates_the_catalog_display_name(): void
@@ -183,6 +194,70 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertSame(
             ['Amen'],
             $album->tracks->first()->artists()->pluck('name')->all(),
+        );
+    }
+
+    public function test_the_batch_can_change_only_the_album_artist(): void
+    {
+        Queue::fake();
+        $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter());
+        $album = $this->createAlbum();
+        $editing = $this->app->make(AlbumMetadataEditing::class);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Changed artist',
+            'updateTrackArtists' => false,
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => ['Old genre'],
+        ];
+        $preview = $editing->preview($album, $values);
+        $edit = $editing->queue($album, $values, $preview['fingerprint']);
+
+        $this->app->call([new ApplyAlbumMetadataEdit($edit->id), 'handle']);
+
+        $this->assertSame('completed', $edit->fresh()->status);
+        $this->assertSame('Changed artist', $album->fresh()->primaryArtist->name);
+        $this->assertSame(
+            [['Artist'], ['Artist']],
+            $album->tracks()->orderBy('track_number')->get()->map(
+                fn (Track $track): array => $track->artists()->pluck('name')->all(),
+            )->all(),
+        );
+        $this->assertArrayNotHasKey('artistNames', $edit->items()->firstOrFail()->requested_changes);
+    }
+
+    public function test_the_batch_can_repair_track_artists_without_changing_the_album_artist_again(): void
+    {
+        Queue::fake();
+        $this->app->instance(TrackMetadataWriter::class, new FakeAlbumTrackMetadataWriter());
+        $album = $this->createAlbum();
+        $correctArtist = Artist::create([
+            'name' => 'Correct artist',
+            'sort_name' => 'Correct artist',
+            'browse_initial' => 'C',
+        ]);
+        $album->update(['primary_artist_id' => $correctArtist->id]);
+        $editing = $this->app->make(AlbumMetadataEditing::class);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Correct artist',
+            'updateTrackArtists' => true,
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => ['Old genre'],
+        ];
+        $preview = $editing->preview($album, $values);
+        $edit = $editing->queue($album, $values, $preview['fingerprint']);
+
+        $this->app->call([new ApplyAlbumMetadataEdit($edit->id), 'handle']);
+
+        $this->assertSame('completed', $edit->fresh()->status);
+        $this->assertSame(
+            [['Correct artist'], ['Correct artist']],
+            $album->tracks()->orderBy('track_number')->get()->map(
+                fn (Track $track): array => $track->artists()->pluck('name')->all(),
+            )->all(),
         );
     }
 

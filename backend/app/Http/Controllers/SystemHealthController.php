@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ScanStatus;
+use App\Models\AudioAnalysisRun;
 use App\Models\LibraryRoot;
 use App\Models\ScanRun;
+use App\Support\QueueWorkerHeartbeat;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
@@ -13,6 +15,10 @@ use Throwable;
 
 class SystemHealthController extends Controller
 {
+    public function __construct(private readonly QueueWorkerHeartbeat $workerHeartbeat)
+    {
+    }
+
     public function __invoke(): JsonResponse
     {
         $database = $this->database();
@@ -113,6 +119,7 @@ class SystemHealthController extends Controller
             'delayed' => null,
             'failed' => null,
             'latestFailed' => [],
+            'workers' => [],
             'message' => null,
         ];
 
@@ -151,8 +158,15 @@ class SystemHealthController extends Controller
                 ])
                 ->values()
                 ->all();
+            $payload['workers'] = $this->queueWorkers($jobsTable, $now);
 
-            if ($payload['failed'] > 0) {
+            if (collect($payload['workers'])->contains(
+                fn (array $worker): bool => $worker['status'] === 'error',
+            )) {
+                $payload['status'] = 'error';
+            } elseif ($payload['failed'] > 0 || collect($payload['workers'])->contains(
+                fn (array $worker): bool => in_array($worker['status'], ['warning', 'unknown'], true),
+            )) {
                 $payload['status'] = 'warning';
             }
         } catch (Throwable $exception) {
@@ -161,6 +175,91 @@ class SystemHealthController extends Controller
         }
 
         return $payload;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function queueWorkers(string $jobsTable, int $now): array
+    {
+        $heartbeats = DB::table('queue_worker_heartbeats')
+            ->whereIn('queue', $this->workerHeartbeat->expectedQueues())
+            ->get()
+            ->keyBy('queue');
+        $staleAfter = max(15, (int) config('sonotheque.system_health.worker_stale_seconds', 45));
+        $busyStaleAfter = max(
+            $staleAfter,
+            (int) config('sonotheque.system_health.worker_busy_stale_seconds', 300),
+        );
+
+        return collect($this->workerHeartbeat->expectedQueues())
+            ->map(function (string $queue) use ($heartbeats, $jobsTable, $now, $staleAfter, $busyStaleAfter): array {
+                $heartbeat = $heartbeats->get($queue);
+                $lastSeenAt = $heartbeat === null
+                    ? null
+                    : CarbonImmutable::parse($heartbeat->last_seen_at);
+                $ageSeconds = $lastSeenAt === null
+                    ? null
+                    : (int) max(0, $lastSeenAt->diffInSeconds(now()));
+                $pending = DB::table($jobsTable)
+                    ->where('queue', $queue)
+                    ->whereNull('reserved_at')
+                    ->where('available_at', '<=', $now)
+                    ->count();
+                $reserved = DB::table($jobsTable)
+                    ->where('queue', $queue)
+                    ->whereNotNull('reserved_at')
+                    ->count();
+                $delayed = DB::table($jobsTable)
+                    ->where('queue', $queue)
+                    ->whereNull('reserved_at')
+                    ->where('available_at', '>', $now)
+                    ->count();
+                $busy = $reserved > 0;
+                $freshActivity = $busy && $this->hasFreshQueueActivity($queue, $busyStaleAfter);
+
+                if ($ageSeconds === null) {
+                    $status = $pending + $reserved > 0 ? 'error' : 'unknown';
+                } elseif ($ageSeconds <= $staleAfter || $freshActivity) {
+                    $status = 'ok';
+                } elseif ($busy) {
+                    $status = 'warning';
+                } else {
+                    $status = 'error';
+                }
+
+                return [
+                    'queue' => $queue,
+                    'status' => $status,
+                    'state' => $busy ? 'busy' : ($status === 'ok' ? 'idle' : 'stopped'),
+                    'lastHeartbeatAt' => $lastSeenAt?->toJSON(),
+                    'ageSeconds' => $ageSeconds,
+                    'host' => $heartbeat?->host,
+                    'processId' => $heartbeat?->process_id === null
+                        ? null
+                        : (int) $heartbeat->process_id,
+                    'pending' => $pending,
+                    'reserved' => $reserved,
+                    'delayed' => $delayed,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function hasFreshQueueActivity(string $queue, int $staleAfter): bool
+    {
+        $threshold = now()->subSeconds($staleAfter);
+
+        return match ($queue) {
+            'analysis' => AudioAnalysisRun::query()
+                ->whereIn('status', ['fingerprinting', 'running'])
+                ->where('heartbeat_at', '>=', $threshold)
+                ->exists(),
+            'scans' => ScanRun::query()
+                ->whereIn('status', [ScanStatus::Pending->value, ScanStatus::Running->value])
+                ->where('updated_at', '>=', $threshold)
+                ->exists(),
+            default => false,
+        };
     }
 
     /** @return list<array{name: string, path: string, exists: bool, writable: bool, status: string}> */

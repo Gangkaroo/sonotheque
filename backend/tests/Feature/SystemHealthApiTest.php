@@ -6,6 +6,7 @@ use App\Enums\ScanStatus;
 use App\Enums\ScanTrigger;
 use App\Models\Library;
 use App\Models\ScanRun;
+use App\Support\QueueWorkerHeartbeat;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,9 @@ class SystemHealthApiTest extends TestCase
             (string) config('sonotheque.system_health.scheduler_heartbeat_key'),
             now()->toJSON(),
         );
+        foreach (app(QueueWorkerHeartbeat::class)->expectedQueues() as $queue) {
+            app(QueueWorkerHeartbeat::class)->record($queue);
+        }
 
         $rootPath = storage_path('app/system-health-test-root');
         File::ensureDirectoryExists($rootPath);
@@ -81,6 +85,9 @@ class SystemHealthApiTest extends TestCase
             ->assertJsonPath('database.status', 'ok')
             ->assertJsonPath('queue.status', 'warning')
             ->assertJsonPath('queue.failed', 1)
+            ->assertJsonCount(3, 'queue.workers')
+            ->assertJsonPath('queue.workers.2.queue', 'analysis')
+            ->assertJsonPath('queue.workers.2.status', 'ok')
             ->assertJsonPath('scheduler.status', 'ok')
             ->assertJsonPath('backup.available', true)
             ->assertJsonPath('backup.bundleName', 'sonotheque-development-test')
@@ -106,5 +113,30 @@ class SystemHealthApiTest extends TestCase
             ->assertJsonPath('status', 'warning')
             ->assertJsonPath('scheduler.status', 'warning')
             ->assertJsonPath('scheduler.observable', true);
+    }
+
+    public function test_it_reports_a_missing_worker_with_pending_work(): void
+    {
+        config(['queue.default' => 'database']);
+        app(QueueWorkerHeartbeat::class)->record('default');
+        app(QueueWorkerHeartbeat::class)->record('scans');
+        DB::table('jobs')->insert([
+            'queue' => 'analysis',
+            'payload' => '{}',
+            'attempts' => 0,
+            'reserved_at' => null,
+            'available_at' => now()->timestamp,
+            'created_at' => now()->timestamp,
+        ]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->getJson('/api/settings/system-health')
+            ->assertOk()
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('queue.status', 'error')
+            ->assertJsonPath('queue.workers.2.queue', 'analysis')
+            ->assertJsonPath('queue.workers.2.status', 'error')
+            ->assertJsonPath('queue.workers.2.state', 'stopped')
+            ->assertJsonPath('queue.workers.2.pending', 1);
     }
 }

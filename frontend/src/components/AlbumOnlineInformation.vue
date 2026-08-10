@@ -528,7 +528,12 @@ async function resolveMusicianRelease() {
               prepend-icon="mdi-account-music-outline"
             >
               <v-list-item-title>
-                {{ musician.name }}
+                <RouterLink
+                  class="musician-catalog-link"
+                  :to="{ name: 'musician-detail', params: { id: musician.id } }"
+                >
+                  {{ musician.name }}
+                </RouterLink>
                 <span v-if="musician.disambiguation" class="text-medium-emphasis text-caption">
                   ({{ musician.disambiguation }})
                 </span>
@@ -661,6 +666,16 @@ async function resolveMusicianRelease() {
 </template>
 
 <style scoped>
+.musician-catalog-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.musician-catalog-link:hover {
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+}
+
 .online-information-copy {
   line-height: 1.65;
   margin: 0;

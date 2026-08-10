@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\ApplicationSetting;
 use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioBenchmarkAnalyzerFactory;
@@ -24,6 +25,9 @@ use App\Music\Scanning\LibraryEntryRenamer;
 use App\Music\Scanning\LibraryFolderBrowser;
 use App\Music\Scanning\ScanDiscoveryManifest;
 use App\Music\Scanning\LibraryWatchSnapshotter;
+use App\Support\QueueWorkerHeartbeat;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -33,7 +37,20 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(AudioAnalyzer::class, function (): AudioAnalyzer {
+        $this->app->singleton(QueueWorkerHeartbeat::class);
+
+        $this->app->bind(AudioAnalyzer::class, function (): AudioAnalyzer {
+            $accelerator = ApplicationSetting::current()->audioIntelligenceAccelerator();
+            $configuredAccelerator = strtolower((string) config(
+                'sonotheque.audio_intelligence.accelerator',
+                'cpu',
+            ));
+            $imageKey = $accelerator === $configuredAccelerator
+                ? 'sonotheque.audio_intelligence.docker_image'
+                : ($accelerator === 'cuda'
+                    ? 'sonotheque.audio_intelligence.benchmark_cuda_image'
+                    : 'sonotheque.audio_intelligence.benchmark_cpu_image');
+
             return match (config('sonotheque.audio_intelligence.driver')) {
                 'essentia_cli' => new EssentiaCliAudioAnalyzer(
                     pythonBinary: (string) config('sonotheque.audio_intelligence.python_binary'),
@@ -42,7 +59,7 @@ class AppServiceProvider extends ServiceProvider
                     timeoutSeconds: (int) config('sonotheque.audio_intelligence.timeout_seconds'),
                 ),
                 'essentia_docker' => new EssentiaDockerAudioAnalyzer(
-                    image: (string) config('sonotheque.audio_intelligence.docker_image'),
+                    image: (string) config($imageKey),
                     modelPath: (string) config('sonotheque.audio_intelligence.model_path'),
                     timeoutSeconds: (int) config('sonotheque.audio_intelligence.timeout_seconds'),
                     cpuLimit: (float) config('sonotheque.audio_intelligence.cpu_limit'),
@@ -50,7 +67,7 @@ class AppServiceProvider extends ServiceProvider
                     preparationWorkers: (int) config(
                         'sonotheque.audio_intelligence.preparation_workers',
                     ),
-                    accelerator: (string) config('sonotheque.audio_intelligence.accelerator'),
+                    accelerator: $accelerator,
                     persistent: (bool) config('sonotheque.audio_intelligence.persistent'),
                     persistentContainerName: (string) config(
                         'sonotheque.audio_intelligence.persistent_container_name',
@@ -121,6 +138,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Event::listen(
+            Looping::class,
+            fn (Looping $event) => app(QueueWorkerHeartbeat::class)->record((string) $event->queue),
+        );
     }
 }

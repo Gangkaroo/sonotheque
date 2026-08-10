@@ -17,6 +17,8 @@ use App\Models\MediaFile;
 use App\Models\Track;
 use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioAnalysisProfileRegistry;
+use App\Music\Intelligence\AudioVectorIndex;
+use App\Music\Intelligence\EssentiaDockerAudioAnalyzer;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -40,6 +42,17 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('fingerprintedTrackCount', 0)
             ->assertJsonPath('analyzerStatus', 'not_configured')
             ->assertJsonPath('analyzer.status', 'not_configured')
+            ->assertJsonPath('analyzerSelection.selected', 'cpu')
+            ->assertJsonPath('analyzerSelection.recommended', null)
+            ->assertJsonPath('analyzerSelection.methods.cpu', 'unchecked')
+            ->assertJsonPath('analyzerSelection.methods.cuda', 'unchecked')
+            ->assertJsonPath('reranking.enabled', false)
+            ->assertJsonPath('reranking.tempoInfluence', 5)
+            ->assertJsonPath('reranking.keyInfluence', 3)
+            ->assertJsonPath('reranking.intensityInfluence', 4)
+            ->assertJsonPath('vectorIndex.status', 'empty')
+            ->assertJsonPath('vectorIndex.indexedArtifactCount', 0)
+            ->assertJsonCount(0, 'collectionRuns')
             ->assertJsonPath('latestCollectionRun', null)
             ->assertJsonPath('latestValidationRun', null)
             ->assertJsonPath('activeRun', null)
@@ -48,6 +61,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $settings = ApplicationSetting::current();
         $this->assertFalse($settings->audio_intelligence_enabled);
         $this->assertSame(200, $settings->audio_intelligence_validation_sample_size);
+        $this->assertSame('cpu', $settings->audioIntelligenceAccelerator());
         $this->assertDatabaseCount('audio_analysis_runs', 0);
         $this->assertDatabaseCount('audio_analysis_run_items', 0);
     }
@@ -96,6 +110,98 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('enabled', true)
             ->assertJsonPath('validationSampleSize', 500)
             ->assertJsonPath('analyzerStatus', 'not_configured');
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 500,
+            'reranking' => [
+                'enabled' => true,
+                'tempoInfluence' => 7,
+                'keyInfluence' => 4,
+                'intensityInfluence' => 11,
+            ],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('reranking.intensityInfluence');
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 500,
+            'reranking' => [
+                'enabled' => true,
+                'tempoInfluence' => 7,
+                'keyInfluence' => 4,
+                'intensityInfluence' => 6,
+            ],
+        ])->assertOk()
+            ->assertJsonPath('reranking.enabled', true)
+            ->assertJsonPath('reranking.tempoInfluence', 7)
+            ->assertJsonPath('reranking.keyInfluence', 4)
+            ->assertJsonPath('reranking.intensityInfluence', 6);
+    }
+
+    public function test_analyzer_method_is_persisted_and_uses_benchmark_guidance(): void
+    {
+        config()->set('sonotheque.audio_intelligence.driver', 'essentia_docker');
+        config()->set('sonotheque.audio_intelligence.accelerator', 'cpu');
+        config()->set('sonotheque.audio_intelligence.docker_image', 'custom-cpu-image');
+        config()->set('sonotheque.audio_intelligence.benchmark_cuda_image', 'cuda-image');
+        AudioAnalyzerBenchmark::create([
+            'status' => 'completed',
+            'sample_size' => 15,
+            'results' => [
+                ['accelerator' => 'cpu', 'status' => 'completed'],
+                ['accelerator' => 'cuda', 'status' => 'completed'],
+            ],
+            'recommendation' => [
+                'accelerator' => 'cuda',
+                'preparationWorkers' => 2,
+                'chunkSize' => 15,
+                'tracksPerMinute' => 12.5,
+                'speedupVsCpu' => 3.2,
+            ],
+            'completed_configuration_count' => 2,
+            'total_configuration_count' => 2,
+            'finished_at' => now(),
+        ]);
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 200,
+            'accelerator' => 'cuda',
+        ])->assertOk()
+            ->assertJsonPath('analyzerSelection.selected', 'cuda')
+            ->assertJsonPath('analyzerSelection.recommended', 'cuda')
+            ->assertJsonPath('analyzerSelection.methods.cpu', 'available')
+            ->assertJsonPath('analyzerSelection.methods.cuda', 'available');
+
+        $this->assertSame(
+            'cuda',
+            ApplicationSetting::current()->audioIntelligenceAccelerator(),
+        );
+        $analyzer = app(AudioAnalyzer::class);
+        $this->assertInstanceOf(EssentiaDockerAudioAnalyzer::class, $analyzer);
+        $accelerator = new \ReflectionProperty($analyzer, 'accelerator');
+        $this->assertSame('cuda', $accelerator->getValue($analyzer));
+        $image = new \ReflectionProperty($analyzer, 'image');
+        $this->assertSame('cuda-image', $image->getValue($analyzer));
+
+        AudioAnalysisRun::create([
+            'kind' => 'collection',
+            'phase' => 'analysis',
+            'status' => 'running',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+        ]);
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 200,
+            'accelerator' => 'cpu',
+        ])->assertStatus(409);
+        $this->assertSame(
+            'cuda',
+            ApplicationSetting::current()->audioIntelligenceAccelerator(),
+        );
     }
 
     public function test_it_starts_and_cancels_a_bounded_analyzer_benchmark(): void
@@ -443,6 +549,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('latestCollectionRun.libraryRoot.id', $secondRoot->id)
             ->assertJsonPath('latestCollectionRun.requestedTrackCount', 4)
             ->assertJsonPath('latestCollectionRun.summary.mode', 'collection')
+            ->assertJsonPath('collectionRuns.0.libraryRoot.id', $secondRoot->id)
             ->assertJsonPath('activeRun.kind', 'collection');
 
         $run = AudioAnalysisRun::findOrFail($response->json('latestCollectionRun.id'));
@@ -489,7 +596,11 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             );
 
         (new RunAudioAnalysis($run->id))
-            ->handle($analyzer, new LibraryPathGuard());
+            ->handle(
+                $analyzer,
+                app(AudioVectorIndex::class),
+                new LibraryPathGuard(),
+            );
 
         $run->refresh();
         $this->assertSame('paused', $run->status);

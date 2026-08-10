@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { playbackHandoffAction, releaseMediaSource } from '@/utils/mediaPlayback'
+import {
+  playbackHandoffAction,
+  playbackProgressHasStalled,
+  releaseMediaSource,
+} from '@/utils/mediaPlayback'
 
 describe('releaseMediaSource', () => {
   it('stops playback and aborts the current media request', () => {
@@ -65,5 +69,30 @@ describe('playbackHandoffAction', () => {
       paused: true,
       readyState: 0,
     })).toBe('reload')
+  })
+})
+
+describe('playbackProgressHasStalled', () => {
+  const playing = {
+    currentTime: 60,
+    duration: 180,
+    ended: false,
+    paused: false,
+    seeking: false,
+  }
+
+  it('detects playback whose media clock has stopped for too long', () => {
+    expect(playbackProgressHasStalled(playing, 10_000, 10_000)).toBe(true)
+  })
+
+  it('does not treat ordinary buffering or a seek as a confirmed stall', () => {
+    expect(playbackProgressHasStalled(playing, 9_999, 10_000)).toBe(false)
+    expect(playbackProgressHasStalled({ ...playing, seeking: true }, 20_000, 10_000)).toBe(false)
+  })
+
+  it('does not recover paused, ended, or nearly completed media', () => {
+    expect(playbackProgressHasStalled({ ...playing, paused: true }, 20_000, 10_000)).toBe(false)
+    expect(playbackProgressHasStalled({ ...playing, ended: true }, 20_000, 10_000)).toBe(false)
+    expect(playbackProgressHasStalled({ ...playing, currentTime: 179.75 }, 20_000, 10_000)).toBe(false)
   })
 })

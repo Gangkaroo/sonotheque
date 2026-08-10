@@ -72,6 +72,7 @@ class ApplyTrackMetadataEditJobTest extends TestCase
             'trackNumber' => 2,
             'discNumber' => 1,
             'year' => 2024,
+            'removedTagKeys' => [],
         ];
         $preview = $editing->preview($track, $values);
         $edit = MetadataEditJob::create([
@@ -133,6 +134,7 @@ class ApplyTrackMetadataEditJobTest extends TestCase
             'trackNumber' => 1,
             'discNumber' => 1,
             'year' => 2000,
+            'removedTagKeys' => [],
         ];
         $preview = $editing->preview($track, $values);
         $edit = MetadataEditJob::create([
@@ -154,6 +156,9 @@ class ApplyTrackMetadataEditJobTest extends TestCase
         $this->assertSame('failed', $edit->fresh()->status);
         $this->assertSame('Simulated write failure.', $edit->fresh()->error);
         $this->assertNotNull($edit->fresh()->finished_at);
+        $this->getJson("/api/metadata-edits/{$edit->id}")
+            ->assertOk()
+            ->assertJsonPath('failureReason', 'Simulated write failure.');
     }
 
     private function createTrack(): Track

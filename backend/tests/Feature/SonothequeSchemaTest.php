@@ -26,7 +26,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
+        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_vectors', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -47,6 +47,18 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'play_statistics_import_version'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
+        $this->assertTrue(Schema::hasColumn(
+            'application_settings',
+            'audio_intelligence_accelerator',
+        ));
+        $this->assertTrue(Schema::hasColumn(
+            'application_settings',
+            'audio_similarity_reranking_enabled',
+        ));
+        $this->assertTrue(Schema::hasColumn(
+            'application_settings',
+            'audio_similarity_tempo_influence',
+        ));
         $this->assertTrue(Schema::hasColumn('application_settings', 'playlist_export_format'));
         $this->assertTrue(Schema::hasColumn(
             'application_settings',
@@ -59,6 +71,12 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'cancel_requested_at'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_runs', 'heartbeat_at'));
         $this->assertTrue(Schema::hasColumn('audio_analysis_run_items', 'audio_analysis_artifact_id'));
+        $this->assertTrue(Schema::hasColumn('audio_analysis_vectors', 'embedding'));
+        $this->assertTrue(DB::table('pg_extension')->where('extname', 'vector')->exists());
+        $this->assertTrue(DB::table('pg_indexes')
+            ->where('indexname', 'audio_analysis_vectors_embedding_hnsw_index')
+            ->where('indexdef', 'like', '%USING hnsw%')
+            ->exists());
         $this->assertFalse(Schema::hasTable('audio_analysis_results'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_type'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_relative_path'));

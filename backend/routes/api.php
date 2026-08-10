@@ -23,6 +23,7 @@ use App\Http\Controllers\LastFmSettingsController;
 use App\Http\Controllers\LibraryActivityLogController;
 use App\Http\Controllers\LibraryFolderController;
 use App\Http\Controllers\MetadataBackupSettingsController;
+use App\Http\Controllers\MusicianCatalogController;
 use App\Http\Controllers\OnlineEnrichmentSettingsController;
 use App\Http\Controllers\OnlineEnrichmentController;
 use App\Http\Controllers\OwnedAlbumCopyController;
@@ -41,6 +42,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/catalog/artists', [CatalogBrowseController::class, 'artists']);
 Route::get('/catalog/artists/{artist}', [CatalogBrowseController::class, 'artist']);
+Route::get('/catalog/musicians', [MusicianCatalogController::class, 'index']);
+Route::get('/catalog/musicians/{musician}', [MusicianCatalogController::class, 'show']);
 Route::get('/catalog/albums', [CatalogBrowseController::class, 'albums']);
 Route::get('/catalog/playback/albums/random', [CatalogBrowseController::class, 'randomAlbum']);
 Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::class, 'nextAlbum']);

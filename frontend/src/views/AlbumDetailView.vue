@@ -55,6 +55,7 @@ const metadataForm = reactive({
 })
 const metadataCommentEnabled = ref(false)
 const metadataCommentsMixed = ref(false)
+const metadataUpdateTrackArtists = ref(true)
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectionMode = ref(false)
 const selectedTrackIds = ref<number[]>([])
@@ -73,6 +74,7 @@ const personalForm = reactive({
 interface AlbumMetadataValues {
   albumTitle: string
   albumArtist: string
+  updateTrackArtists: boolean
   releaseYear: number | null
   totalDiscs: number | null
   genres: string[]
@@ -100,6 +102,7 @@ interface AlbumMetadataPreview {
   fingerprint: string
   values: AlbumMetadataValues
   changes: AlbumMetadataChange[]
+  trackArtistsWillChange: boolean
   files: AlbumMetadataFile[]
   supportedFiles: number
   unsupportedFiles: number
@@ -132,6 +135,7 @@ interface AlbumMetadataJob {
   failedItems: number
   items: AlbumMetadataJobItem[]
   error?: string | null
+  failureReason?: string | null
 }
 
 const albumId = computed(() => Number(route.params.id))
@@ -139,10 +143,15 @@ const backArtistId = computed(() => {
   const parsed = typeof route.query.backArtist === 'string' ? Number(route.query.backArtist) : NaN
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
+const backMusicianId = computed(() => {
+  const parsed = typeof route.query.backMusician === 'string' ? Number(route.query.backMusician) : NaN
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 const backToTracks = computed(() => route.query.backTo === 'tracks')
 const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
 const backRoute = computed(() => {
   if (backArtistId.value) return { name: 'artist-detail', params: { id: backArtistId.value } }
+  if (backMusicianId.value) return { name: 'musician-detail', params: { id: backMusicianId.value } }
   if (backToTracks.value) return { name: 'tracks' }
   if (backToAudioIntelligence.value) return { name: 'settings', query: { tab: 'intelligence' } }
 
@@ -150,6 +159,7 @@ const backRoute = computed(() => {
 })
 const backLabel = computed(() => {
   if (backArtistId.value) return t('albums.backToArtist')
+  if (backMusicianId.value) return t('albums.backToMusician')
   if (backToTracks.value) return t('albums.backToTracks')
   if (backToAudioIntelligence.value) return t('albums.backToAudioIntelligence')
 
@@ -440,7 +450,7 @@ async function batchMetadataCompleted(count: number) {
   selectionMessage.value = t('albums.batchMetadataCompleted', { count })
   selectionMessageVisible.value = true
   exitSelectionMode()
-  catalog.invalidateMetrics()
+  catalog.invalidateCatalog()
   await catalog.loadAlbum(albumId.value)
   if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
 }
@@ -459,6 +469,7 @@ function openMetadataEditor() {
   })
   metadataCommentEnabled.value = false
   metadataCommentsMixed.value = comments.length > 1
+  metadataUpdateTrackArtists.value = true
   metadataStep.value = 'form'
   metadataPreview.value = null
   metadataJob.value = null
@@ -473,6 +484,7 @@ function metadataValues(): AlbumMetadataValues {
   const values: AlbumMetadataValues = {
     albumTitle: metadataForm.albumTitle.trim(),
     albumArtist: metadataForm.albumArtist.trim(),
+    updateTrackArtists: metadataUpdateTrackArtists.value,
     releaseYear: year === '' ? null : Number(year),
     totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
     genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
@@ -535,7 +547,7 @@ async function pollMetadataEdit() {
     if (metadataJob.value.status === 'completed') {
       metadataDialog.value = false
       metadataSuccess.value = true
-      catalog.invalidateMetrics()
+      catalog.invalidateCatalog()
       await catalog.loadAlbum(albumId.value)
       if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
       return
@@ -1004,6 +1016,17 @@ onUnmounted(() => {
         <template v-if="metadataStep === 'form'">
           <v-text-field v-model="metadataForm.albumTitle" :label="t('albums.metadataAlbumTitle')" maxlength="512" />
           <v-text-field v-model="metadataForm.albumArtist" :label="t('albums.metadataAlbumArtist')" maxlength="512" />
+          <v-switch
+            v-model="metadataUpdateTrackArtists"
+            class="mt-n2"
+            color="primary"
+            density="compact"
+            hide-details
+            :label="t('albums.metadataUpdateTrackArtists')"
+          />
+          <div class="text-caption text-medium-emphasis mb-3">
+            {{ t('albums.metadataUpdateTrackArtistsHint') }}
+          </div>
           <v-text-field v-model="metadataForm.releaseYear" inputmode="numeric" :label="t('albums.releaseYear')" />
           <v-text-field v-model="metadataForm.totalDiscs" inputmode="numeric" :label="t('albums.totalDiscs')" />
           <v-combobox
@@ -1016,8 +1039,9 @@ onUnmounted(() => {
             multiple
             persistent-hint
           />
-          <v-checkbox
+          <v-switch
             v-model="metadataCommentEnabled"
+            color="primary"
             density="compact"
             hide-details
             :label="t('albums.metadataChangeComment')"
@@ -1036,6 +1060,9 @@ onUnmounted(() => {
         </template>
 
         <template v-else-if="metadataStep === 'preview' && metadataPreview">
+          <v-alert v-if="metadataPreview.trackArtistsWillChange" class="mb-4" type="info" variant="tonal">
+            {{ t('albums.metadataTrackArtistsWillChange') }}
+          </v-alert>
           <v-alert v-if="metadataPreview.unsupportedFiles" class="mb-4" type="warning" variant="tonal">
             {{ metadataUnsupportedSummary() }}
           </v-alert>
@@ -1092,6 +1119,14 @@ onUnmounted(() => {
               failed: metadataJob.failedItems,
             }) }}
           </div>
+          <v-alert
+            v-if="['partial', 'failed'].includes(metadataJob.status)"
+            class="mb-4"
+            type="error"
+            variant="tonal"
+          >
+            {{ metadataJob.failureReason ?? metadataJob.error ?? t('albums.metadataEditFailed') }}
+          </v-alert>
           <v-list v-if="metadataJob.items.some((item) => item.status === 'failed')" border rounded class="metadata-file-list" density="compact">
             <v-list-item
               v-for="item in metadataJob.items.filter((entry) => entry.status === 'failed')"

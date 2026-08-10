@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import {
+  type AudioAnalyzerAccelerator,
   type AudioSimilarityTrack,
   type AudioSimilarityConfiguration,
+  type AudioSimilarityRerankingSettings,
   useAudioIntelligenceSettingsStore,
 } from '@/stores/audioIntelligenceSettings'
 import { usePlayerStore } from '@/stores/player'
@@ -13,6 +15,7 @@ import { formatApproximateDuration } from '@/utils/formatters'
 import AudioAnalysisRunStatus from '@/components/AudioAnalysisRunStatus.vue'
 
 const RUN_POLL_INTERVAL_MS = 5000
+const ACCELERATORS: AudioAnalyzerAccelerator[] = ['cpu', 'cuda']
 
 const { locale, t } = useI18n()
 const audioIntelligence = useAudioIntelligenceSettingsStore()
@@ -23,6 +26,10 @@ const collectionScope = ref<'all' | number>('all')
 const evaluationTrackId = ref<number | null>(null)
 const excludeSameAlbum = ref(true)
 const excludeSameArtist = ref(true)
+const rerankingEnabled = ref(false)
+const tempoInfluence = ref(5)
+const keyInfluence = ref(3)
+const intensityInfluence = ref(4)
 let runPollTimer: ReturnType<typeof setTimeout> | null = null
 const validationSampleSizeValid = computed(() => (
   Number.isInteger(validationSampleSize.value)
@@ -48,7 +55,12 @@ const collectionScopeItems = computed(() => [
     name: `${root.name} (${root.eligibleTrackCount})`,
   })),
 ])
-const collectionRun = computed(() => audioIntelligence.settings.latestCollectionRun)
+const selectedCollectionRootId = computed(() => (
+  collectionScope.value === 'all' ? null : collectionScope.value
+))
+const collectionRun = computed(() => (
+  audioIntelligence.collectionRunForScope(selectedCollectionRootId.value)
+))
 const validationRun = computed(() => audioIntelligence.settings.latestValidationRun)
 const analysisRunBlocksNewWork = computed(() => (
   audioIntelligence.settings.activeRun !== null
@@ -61,6 +73,9 @@ const analysisWorkerActive = computed(() => (
 const benchmark = computed(() => audioIntelligence.settings.latestBenchmark)
 const benchmarkActive = computed(() => (
   benchmark.value?.status === 'queued' || benchmark.value?.status === 'running'
+))
+const acceleratorChangeDisabled = computed(() => (
+  audioIntelligence.saving || analysisWorkerActive.value || benchmarkActive.value
 ))
 const preparedCollectionScope = computed(() => (
   collectionRun.value
@@ -122,16 +137,25 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => audioIntelligence.settings.reranking,
+  (value) => {
+    if (!value) return
+
+    rerankingEnabled.value = value.enabled
+    tempoInfluence.value = value.tempoInfluence
+    keyInfluence.value = value.keyInfluence
+    intensityInfluence.value = value.intensityInfluence
+  },
+  { immediate: true },
+)
 watch([excludeSameAlbum, excludeSameArtist], () => {
   audioIntelligence.evaluationResult = null
 })
 watch(
-  () => audioIntelligence.settings.latestCollectionRun,
+  () => audioIntelligence.settings.activeRun,
   (run) => {
-    if (run?.kind !== 'collection'
-      || !['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(run.status)) {
-      return
-    }
+    if (run?.kind !== 'collection') return
 
     collectionScope.value = run.libraryRoot?.id ?? 'all'
   },
@@ -178,6 +202,39 @@ async function saveValidationSampleSize() {
     audioIntelligence.settings.enabled,
     validationSampleSize.value,
   )
+}
+
+async function setAccelerator(value: unknown) {
+  if (value !== 'cpu' && value !== 'cuda') return
+
+  await audioIntelligence.save(
+    audioIntelligence.settings.enabled,
+    validationSampleSize.value,
+    value,
+  )
+}
+
+async function saveReranking() {
+  const reranking: AudioSimilarityRerankingSettings = {
+    enabled: rerankingEnabled.value,
+    tempoInfluence: tempoInfluence.value,
+    keyInfluence: keyInfluence.value,
+    intensityInfluence: intensityInfluence.value,
+  }
+  await audioIntelligence.saveReranking(reranking)
+  audioIntelligence.evaluationResult = null
+}
+
+function acceleratorStatus(accelerator: AudioAnalyzerAccelerator) {
+  return audioIntelligence.settings.analyzerSelection.methods[accelerator]
+}
+
+function acceleratorStatusColor(accelerator: AudioAnalyzerAccelerator) {
+  return {
+    available: 'success',
+    unavailable: 'error',
+    unchecked: 'default',
+  }[acceleratorStatus(accelerator)]
 }
 
 function setValidationSampleSize(value: string | number | null) {
@@ -512,11 +569,103 @@ async function toggleMatchFeedback(
               </v-tooltip>
             </div>
           </div>
+          <v-alert
+            v-if="!collectionRun"
+            class="mt-5"
+            icon="mdi-database-outline"
+            :text="t('settings.audioCollectionNoRun')"
+            type="info"
+            variant="tonal"
+          />
           <AudioAnalysisRunStatus
             v-if="collectionRun"
             class="mt-5"
             :run="collectionRun"
           />
+        </section>
+
+        <v-divider class="my-6" />
+
+        <section>
+          <div class="text-subtitle-1 font-weight-bold">
+            {{ t('settings.audioSimilarityRefinement') }}
+          </div>
+          <div class="text-body-2 text-medium-emphasis mb-2">
+            {{ t('settings.audioSimilarityRefinementDescription') }}
+          </div>
+          <v-switch
+            v-model="rerankingEnabled"
+            color="primary"
+            :disabled="audioIntelligence.saving || !audioIntelligence.settings.enabled"
+            :label="t('settings.audioSimilarityRefinementEnabled')"
+            hide-details
+          />
+          <v-expand-transition>
+            <div v-if="rerankingEnabled" class="audio-reranking-controls mt-3">
+              <div class="audio-reranking-row">
+                <div class="text-body-2">
+                  {{ t('settings.audioSimilarityTempoInfluence') }}
+                </div>
+                <v-slider
+                  v-model="tempoInfluence"
+                  color="primary"
+                  :disabled="audioIntelligence.saving"
+                  hide-details
+                  max="10"
+                  min="0"
+                  show-ticks="always"
+                  step="1"
+                  thumb-label
+                />
+              </div>
+              <div class="audio-reranking-row">
+                <div class="text-body-2">
+                  {{ t('settings.audioSimilarityKeyInfluence') }}
+                </div>
+                <v-slider
+                  v-model="keyInfluence"
+                  color="primary"
+                  :disabled="audioIntelligence.saving"
+                  hide-details
+                  max="10"
+                  min="0"
+                  show-ticks="always"
+                  step="1"
+                  thumb-label
+                />
+              </div>
+              <div class="audio-reranking-row">
+                <div class="text-body-2">
+                  {{ t('settings.audioSimilarityIntensityInfluence') }}
+                </div>
+                <v-slider
+                  v-model="intensityInfluence"
+                  color="primary"
+                  :disabled="audioIntelligence.saving"
+                  hide-details
+                  max="10"
+                  min="0"
+                  show-ticks="always"
+                  step="1"
+                  thumb-label
+                />
+              </div>
+              <div class="text-caption text-medium-emphasis mb-3">
+                {{ t('settings.audioSimilarityInfluenceHint') }}
+              </div>
+            </div>
+          </v-expand-transition>
+          <v-btn
+            class="mt-3"
+            color="primary"
+            :disabled="!audioIntelligence.settings.enabled"
+            :loading="audioIntelligence.saving"
+            prepend-icon="mdi-content-save-outline"
+            variant="tonal"
+            @click="saveReranking"
+          >
+            {{ t('settings.saveAudioSimilarityRefinement') }}
+          </v-btn>
         </section>
 
         <v-divider class="my-6" />
@@ -534,6 +683,73 @@ async function toggleMatchFeedback(
               </div>
             </v-expansion-panel-title>
             <v-expansion-panel-text>
+        <div class="d-flex flex-wrap align-start justify-space-between ga-4">
+          <div class="audio-method-copy">
+            <div class="text-subtitle-1 font-weight-bold">
+              {{ t('settings.audioAnalyzerMethod') }}
+            </div>
+            <div class="text-body-2 text-medium-emphasis">
+              {{ t('settings.audioAnalyzerMethodDescription') }}
+            </div>
+          </div>
+          <v-btn-toggle
+            color="primary"
+            density="comfortable"
+            divided
+            mandatory
+            :disabled="acceleratorChangeDisabled"
+            :model-value="audioIntelligence.settings.analyzerSelection.selected"
+            variant="outlined"
+            @update:model-value="setAccelerator"
+          >
+            <v-btn prepend-icon="mdi-cpu-64-bit" value="cpu">
+              {{ t('settings.audioBenchmarkCpu') }}
+            </v-btn>
+            <v-btn prepend-icon="mdi-expansion-card-variant" value="cuda">
+              {{ t('settings.audioBenchmarkCuda') }}
+            </v-btn>
+          </v-btn-toggle>
+        </div>
+        <div class="d-flex flex-wrap ga-2 mt-3">
+          <v-chip
+            v-for="accelerator in ACCELERATORS"
+            :key="accelerator"
+            :color="acceleratorStatusColor(accelerator)"
+            size="small"
+            variant="tonal"
+          >
+            {{ t('settings.audioAnalyzerMethodStatus', {
+              method: benchmarkMethod(accelerator),
+              status: t(`settings.audioAnalyzerMethodStatuses.${acceleratorStatus(accelerator)}`),
+            }) }}
+          </v-chip>
+          <v-chip
+            v-if="audioIntelligence.settings.analyzerSelection.recommended"
+            color="primary"
+            prepend-icon="mdi-speedometer"
+            size="small"
+            variant="tonal"
+          >
+            {{ t('settings.audioAnalyzerMethodRecommended', {
+              method: benchmarkMethod(audioIntelligence.settings.analyzerSelection.recommended),
+            }) }}
+          </v-chip>
+        </div>
+        <v-alert
+          v-if="acceleratorStatus(audioIntelligence.settings.analyzerSelection.selected)
+            === 'unavailable'"
+          class="mt-3"
+          icon="mdi-alert-outline"
+          :text="t('settings.audioAnalyzerMethodUnavailable')"
+          type="warning"
+          variant="tonal"
+        />
+        <div class="text-caption text-medium-emphasis mt-3">
+          {{ t('settings.audioAnalyzerMethodApplicationHint') }}
+        </div>
+
+        <v-divider class="my-6" />
+
         <div class="d-flex flex-wrap align-start justify-space-between ga-4">
           <div>
             <div class="text-subtitle-1 font-weight-bold">{{ t('settings.audioAnalyzer') }}</div>
@@ -572,6 +788,18 @@ async function toggleMatchFeedback(
             dimensions: audioIntelligence.settings.analyzer.profile.embeddingDimensions,
           }) }}
         </div>
+        <v-chip
+          class="mt-3"
+          :color="audioIntelligence.settings.vectorIndex.status === 'ready' ? 'success' : 'warning'"
+          prepend-icon="mdi-vector-polyline"
+          size="small"
+          variant="tonal"
+        >
+          {{ t(`settings.audioVectorIndexStatuses.${audioIntelligence.settings.vectorIndex.status}`, {
+            indexed: audioIntelligence.settings.vectorIndex.indexedArtifactCount,
+            eligible: audioIntelligence.settings.vectorIndex.eligibleArtifactCount,
+          }) }}
+        </v-chip>
 
         <div class="d-flex flex-wrap align-start justify-space-between ga-3 mt-6">
           <div>
@@ -1128,8 +1356,11 @@ async function toggleMatchFeedback(
                   }) }}
                 </div>
                 <div class="text-caption text-medium-emphasis">
-                  {{ t('settings.audioSimilarityCalculation', {
+                  {{ t(audioIntelligence.evaluationResult.ranking.method === 'feature_reranking'
+                    ? 'settings.audioSimilarityRefinedCalculation'
+                    : 'settings.audioSimilarityCalculation', {
                     candidates: audioIntelligence.evaluationResult.candidateCount,
+                    pool: audioIntelligence.evaluationResult.ranking.candidatePoolSize,
                     milliseconds: audioIntelligence.evaluationResult.calculationMs,
                   }) }}
                 </div>
@@ -1267,8 +1498,16 @@ async function toggleMatchFeedback(
                 </v-list-item-subtitle>
                 <template #append>
                   <div class="audio-similarity-match-meta">
-                    <v-chip color="primary" size="small" variant="tonal">
-                      {{ similarityScore(match.similarity) }}
+                    <v-chip
+                      color="primary"
+                      size="small"
+                      :title="t('settings.audioSimilarityScoreDetails', {
+                        vector: similarityScore(match.similarity),
+                        ranked: similarityScore(match.rankingScore),
+                      })"
+                      variant="tonal"
+                    >
+                      {{ similarityScore(match.rankingScore) }}
                     </v-chip>
                     <div class="d-flex justify-end ga-1 mt-1">
                       <v-chip
@@ -1382,6 +1621,18 @@ async function toggleMatchFeedback(
   gap: 6px;
 }
 
+.audio-reranking-controls {
+  max-width: 720px;
+}
+
+.audio-reranking-row {
+  align-items: center;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-height: 48px;
+}
+
 .audio-similarity-controls {
   align-items: center;
   display: grid;
@@ -1444,6 +1695,10 @@ async function toggleMatchFeedback(
   text-align: right;
 }
 
+.audio-method-copy {
+  flex: 1 1 360px;
+}
+
 .audio-feedback-button--subdued {
   opacity: 0.35;
   transition: opacity 120ms ease;
@@ -1473,6 +1728,14 @@ async function toggleMatchFeedback(
 
   .audio-similarity-match-meta {
     min-width: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .audio-reranking-row {
+    gap: 2px;
+    grid-template-columns: 1fr;
+    padding-bottom: 8px;
   }
 }
 

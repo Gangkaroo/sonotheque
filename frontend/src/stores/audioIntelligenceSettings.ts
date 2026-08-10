@@ -119,6 +119,17 @@ export type AudioAnalyzerStatus =
   | 'incompatible'
   | 'error'
 
+export type AudioAnalyzerAccelerator = 'cpu' | 'cuda'
+
+export type AudioAnalyzerAcceleratorStatus = 'available' | 'unavailable' | 'unchecked'
+
+export interface AudioSimilarityRerankingSettings {
+  enabled: boolean
+  tempoInfluence: number
+  keyInfluence: number
+  intensityInfluence: number
+}
+
 export interface AudioIntelligenceSettings {
   enabled: boolean
   validationSampleSize: number
@@ -131,6 +142,19 @@ export interface AudioIntelligenceSettings {
     message: string | null
     profile: AudioAnalyzerProfile | null
   }
+  analyzerSelection: {
+    selected: AudioAnalyzerAccelerator
+    recommended: AudioAnalyzerAccelerator | null
+    methods: Record<AudioAnalyzerAccelerator, AudioAnalyzerAcceleratorStatus>
+  }
+  reranking: AudioSimilarityRerankingSettings
+  vectorIndex: {
+    status: 'empty' | 'ready' | 'incomplete' | 'unsupported'
+    dimensions: number
+    indexedArtifactCount: number
+    eligibleArtifactCount: number
+  }
+  collectionRuns: AudioAnalysisRun[]
   latestCollectionRun: AudioAnalysisRun | null
   latestValidationRun: AudioAnalysisRun | null
   activeRun: AudioAnalysisRun | null
@@ -242,8 +266,19 @@ export interface AudioSimilarityEvaluation {
     excludeSameAlbum: boolean
     excludeSameArtist: boolean
   }
+  ranking: {
+    method: 'embedding' | 'feature_reranking'
+    candidatePoolSize: number
+    preferences: AudioSimilarityRerankingSettings
+  }
   matches: Array<AudioSimilarityTrack & {
     similarity: number
+    rankingScore: number
+    featureCompatibility: {
+      tempo: number | null
+      key: number | null
+      intensity: number | null
+    }
     feedback: 'relevant' | 'irrelevant' | null
   }>
 }
@@ -260,6 +295,27 @@ const defaults: AudioIntelligenceSettings = {
     message: null,
     profile: null,
   },
+  analyzerSelection: {
+    selected: 'cpu',
+    recommended: null,
+    methods: {
+      cpu: 'unchecked',
+      cuda: 'unchecked',
+    },
+  },
+  reranking: {
+    enabled: false,
+    tempoInfluence: 5,
+    keyInfluence: 3,
+    intensityInfluence: 4,
+  },
+  vectorIndex: {
+    status: 'empty',
+    dimensions: 1280,
+    indexedArtifactCount: 0,
+    eligibleArtifactCount: 0,
+  },
+  collectionRuns: [],
   latestCollectionRun: null,
   latestValidationRun: null,
   activeRun: null,
@@ -325,6 +381,12 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
   const evaluationError = ref<string | null>(null)
   const error = ref<string | null>(null)
 
+  function collectionRunForScope(libraryRootId: number | null) {
+    return settings.value.collectionRuns?.find(
+      run => (run.libraryRoot?.id ?? null) === libraryRootId,
+    ) ?? null
+  }
+
   async function load(options: { silent?: boolean } = {}) {
     if (!options.silent) {
       loading.value = true
@@ -341,13 +403,18 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     }
   }
 
-  async function save(enabled: boolean, validationSampleSize: number) {
+  async function save(
+    enabled: boolean,
+    validationSampleSize: number,
+    accelerator = settings.value.analyzerSelection.selected,
+    reranking = settings.value.reranking ?? defaults.reranking,
+  ) {
     saving.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>('/settings/audio-intelligence', {
         method: 'PATCH',
-        body: JSON.stringify({ enabled, validationSampleSize }),
+        body: JSON.stringify({ enabled, validationSampleSize, accelerator, reranking }),
       })
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -355,6 +422,15 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     } finally {
       saving.value = false
     }
+  }
+
+  async function saveReranking(reranking: AudioSimilarityRerankingSettings) {
+    await save(
+      settings.value.enabled,
+      settings.value.validationSampleSize,
+      settings.value.analyzerSelection.selected,
+      reranking,
+    )
   }
 
   async function prepareValidationSample() {
@@ -628,8 +704,10 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     ratingTrackId,
     evaluationError,
     error,
+    collectionRunForScope,
     load,
     save,
+    saveReranking,
     prepareValidationSample,
     expandPool,
     prepareCollection,

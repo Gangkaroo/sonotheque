@@ -37,19 +37,25 @@ const backLabel = computed(() => backToAudioIntelligence.value
 
 watch(artistId, (id) => {
   artistImageUrl.value = null
+  activeTab.value = 'albums'
   albumPage.value = 1
   trackPage.value = 1
   void catalog.loadArtist(id)
   void catalog.loadAlbums({ artist: id, page: 1 })
-  void catalog.loadTracks({ artist: id, page: 1 })
 }, { immediate: true })
+
+watch(activeTab, (tab) => {
+  if (tab === 'tracks') void catalog.loadTracks({ artist: artistId.value, page: trackPage.value })
+})
 
 watch(albumPage, (page, previousPage) => {
   if (page !== previousPage) void catalog.loadAlbums({ artist: artistId.value, page })
 })
 
 watch(trackPage, (page, previousPage) => {
-  if (page !== previousPage) void catalog.loadTracks({ artist: artistId.value, page })
+  if (page !== previousPage && activeTab.value === 'tracks') {
+    void catalog.loadTracks({ artist: artistId.value, page })
+  }
 })
 
 function changeAlbumPage(value: number) {

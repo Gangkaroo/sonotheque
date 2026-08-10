@@ -28,6 +28,11 @@ use Illuminate\Database\Eloquent\Model;
     'online_lyrics_enabled',
     'audio_intelligence_enabled',
     'audio_intelligence_validation_sample_size',
+    'audio_intelligence_accelerator',
+    'audio_similarity_reranking_enabled',
+    'audio_similarity_tempo_influence',
+    'audio_similarity_key_influence',
+    'audio_similarity_intensity_influence',
     'playlist_export_format',
     'synchronize_playlists_to_files',
 ])]
@@ -48,6 +53,11 @@ class ApplicationSetting extends Model
             'online_lyrics_enabled' => false,
             'audio_intelligence_enabled' => false,
             'audio_intelligence_validation_sample_size' => 200,
+            'audio_intelligence_accelerator' => self::configuredAudioIntelligenceAccelerator(),
+            'audio_similarity_reranking_enabled' => false,
+            'audio_similarity_tempo_influence' => 5,
+            'audio_similarity_key_influence' => 3,
+            'audio_similarity_intensity_influence' => 4,
             'playlist_export_format' => 'm3u8',
             'synchronize_playlists_to_files' => false,
         ]);
@@ -80,6 +90,36 @@ class ApplicationSetting extends Model
             && $this->discogs_user_id !== null;
     }
 
+    public function audioIntelligenceAccelerator(): string
+    {
+        return in_array($this->audio_intelligence_accelerator, ['cpu', 'cuda'], true)
+            ? $this->audio_intelligence_accelerator
+            : self::configuredAudioIntelligenceAccelerator();
+    }
+
+    /**
+     * @return array{enabled: bool, tempoInfluence: int, keyInfluence: int, intensityInfluence: int}
+     */
+    public function audioSimilarityReranking(): array
+    {
+        return [
+            'enabled' => (bool) $this->audio_similarity_reranking_enabled,
+            'tempoInfluence' => (int) $this->audio_similarity_tempo_influence,
+            'keyInfluence' => (int) $this->audio_similarity_key_influence,
+            'intensityInfluence' => (int) $this->audio_similarity_intensity_influence,
+        ];
+    }
+
+    private static function configuredAudioIntelligenceAccelerator(): string
+    {
+        $configured = strtolower((string) config(
+            'sonotheque.audio_intelligence.accelerator',
+            'cpu',
+        ));
+
+        return in_array($configured, ['cpu', 'cuda'], true) ? $configured : 'cpu';
+    }
+
     protected function casts(): array
     {
         return [
@@ -101,6 +141,10 @@ class ApplicationSetting extends Model
             'online_lyrics_enabled' => 'boolean',
             'audio_intelligence_enabled' => 'boolean',
             'audio_intelligence_validation_sample_size' => 'integer',
+            'audio_similarity_reranking_enabled' => 'boolean',
+            'audio_similarity_tempo_influence' => 'integer',
+            'audio_similarity_key_influence' => 'integer',
+            'audio_similarity_intensity_influence' => 'integer',
             'synchronize_playlists_to_files' => 'boolean',
         ];
     }

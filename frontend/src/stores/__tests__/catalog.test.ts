@@ -2,10 +2,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useCatalogStore } from '@/stores/catalog'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 
 describe('catalog store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    useLibraryRootScopeStore().select(null)
     vi.unstubAllGlobals()
   })
 
@@ -55,6 +57,41 @@ describe('catalog store', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/artists/7', expect.any(Object))
   })
 
+  it('loads the root-scoped musician catalog with coverage', async () => {
+    const page = {
+      items: [{ id: 8, name: 'Jamie Player', albumCount: 3, trackCount: 7 }],
+      total: 1,
+      page: 2,
+      perPage: 50,
+      lastPage: 2,
+      coverage: { checkedAlbums: 40, creditedAlbums: 18, totalAlbums: 100, percentage: 40 },
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(page), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadMusicians({ page: 2, search: 'Jamie', initial: 'P' })
+
+    expect(store.musicians.items[0]?.trackCount).toBe(7)
+    expect(store.musicians.coverage.percentage).toBe(40)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/catalog/musicians?page=2&search=Jamie&initial=P',
+      expect.any(Object),
+    )
+  })
+
+  it('loads root-scoped musician details', async () => {
+    const detail = { id: 8, name: 'Jamie Player', albumCount: 3, trackCount: 7 }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(detail), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    await store.loadMusician(8)
+
+    expect(store.musicianDetail).toEqual(detail)
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/musicians/8', expect.any(Object))
+  })
+
   it('loads album, track, and genre pages independently', async () => {
     const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify({
       items: [],
@@ -68,14 +105,38 @@ describe('catalog store', () => {
 
     const store = useCatalogStore()
     await Promise.all([
-      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7, physicalCopy: 'owned', sort: 'year_desc' }),
-      store.loadTracks({ page: 2, genre: 7, playStatus: 'never', physicalCopy: 'not_owned', sort: 'plays' }),
+      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7, musician: 8, physicalCopy: 'owned', sort: 'year_desc' }),
+      store.loadTracks({ page: 2, genre: 7, musician: 8, playStatus: 'never', physicalCopy: 'not_owned', sort: 'plays' }),
       store.loadGenres({ page: 2 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7&physicalCopy=owned&sort=year_desc', expect.any(Object))
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7&playStatus=never&physicalCopy=not_owned&sort=plays', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7&musician=8&physicalCopy=owned&sort=year_desc', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7&musician=8&playStatus=never&physicalCopy=not_owned&sort=plays', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/genres?page=2', expect.any(Object))
+  })
+
+  it('reuses catalog pages by query and root until the catalog is invalidated', async () => {
+    const page = { items: [], total: 0, page: 1, perPage: 24, lastPage: 1 }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(page), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const store = useCatalogStore()
+    const rootScope = useLibraryRootScopeStore()
+    await store.loadAlbums({ page: 1, sort: 'artist' })
+    await store.loadAlbums({ page: 1, sort: 'artist' })
+    expect(fetchMock).toHaveBeenCalledOnce()
+
+    rootScope.select(7)
+    await store.loadAlbums({ page: 1, sort: 'artist' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/catalog/albums?page=1&sort=artist&libraryRoot=7',
+      expect.any(Object),
+    )
+
+    store.invalidateCatalog()
+    await store.loadAlbums({ page: 1, sort: 'artist' })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('saves album personal metadata', async () => {
@@ -296,6 +357,7 @@ describe('catalog store', () => {
   it('loads dashboard metrics without loading catalog pages', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       artists: 12,
+      musicians: 42,
       albums: 34,
       tracks: 567,
       genres: 8,
@@ -307,7 +369,7 @@ describe('catalog store', () => {
     const store = useCatalogStore()
     await store.loadMetrics()
 
-    expect(store.metrics).toEqual({ artists: 12, albums: 34, tracks: 567, genres: 8, playedAlbums: 21, playedTracks: 123 })
+    expect(store.metrics).toEqual({ artists: 12, musicians: 42, albums: 34, tracks: 567, genres: 8, playedAlbums: 21, playedTracks: 123 })
     expect(store.metricsHaveCatalog).toBe(true)
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith('/api/dashboard-metrics', expect.any(Object))
@@ -320,6 +382,7 @@ describe('catalog store', () => {
     })
     const freshMetrics = {
       artists: 13,
+      musicians: 43,
       albums: 35,
       tracks: 570,
       genres: 9,
@@ -344,6 +407,7 @@ describe('catalog store', () => {
   it('reuses valid metrics until the cache is invalidated', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       artists: 12,
+      musicians: 42,
       albums: 34,
       tracks: 567,
       genres: 8,

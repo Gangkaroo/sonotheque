@@ -84,6 +84,38 @@ not install Python packages, download a model, start an analyzer, or inspect
 audio for this feature. Enabling the workspace only permits preparation; it
 does not dispatch analysis or reserve CPU, GPU, or memory.
 
+Sonotheque's PostgreSQL 18 Compose service uses the pinned
+`pgvector/pgvector:0.8.2-pg18-trixie` image. The application keeps the complete
+embedding in JSONB as its portable source of truth and maintains a matching
+`vector(1280)` projection with an HNSW cosine index. An upgrade backfills that
+projection directly from existing artifacts; it does not decode or analyze the
+music again. The index organizes nearby vectors for fast queries and does not
+materialize every possible track pair.
+
+Clusters created by current Compose files enable the extension during normal
+migration. A legacy cluster whose application role is deliberately restricted
+needs a one-time administrator command before migration:
+
+```powershell
+docker exec sonotheque-postgres psql -U <database-admin-role> -d sonotheque `
+  -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+The Audio intelligence advanced settings display how many compatible artifacts
+are present in the similarity index. New 1,280-dimensional artifacts are added
+to both representations when their analysis chunk is persisted.
+
+Advanced settings also store the selected CPU or CUDA analysis method in the
+database. Existing installations preserve `AUDIO_INTELLIGENCE_ACCELERATOR` as
+their initial selection during upgrade. A new or resumed analysis job resolves
+the selected method and its matching analyzer image when the worker starts;
+completed artifacts remain reusable. Method changes are rejected while an
+analysis job or benchmark is running, and unavailable CUDA does not silently
+fall back to CPU. The latest benchmark supplies the displayed availability and
+recommendation state. The original method keeps its configured
+`AUDIO_INTELLIGENCE_DOCKER_IMAGE`; switching methods uses the corresponding
+CPU or CUDA benchmark image configuration.
+
 The representative validation sample accepts 50 through 500 tracks and
 defaults to 200. Sonotheque selects available tracks across enabled roots,
 genres, and artists. Preparation reuses current tag-independent fingerprints,
@@ -187,9 +219,10 @@ chunk size narrows that boundary but increases model startup overhead.
 
 After a validation run has results, Settings exposes a similarity evaluator.
 Choose an analyzed source track to calculate and display its ten nearest tracks
-using exact cosine similarity. The response includes measured calculation time,
-scores, BPM/key context, and catalog links, but never returns embeddings or
-filesystem paths and never modifies playback, queues, or playlists.
+from the pgvector cosine index. The response includes measured calculation
+time, the unmodified vector score, the displayed ranking score, BPM/key context,
+and catalog links, but never returns embeddings or filesystem paths and never
+modifies playback, queues, or playlists.
 
 The evaluator also summarizes BPM, danceability, dynamic complexity, and the
 analyzer's raw loudness values with compact eight-bin distributions. Reviewers
@@ -200,14 +233,22 @@ mix ratings from incompatible embeddings. Ratings are also scoped to the active
 same-artist and same-album exclusion configuration, so comparisons do not mix
 different candidate sets.
 
+Recommendation refinement is disabled by default. If enabled, Sonotheque
+retrieves up to 100 nearby vectors and applies bounded, inspectable penalties
+for tempo, key, and an intensity proxy assembled from loudness, danceability,
+and dynamic complexity. Missing characteristics never reduce a score, and
+half/double tempo is treated as compatible. The configured influence values are
+maximum percentage-point penalties, so the embedding remains the dominant
+signal and no track needs to be analyzed again.
+
 The structured review queue deterministically chooses up to 30 source tracks
 while balancing library roots, genres, artists, and albums. It resumes a
 partially rated source before offering a new one and tracks completed sources,
 the number of rated matches, the overall rated-relevant share, and the mean
 relevant share for completed sources. Changing exclusion switches shows the
-separate progress and metrics for that configuration. These controls assess the
-unweighted embedding baseline; Sonotheque does not apply BPM or key heuristics
-yet.
+separate progress and metrics for that configuration. When recommendation
+refinement is enabled, the review shows the refined order while preserving the
+embedding-only score for direct comparison.
 
 The adapter uses `--pull=never`, disables container networking during health and
 analysis runs, applies the configured CPU and memory limits, and mounts the

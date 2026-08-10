@@ -26,6 +26,7 @@ class MetadataEditPayloads
             'status' => $job->status,
             'preview' => $job->preview,
             'error' => $job->error,
+            'failureReason' => $this->failureReason($job),
             'backup' => $this->backup($job->backup),
             'totalItems' => $job->total_items,
             'processedItems' => $job->processed_items,
@@ -44,6 +45,15 @@ class MetadataEditPayloads
             'startedAt' => $job->started_at?->toJSON(),
             'finishedAt' => $job->finished_at?->toJSON(),
         ];
+    }
+
+    private function failureReason(MetadataEditJob $job): ?string
+    {
+        $itemError = $job->items
+            ->first(fn (MetadataEditItem $item): bool => $item->status === 'failed' && filled($item->error))
+            ?->error;
+
+        return $itemError ?? $job->error;
     }
 
     /** @return array<string, mixed>|null */

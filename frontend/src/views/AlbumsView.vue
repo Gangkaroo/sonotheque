@@ -7,6 +7,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
 import type { Album } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -22,6 +23,8 @@ interface AlbumFilters {
   year: number | null
   genre: number | null
   genreName: string
+  musician: number | null
+  musicianName: string
   physicalCopy: PhysicalCopyFilter
   sort: AlbumSort
 }
@@ -43,6 +46,8 @@ const initial = ref<string | null>(restoredFilters.initial)
 const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
+const musician = ref(restoredFilters.musician)
+const musicianName = ref(restoredFilters.musicianName)
 const year = ref<number | null>(restoredFilters.year)
 const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
 const sort = ref<AlbumSort>(restoredFilters.sort)
@@ -78,6 +83,7 @@ function load() {
     initial: initial.value,
     year: year.value,
     genre: genre.value,
+    musician: musician.value,
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
     sort: sort.value,
   })
@@ -95,6 +101,8 @@ function playRandomAlbum() {
     year: filters.year,
     genreId: filters.genre,
     genreName: filters.genreName,
+    musicianId: filters.musician,
+    musicianName: filters.musicianName,
     physicalCopy: filters.physicalCopy === 'all' ? null : filters.physicalCopy,
     sort: filters.sort,
   }
@@ -115,6 +123,8 @@ function currentFilters(): AlbumFilters {
     year: year.value,
     genre: genre.value,
     genreName: genreName.value,
+    musician: musician.value,
+    musicianName: musicianName.value,
     physicalCopy: physicalCopy.value,
     sort: sort.value,
   }
@@ -128,6 +138,8 @@ function defaultFilters(): AlbumFilters {
     year: null,
     genre: null,
     genreName: '',
+    musician: null,
+    musicianName: '',
     physicalCopy: 'all',
     sort: 'artist',
   }
@@ -151,13 +163,15 @@ function filtersFromQuery(): AlbumFilters | null {
     year: queryNumber(route.query.year),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    musician: queryNumber(route.query.musician),
+    musicianName: querySearch(route.query.musicianName),
     physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
     sort: queryAlbumSort(route.query.sort),
   }
 }
 
 function hasFilterQuery() {
-  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
+  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'musician', 'musicianName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -174,6 +188,8 @@ function filtersFromStorage(): AlbumFilters | null {
       year: typeof parsed.year === 'number' ? parsed.year : null,
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      musician: typeof parsed.musician === 'number' ? parsed.musician : null,
+      musicianName: typeof parsed.musicianName === 'string' ? parsed.musicianName : '',
       physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
       sort: queryAlbumSort(parsed.sort),
     }
@@ -208,6 +224,8 @@ function applyFilters(filters: AlbumFilters) {
   year.value = filters.year
   genre.value = filters.genre
   genreName.value = filters.genreName
+  musician.value = filters.musician
+  musicianName.value = filters.musicianName
   physicalCopy.value = filters.physicalCopy
   sort.value = filters.sort
   applyingRouteFilters = false
@@ -223,6 +241,8 @@ function filterQuery(filters: AlbumFilters) {
   if (filters.year) query.year = String(filters.year)
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.musician) query.musician = String(filters.musician)
+  if (filters.musicianName.trim()) query.musicianName = filters.musicianName.trim()
   if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
   if (filters.sort !== 'artist') query.sort = filters.sort
 
@@ -237,6 +257,8 @@ function normalizedFilterQuery(query: typeof route.query) {
     year: queryNumber(query.year),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    musician: queryNumber(query.musician),
+    musicianName: querySearch(query.musicianName),
     physicalCopy: queryPhysicalCopy(query.physicalCopy),
     sort: queryAlbumSort(query.sort),
   })
@@ -283,6 +305,12 @@ function clearGenreFilter() {
   page.value = 1
 }
 
+function clearMusicianFilter() {
+  musician.value = null
+  musicianName.value = ''
+  page.value = 1
+}
+
 function changePage(value: number) {
   if (value === page.value) return
 
@@ -303,6 +331,7 @@ function albumDetails(album: Album) {
 }
 
 saveFilters()
+useCachedViewActivation(load)
 
 watch(() => route.query, () => {
   if (route.name !== 'albums') return
@@ -318,14 +347,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([initial, year, genre, genreName, physicalCopy, sort], () => {
+watch([initial, year, genre, genreName, musician, musicianName, physicalCopy, sort], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, initial, year, genre, musician, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -414,9 +443,12 @@ onUnmounted(() => {
       {{ letter }}
     </v-btn>
   </div>
-  <div v-if="genre" class="d-flex flex-wrap ga-2 mb-6">
+  <div v-if="genre || musician" class="d-flex flex-wrap ga-2 mb-6">
     <v-chip v-if="genre" closable color="primary" variant="tonal" @click:close="clearGenreFilter">
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
+    </v-chip>
+    <v-chip v-if="musician" closable color="primary" variant="tonal" @click:close="clearMusicianFilter">
+      {{ t('musicians.filterLabel', { name: musicianName || t('musicians.filterFallback', { id: musician }) }) }}
     </v-chip>
   </div>
   <div ref="resultsTop" class="catalog-results-anchor" />

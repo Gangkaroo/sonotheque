@@ -148,6 +148,16 @@ function continueWithMatches() {
           <div class="text-body-2 text-medium-emphasis mb-3">
             {{ dialogDescription }}
           </div>
+          <v-chip
+            v-if="result.ranking.method === 'feature_reranking'"
+            class="mb-3"
+            color="primary"
+            prepend-icon="mdi-tune-variant"
+            size="small"
+            variant="tonal"
+          >
+            {{ t('tracks.featureRefinedSimilarity') }}
+          </v-chip>
           <v-list v-if="result.matches.length" border lines="two" rounded="lg">
             <v-list-item
               v-for="match in result.matches"
@@ -194,8 +204,16 @@ function continueWithMatches() {
               </v-list-item-subtitle>
               <template #append>
                 <div class="similar-track-meta">
-                  <v-chip color="primary" size="small" variant="tonal">
-                    {{ similarityScore(match.similarity) }}
+                  <v-chip
+                    color="primary"
+                    size="small"
+                    :title="t('settings.audioSimilarityScoreDetails', {
+                      vector: similarityScore(match.similarity),
+                      ranked: similarityScore(match.rankingScore),
+                    })"
+                    variant="tonal"
+                  >
+                    {{ similarityScore(match.rankingScore) }}
                   </v-chip>
                   <div class="d-flex justify-end ga-1 mt-1">
                     <v-chip v-if="featureBpm(match.features.bpm)" size="x-small" variant="outlined">

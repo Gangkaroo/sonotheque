@@ -116,6 +116,7 @@ class LanProtectionMiddlewareTest extends TestCase
             ->assertOk()
             ->assertExactJson([
                 'artists' => 0,
+                'musicians' => 0,
                 'albums' => 0,
                 'tracks' => 0,
                 'genres' => 0,

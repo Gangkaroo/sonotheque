@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { formatDateTime } from '@/utils/formatters'
@@ -172,6 +173,7 @@ function playCountTooltip(artist: typeof catalog.artists.items[number]) {
 }
 
 saveFilters()
+useCachedViewActivation(load)
 
 watch(() => route.query, () => {
   if (route.name !== 'artists') return

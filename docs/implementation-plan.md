@@ -93,8 +93,8 @@ The implemented release baseline and active roadmap include:
   through Last.fm, MusicBrainz, Wikidata, Wikimedia Commons, and LRCLIB
 - Disabled-by-default local audio analysis and semantic similarity
   recommendations using versioned pretrained models, reusable background
-  analysis, and exact cosine search; optional PostgreSQL vector indexing is
-  introduced only if full-collection measurements justify it
+  analysis, pgvector HNSW neighbour search, a persisted CPU/CUDA method
+  selector, and optional transparent tempo/key/intensity refinement
 - Independently disabled-by-default local collection assistant that answers
   questions and prepares searches or queue previews through validated,
   read-only Sonotheque tools
@@ -654,6 +654,11 @@ Completed:
   release year
 - Preserved list filter state for albums, tracks, and artists across route
   navigation and library-root switching
+- Bounded in-memory route caching for the dashboard and top-level browse views,
+  including scroll restoration and a root/filter/page-aware catalog response
+  cache. Catalog mutations and scan lifecycle changes invalidate cached data;
+  settings and detail/edit pages remain uncached so protected and mutable state
+  is loaded fresh.
 - Top and bottom pagination on catalog lists and artist-detail tabs with
   compact first/last page controls and result-top scrolling on page changes
 - Tokenized album and track search so combined artist/title or artist/album
@@ -736,11 +741,10 @@ Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
-- Full-collection audio-intelligence completion and exact-search measurement,
-  followed by optional feature reranking, personalization, and final separation
-  of listener controls from advanced diagnostics
-- Explicit persisted CPU/CUDA analyzer selection based on availability and
-  benchmark results, plus remaining zero-overhead and failure-path coverage
+- Completion of any remaining root-scoped audio analysis, explicit-feedback
+  personalization, similarity-based playlist ordering, and final separation of
+  listener controls from advanced diagnostics
+- Remaining audio-analyzer zero-overhead and failure-path coverage
 - Optional alternate configured destination for album playlist exports
 - Local collection assistant over guarded Sonotheque tools
 - Optional remote access with trusted-browser enrollment, explicit local
@@ -1183,8 +1187,9 @@ Last.fm integration.
 - Add normalized, indexed musician identities plus album- and track-credit
   tables. Preserve source provider/release and credited names so later album
   and track filters can use stable identities rather than free-text names.
-  (Normalized identities and scoped credits complete; collection coverage and
-  musician filters remain pending.)
+  (Complete, including indexed source-credit keys used to exclude suppressed
+  provider credits from catalog counts and filters without loading the full
+  collection into application memory.)
 - Add manual musician-credit curation from the album page. Users may add a
   musician, select album-wide or specific-track scope, assign a role,
   retain the printed credited-as name, edit locally curated credits, and hide an
@@ -1233,12 +1238,16 @@ Last.fm integration.
 - Add a dedicated **Musicians** catalog section with a searchable, root-scoped
   list of normalized musicians, album/track credit counts, and honest coverage
   context for the partially enriched collection. Link musician names in album
-  information to this page, and later let users browse the credited albums and
-  tracks without relying on free-text matching. (Pending)
+  information to this page, and let users browse the credited albums without
+  relying on free-text matching. (Complete: the catalog includes
+  A-Z navigation, persisted pagination/search state, effective credit counts,
+  checked/credited album coverage, and direct musician-ID filters for album and
+  track lists. Each musician has a root-scoped detail page with release-year-
+  ordered albums and album-detail return navigation.)
 - Add a dashboard KPI for the number of distinct musicians currently present in
   effective credits. The KPI should link to the Musicians section and remain
   explicit that its value grows as lazy enrichment or the optional backfill
-  covers more albums. (Pending)
+  covers more albums. (Complete and library-root scoped.)
 
 ### 5e. Local Audio Intelligence And Similarity
 
@@ -1256,8 +1265,10 @@ Last.fm integration.
   status, confidence, and error records keyed by track and audio-content
   fingerprint. (Versioned model and reusable content-addressed feature and
   embedding artifacts, status, runtime, hardware, and error records complete;
-  resumable all-root or root-scoped collection scheduling is complete. pgvector
-  remains pending until exact-search measurements justify it.)
+  resumable all-root or root-scoped collection scheduling is complete. The
+  measured full-scale limit now has a pgvector 0.8.2 `vector(1280)` projection,
+  HNSW cosine index, in-place artifact backfill, indexed query path, and visible
+  coverage status. Existing JSONB embeddings remain the source of truth.)
 - Validate Essentia audio features and a replaceable pretrained music embedding
   model on a representative 200-to-500-track sample before full-library
   analysis. Record model checksum, dimensions, license, runtime, and quality
@@ -1275,21 +1286,24 @@ Last.fm integration.
   version changes; tag-only edits, moves, and renames must reuse it. (Complete
   for analysis artifacts, including reuse across runs and duplicate fingerprints.)
 - Add exact cosine search first, then an HNSW index only after measuring query
-  latency and recall on the real collection. (Exact cosine evaluation is
-  complete for reusable analysis artifacts: the initial 50-track set compares 49
-  candidates in about 120 ms. HNSW remains pending until a larger,
-  cross-collection sample demonstrates useful neighbours and a need for it.)
+  latency and recall on the real collection. (Complete: the initial 50-track
+  exact baseline established match quality, while the full-scale measurement
+  justified the pgvector HNSW cosine index now used for bounded candidate
+  retrieval.)
 - Add a deterministic similarity service with optional BPM, key, energy, mood,
   library-root, artist-diversity, and duplicate controls. (Partially complete:
-  the exact-cosine baseline supports bounded results plus same-album and
-  same-artist exclusion; feature reranking and the remaining controls are
-  pending.)
+  pgvector provides bounded cosine-neighbour retrieval plus same-album and
+  same-artist exclusion. An opt-in, bounded tempo/key/intensity reranker is now
+  available and keeps the original vector score visible; library-root,
+  diversity, duplicate, and richer mood controls remain pending.)
 - Add an inspectable, local personalization layer that learns only reranking
-  weights from explicit relevant/not-relevant feedback and optionally from
-  completed plays, skips, favorites, and playlists. Keep the base embedding
-  unchanged, provide reset/disable controls, and compare personalized results
-  with the accepted cosine baseline. (Pending; current feedback records
-  evaluation metrics and is displayed with matches but does not alter ranking.)
+  weights from explicit relevant/not-relevant feedback. Completed plays, skips,
+  favorites, and playlists may be evaluated later but must not affect the first
+  version implicitly. Keep the base embedding unchanged, require a meaningful
+  minimum feedback sample, provide reset/disable controls, and compare
+  personalized results with the accepted vector and feature-refined baselines.
+  (Pending; current feedback records evaluation metrics and is displayed with
+  matches but does not alter ranking.)
 - Add Similar Tracks and Continue This Mood actions with a reviewable queue
   preview; never modify playback or playlists without confirmation. (Complete:
   Similar Tracks is available from track details, while Continue This Mood is
@@ -1358,7 +1372,9 @@ Last.fm integration.
   user's choice. Keep the active method unchanged until the user applies a
   selection; never switch or fall back silently. A change applies to future
   chunks without interrupting an active chunk or invalidating reusable
-  artifacts. Explain clearly when CUDA is unavailable or slower. (Pending)
+  artifacts. Explain clearly when CUDA is unavailable or slower. (Complete:
+  the persisted selector uses benchmark availability and recommendations,
+  applies to future work, and never falls back silently.)
 - Split listener-facing controls from experimental diagnostics. The normal view
   should show enablement, coverage, collection-run progress, pause/resume,
   resource limits, and actionable recommendation preferences. Analyzer details,
@@ -1397,7 +1413,8 @@ Last.fm integration.
   playback fully functional. (Pending)
 - Consider opt-in lightweight personalization only after explicit recommendation
   feedback and evaluation controls exist. Do not train a foundation model from
-  the private collection. (Pending)
+  the private collection. (Ready to implement: explicit feedback and baseline
+  evaluation are complete; the first version remains a small local reranker.)
 
 ### 6. Settings and Scan Management
 
@@ -1486,22 +1503,35 @@ reached. Validation and pool expansion have served their initial model-selection
 purpose and should now be treated as experimental diagnostics rather than a
 normal-user workflow.
 
-The next audio-intelligence milestone is completing the current collection run
-and measuring exact-cosine query latency at full scale. Keep exact search while
-it remains responsive; introduce pgvector/HNSW only from measured need. Before
-another long run, add the explicit persisted CPU/CUDA method selector already
-designed for Advanced diagnostics. It should show availability and the latest
-benchmark recommendation, apply only to future chunks, and never fall back
-silently.
+The first root-scale collection run is effectively complete and is sufficient
+to continue feature development; roots analyzed later expand the candidate pool
+without invalidating existing artifacts. Root-scoped status in Settings must
+always follow the selected root rather than displaying the globally latest run.
 
-After coverage is established, add optional BPM/key/energy reranking and a
-small, resettable personalization layer driven by explicit match feedback. A
-listener who dislikes the results should then be able to rate matches, adjust
-understandable preferences such as tempo influence and artist diversity, and
-obtain a visibly different preview. The existing thumbs-up/down records are
-evaluation-only and must not be presented as if they already improve
-recommendations. Compare every new ranking against the accepted embedding-only
-baseline before making it the default.
+The full-scale latency measurement established the need for indexed nearest-
+neighbour search: loading 33,148 1,280-dimensional JSON embeddings into PHP
+exceeded the 128 MB request memory limit, while streaming the same vectors
+exceeded the 30-second request timeout. This milestone is complete with a pinned
+pgvector PostgreSQL 18 image, transactional in-place vector backfill, HNSW cosine
+index, bounded nearest-neighbour candidate retrieval, exact catalog filtering,
+and automatic indexing of new artifacts. Existing files were not analyzed
+again. Warm similarity requests over 33,164 vectors complete in well under one
+second on the development machine instead of failing after 30 seconds.
+
+The Advanced diagnostics section now includes an explicit persisted CPU/CUDA
+method selector. It preserves the installation's previous environment choice on
+upgrade, shows benchmark-derived availability and recommendation state, applies
+to newly started or resumed analysis jobs, and never falls back silently.
+
+Optional feature reranking is now implemented and remains disabled by default.
+It expands only a bounded nearest-neighbour pool, applies configurable maximum
+penalties for tempo, key, and intensity compatibility, and exposes both vector
+and final scores. Missing features do not penalize a candidate and half/double
+tempo is compatible. The next recommendation milestone is a small, resettable
+personalization layer driven by explicit match feedback. The existing
+thumbs-up/down records remain evaluation-only until that layer is implemented;
+compare personalized results against both embedding-only and feature-refined
+baselines before changing any default.
 
 The playlist roadmap now also includes audio-similarity ordering from a
 user-selected opening track. Its first implementation should use deterministic
@@ -1584,10 +1614,14 @@ release- and track-level credits. MusicBrainz-linked Discogs releases can also
 supply credits without implying ownership; exact owned editions remain the
 preferred source when available. The selected source is explicit, provider
 identities remain separate, and imported Discogs rows are refreshed or removed
-with their source link. Collection coverage, musician filters, and the optional
-backfill remain later work. The next musician milestone is a dedicated catalog
-section and dashboard KPI; provider-related, root-scoped backfill controls
-belong under Settings > Connections rather than on ordinary album pages.
+with their source link. A dedicated, root-scoped **Musicians** catalog now shows
+effective album and track credit counts, partial-collection coverage, and links
+to root-scoped musician detail pages with release-year-ordered credited albums.
+Album navigation preserves a direct return to the musician, while the catalog
+also offers musician-ID-filtered album and track lists. The dashboard includes
+the same effective musician count. The remaining musician milestone is the disabled-by-default,
+provider-related, root-scoped backfill under Settings > Connections rather than
+on ordinary album pages.
 
 The player now includes an optional Web Audio API visualizer in the expanded
 footer. It is local-only, dependency-free, persisted in player preferences, and

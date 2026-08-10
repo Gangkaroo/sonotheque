@@ -190,6 +190,8 @@ describe('player store', () => {
       year: 2001,
       genreId: 12,
       genreName: 'Rock',
+      musicianId: null,
+      musicianName: '',
       physicalCopy: 'owned',
       sort: 'year_desc',
     }
@@ -236,6 +238,8 @@ describe('player store', () => {
       search: 'Alpha Track',
       genreId: 12,
       genreName: 'Rock',
+      musicianId: null,
+      musicianName: '',
       playStatus: 'never',
       physicalCopy: 'owned',
       sort: 'year_desc',

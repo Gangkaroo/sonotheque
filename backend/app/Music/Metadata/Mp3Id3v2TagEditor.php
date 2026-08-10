@@ -116,8 +116,17 @@ class Mp3Id3v2TagEditor
             );
         }
 
-        if (is_link($path) || ! is_file($path) || ! is_readable($path) || ! is_writable($path)) {
-            throw new RuntimeException("Audio file [{$path}] is not a writable regular file.");
+        if (is_link($path)) {
+            throw new RuntimeException("Audio file [{$path}] is a symbolic link. Metadata editing through links is not supported.");
+        }
+        if (! is_file($path)) {
+            throw new RuntimeException("Audio file [{$path}] no longer exists or is not a regular file.");
+        }
+        if (! is_readable($path)) {
+            throw new RuntimeException("Audio file [{$path}] cannot be read. Sonotheque does not have permission to access it.");
+        }
+        if (! is_writable($path)) {
+            throw new RuntimeException("Audio file [{$path}] cannot be written. It may be read-only, the drive may be write-protected, or Sonotheque may not have write permission.");
         }
 
         $updatesComment = array_key_exists('COMM', $commentFrames);

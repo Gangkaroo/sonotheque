@@ -22,6 +22,11 @@ describe('audio intelligence settings store', () => {
         message: null,
         profile: null,
       },
+      analyzerSelection: {
+        selected: 'cpu',
+        recommended: null,
+        methods: { cpu: 'unchecked', cuda: 'unchecked' },
+      },
       latestCollectionRun: null,
       latestValidationRun: null,
       activeRun: null,
@@ -64,7 +69,17 @@ describe('audio intelligence settings store', () => {
     expect(store.settings.latestValidationRun?.selectedTrackCount).toBe(200)
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/settings/audio-intelligence', expect.objectContaining({
       method: 'PATCH',
-      body: JSON.stringify({ enabled: true, validationSampleSize: 200 }),
+      body: JSON.stringify({
+        enabled: true,
+        validationSampleSize: 200,
+        accelerator: 'cpu',
+        reranking: {
+          enabled: false,
+          tempoInfluence: 5,
+          keyInfluence: 3,
+          intensityInfluence: 4,
+        },
+      }),
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/settings/audio-intelligence/validation-runs', expect.objectContaining({
       method: 'POST',
@@ -167,6 +182,27 @@ describe('audio intelligence settings store', () => {
   })
 
   it('prepares a root-scoped collection run and can pause it', async () => {
+    const collectionRun = {
+      id: 12,
+      kind: 'collection',
+      phase: 'preparation',
+      status: 'fingerprinting',
+      requestedTrackCount: 800,
+      selectedTrackCount: 600,
+      summary: {
+        mode: 'collection',
+        baselineAnalyzedTrackCount: 500,
+        candidateTrackCount: 800,
+      },
+      resumable: false,
+      libraryRoot: { id: 7, name: 'Archive' },
+      profile: null,
+      startedAt: '2026-07-23T20:00:00+00:00',
+      finishedAt: null,
+      cancelRequestedAt: null,
+      pauseRequestedAt: null,
+      createdAt: '2026-07-23T19:59:00+00:00',
+    }
     const collection = {
       enabled: true,
       validationSampleSize: 200,
@@ -182,34 +218,17 @@ describe('audio intelligence settings store', () => {
       ],
       analyzerStatus: 'ready',
       analyzer: { status: 'ready', message: 'Ready', profile: null },
-      latestCollectionRun: {
-        id: 12,
-        kind: 'collection',
-        phase: 'preparation',
-        status: 'fingerprinting',
-        requestedTrackCount: 800,
-        selectedTrackCount: 600,
-        summary: {
-          mode: 'collection',
-          baselineAnalyzedTrackCount: 500,
-          candidateTrackCount: 800,
-        },
-        resumable: false,
-        libraryRoot: { id: 7, name: 'Archive' },
-        profile: null,
-        startedAt: '2026-07-23T20:00:00+00:00',
-        finishedAt: null,
-        cancelRequestedAt: null,
-        pauseRequestedAt: null,
-        createdAt: '2026-07-23T19:59:00+00:00',
-      },
+      collectionRuns: [collectionRun],
+      latestCollectionRun: collectionRun,
+    }
+    const pausingRun = {
+      ...collectionRun,
+      pauseRequestedAt: '2026-07-23T20:05:00+00:00',
     }
     const pausing = {
       ...collection,
-      latestCollectionRun: {
-        ...collection.latestCollectionRun,
-        pauseRequestedAt: '2026-07-23T20:05:00+00:00',
-      },
+      collectionRuns: [pausingRun],
+      latestCollectionRun: pausingRun,
     }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(collection), { status: 202 }))
@@ -222,6 +241,8 @@ describe('audio intelligence settings store', () => {
 
     expect(store.settings.latestCollectionRun?.libraryRoot?.id).toBe(7)
     expect(store.settings.latestCollectionRun?.pauseRequestedAt).not.toBeNull()
+    expect(store.collectionRunForScope(7)?.pauseRequestedAt).not.toBeNull()
+    expect(store.collectionRunForScope(null)).toBeNull()
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       '/api/settings/audio-intelligence/collections',
@@ -542,6 +563,16 @@ describe('audio intelligence settings store', () => {
       candidateCount: 1,
       calculationMs: 1,
       filters: { excludeSameAlbum: true, excludeSameArtist: true },
+      ranking: {
+        method: 'embedding',
+        candidatePoolSize: 1,
+        preferences: {
+          enabled: false,
+          tempoInfluence: 5,
+          keyInfluence: 3,
+          intensityInfluence: 4,
+        },
+      },
       matches: [{
         id: 2,
         feedback: null,

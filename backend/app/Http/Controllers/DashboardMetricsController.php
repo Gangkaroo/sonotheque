@@ -8,13 +8,16 @@ use App\Models\Genre;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Support\LibraryRootScope;
+use App\Support\MusicianCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DashboardMetricsController extends Controller
 {
-    public function __construct(private readonly LibraryRootScope $libraryRootScope)
-    {
+    public function __construct(
+        private readonly LibraryRootScope $libraryRootScope,
+        private readonly MusicianCatalog $musicians,
+    ) {
     }
 
     public function __invoke(Request $request): JsonResponse
@@ -27,6 +30,7 @@ class DashboardMetricsController extends Controller
                     ->whereHas('albums', fn ($albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
                     ->orWhereHas('tracks', fn ($tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId)))
                 ->count(),
+            'musicians' => $this->musicians->count($libraryRootId),
             'albums' => $this->libraryRootScope->albums(Album::query(), $libraryRootId)->count(),
             'tracks' => $this->libraryRootScope->tracks(Track::query(), $libraryRootId)->count(),
             'genres' => Genre::query()

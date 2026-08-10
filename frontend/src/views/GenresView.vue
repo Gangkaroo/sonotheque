@@ -6,6 +6,7 @@ import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 
@@ -29,6 +30,8 @@ function changePage(value: number) {
     resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
   })
 }
+
+useCachedViewActivation(load)
 
 watch([page, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {

@@ -221,21 +221,38 @@ class DiscogsMusicianCreditImporter
                     'sort_name' => $this->text($credit['sortName'] ?? null, 255),
                     'entity_type' => $this->text($credit['entityType'] ?? null, 64),
                 ]);
+                $sourceEntityType = $trackId === null
+                    ? 'release'
+                    : (string) ($credit['sourceEntityType'] ?? 'recording');
+                $relationshipType = (string) ($credit['relationshipType'] ?? 'extraartist');
+                $creditedAs = $this->text($credit['creditedAs'] ?? null, 255);
+                $guest = (bool) ($credit['guest'] ?? false);
+                $additional = (bool) ($credit['additional'] ?? false);
                 AlbumMusicianCredit::query()->create([
                     'album_id' => $album->id,
                     'track_id' => $trackId,
                     'musician_id' => $musician->id,
                     'provider' => self::PROVIDER,
-                    'source_entity_type' => $trackId === null
-                        ? 'release'
-                        : (string) ($credit['sourceEntityType'] ?? 'recording'),
+                    'source_credit_key' => MusicianCreditSourceKey::make(
+                        provider: self::PROVIDER,
+                        musicianProvider: $musician->provider,
+                        musicianReference: $musician->provider_reference,
+                        sourceEntityType: $sourceEntityType,
+                        sourceEntityReference: $sourceReference,
+                        relationshipType: $relationshipType,
+                        role: $role,
+                        creditedAs: $creditedAs,
+                        guest: $guest,
+                        additional: $additional,
+                    ),
+                    'source_entity_type' => $sourceEntityType,
                     'source_entity_reference' => $sourceReference,
-                    'relationship_type' => (string) ($credit['relationshipType'] ?? 'extraartist'),
+                    'relationship_type' => $relationshipType,
                     'role' => $role,
-                    'credited_as' => $this->text($credit['creditedAs'] ?? null, 255),
+                    'credited_as' => $creditedAs,
                     'attributes' => $attributes->unique()->all(),
-                    'is_guest' => (bool) ($credit['guest'] ?? false),
-                    'is_additional' => (bool) ($credit['additional'] ?? false),
+                    'is_guest' => $guest,
+                    'is_additional' => $additional,
                 ]);
             }
 

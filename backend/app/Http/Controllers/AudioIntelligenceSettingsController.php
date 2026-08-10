@@ -13,9 +13,11 @@ use App\Music\Intelligence\AudioAnalysisProfileRegistry;
 use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioAnalyzerHealth;
 use App\Music\Intelligence\AudioAnalysisRunPlanner;
+use App\Music\Intelligence\AudioVectorIndex;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\Rule;
 
 class AudioIntelligenceSettingsController extends Controller
 {
@@ -25,6 +27,7 @@ class AudioIntelligenceSettingsController extends Controller
         private readonly AudioAnalysisRunPlanner $runPlanner,
         private readonly AudioAnalyzer $analyzer,
         private readonly AudioAnalysisProfileRegistry $profileRegistry,
+        private readonly AudioVectorIndex $vectorIndex,
     ) {
     }
 
@@ -43,11 +46,47 @@ class AudioIntelligenceSettingsController extends Controller
                 'min:'.AudioAnalysisRunPlanner::MINIMUM_VALIDATION_SAMPLE_SIZE,
                 'max:'.AudioAnalysisRunPlanner::MAXIMUM_VALIDATION_SAMPLE_SIZE,
             ],
+            'accelerator' => ['sometimes', 'string', Rule::in(['cpu', 'cuda'])],
+            'reranking' => ['sometimes', 'array'],
+            'reranking.enabled' => ['required_with:reranking', 'boolean'],
+            'reranking.tempoInfluence' => [
+                'required_with:reranking',
+                'integer',
+                'min:0',
+                'max:10',
+            ],
+            'reranking.keyInfluence' => [
+                'required_with:reranking',
+                'integer',
+                'min:0',
+                'max:10',
+            ],
+            'reranking.intensityInfluence' => [
+                'required_with:reranking',
+                'integer',
+                'min:0',
+                'max:10',
+            ],
         ]);
         $settings = ApplicationSetting::current();
+        $accelerator = $validated['accelerator'] ?? $settings->audioIntelligenceAccelerator();
+        if ($accelerator !== $settings->audioIntelligenceAccelerator()) {
+            $this->abortIfAnalysisIsRunning();
+            $this->abortIfBenchmarkActive();
+            Cache::forget(self::ANALYZER_HEALTH_CACHE_KEY);
+        }
         $settings->update([
             'audio_intelligence_enabled' => $validated['enabled'],
             'audio_intelligence_validation_sample_size' => $validated['validationSampleSize'],
+            'audio_intelligence_accelerator' => $accelerator,
+            'audio_similarity_reranking_enabled' => $validated['reranking']['enabled']
+                ?? $settings->audio_similarity_reranking_enabled,
+            'audio_similarity_tempo_influence' => $validated['reranking']['tempoInfluence']
+                ?? $settings->audio_similarity_tempo_influence,
+            'audio_similarity_key_influence' => $validated['reranking']['keyInfluence']
+                ?? $settings->audio_similarity_key_influence,
+            'audio_similarity_intensity_influence' => $validated['reranking']['intensityInfluence']
+                ?? $settings->audio_similarity_intensity_influence,
         ]);
 
         return response()->json($this->payload($settings));
@@ -391,7 +430,10 @@ class AudioIntelligenceSettingsController extends Controller
      *     fingerprintedTrackCount: int,
      *     analyzerStatus: string,
      *     analyzer: array<string, mixed>,
+     *     analyzerSelection: array<string, mixed>,
+     *     vectorIndex: array<string, mixed>,
      *     eligibleRoots: array<int, array<string, mixed>>,
+     *     collectionRuns: array<int, array<string, mixed>>,
      *     latestCollectionRun: ?array<string, mixed>,
      *     latestValidationRun: ?array<string, mixed>,
      *     activeRun: ?array<string, mixed>,
@@ -435,9 +477,12 @@ class AudioIntelligenceSettingsController extends Controller
                 ->first();
         $coverage = $this->runPlanner->coverage();
 
+        $latestBenchmark = $benchmark ?? AudioAnalyzerBenchmark::query()->latest('id')->first();
+
         return [
             'enabled' => $settings->audio_intelligence_enabled,
             'validationSampleSize' => $settings->audio_intelligence_validation_sample_size,
+            'reranking' => $settings->audioSimilarityReranking(),
             'eligibleTrackCount' => $coverage['eligibleTrackCount'],
             'fingerprintedTrackCount' => $coverage['fingerprintedTrackCount'],
             'eligibleRoots' => $this->runPlanner->eligibleRoots()
@@ -451,13 +496,82 @@ class AudioIntelligenceSettingsController extends Controller
                 ->all(),
             'analyzerStatus' => $analyzer['status'],
             'analyzer' => $analyzer,
+            'analyzerSelection' => $this->analyzerSelectionPayload(
+                $settings,
+                $latestBenchmark,
+                $analyzer,
+            ),
+            'vectorIndex' => $this->vectorIndex->status(),
+            'collectionRuns' => $this->latestCollectionRunPayloads(),
             'latestCollectionRun' => $this->runPayload($latestCollectionRun),
             'latestValidationRun' => $this->runPayload($latestValidationRun),
             'activeRun' => $this->runPayload($activeRun),
             'latestBenchmark' => $this->benchmarkPayload(
-                $benchmark ?? AudioAnalyzerBenchmark::query()->latest('id')->first(),
+                $latestBenchmark,
             ),
         ];
+    }
+
+    /** @param array<string, mixed> $health */
+    private function analyzerSelectionPayload(
+        ApplicationSetting $settings,
+        ?AudioAnalyzerBenchmark $benchmark,
+        array $health,
+    ): array {
+        $selected = $settings->audioIntelligenceAccelerator();
+        $statuses = collect(['cpu', 'cuda'])->mapWithKeys(
+            fn (string $accelerator): array => [
+                $accelerator => $this->acceleratorStatus($accelerator, $benchmark),
+            ],
+        )->all();
+        if (($health['status'] ?? null) === 'ready') {
+            $statuses[$selected] = 'available';
+        }
+
+        return [
+            'selected' => $selected,
+            'recommended' => is_array($benchmark?->recommendation)
+                && in_array($benchmark->recommendation['accelerator'] ?? null, ['cpu', 'cuda'], true)
+                    ? $benchmark->recommendation['accelerator']
+                    : null,
+            'methods' => $statuses,
+        ];
+    }
+
+    private function acceleratorStatus(
+        string $accelerator,
+        ?AudioAnalyzerBenchmark $benchmark,
+    ): string {
+        $results = collect($benchmark?->results ?? [])
+            ->where('accelerator', $accelerator);
+        if ($results->contains('status', 'completed')) {
+            return 'available';
+        }
+        if ($results->isNotEmpty() && $results->every(
+            fn (array $result): bool => ($result['status'] ?? null) === 'unavailable',
+        )) {
+            return 'unavailable';
+        }
+
+        return 'unchecked';
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function latestCollectionRunPayloads(): array
+    {
+        $latestRunIds = AudioAnalysisRun::query()
+            ->where('kind', 'collection')
+            ->selectRaw('MAX(id)')
+            ->groupBy('library_root_id');
+
+        return AudioAnalysisRun::query()
+            ->with(['profile', 'libraryRoot'])
+            ->whereIn('id', $latestRunIds)
+            ->latest('id')
+            ->get()
+            ->map(fn (AudioAnalysisRun $run): array => $this->runPayload($run) ?? [])
+            ->values()
+            ->all();
     }
 
     /** @return array<string, mixed> */

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
 import { useCatalogStore } from '@/stores/catalog'
 import { usePlayerStore } from '@/stores/player'
 import { useScanRunsStore } from '@/stores/scanRuns'
@@ -14,6 +15,7 @@ const player = usePlayerStore()
 const scanRuns = useScanRunsStore()
 const metrics = computed(() => [
   { key: 'artists', title: t('navigation.artists'), value: catalog.metrics.artists, icon: 'mdi-account-music-outline', to: '/artists' },
+  { key: 'musicians', title: t('navigation.musicians'), value: catalog.metrics.musicians, icon: 'mdi-account-star-outline', to: '/musicians' },
   { key: 'genres', title: t('navigation.genres'), value: catalog.metrics.genres, icon: 'mdi-tag-multiple-outline', to: '/genres' },
   { key: 'albums', title: t('navigation.albums'), value: catalog.metrics.albums, icon: 'mdi-album', to: '/albums' },
   { key: 'tracks', title: t('navigation.tracks'), value: catalog.metrics.tracks, icon: 'mdi-music-note-outline', to: '/tracks' },
@@ -22,6 +24,7 @@ const metrics = computed(() => [
 ])
 
 onMounted(() => void catalog.loadMetrics(scanRuns.hasActiveScans))
+useCachedViewActivation(() => void catalog.loadMetrics(scanRuns.hasActiveScans))
 </script>
 
 <template>

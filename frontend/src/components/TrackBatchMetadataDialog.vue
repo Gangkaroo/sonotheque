@@ -107,6 +107,8 @@ interface MetadataJob {
   succeededItems: number
   failedItems: number
   items: MetadataJobItem[]
+  error?: string | null
+  failureReason?: string | null
 }
 
 const hasChanges = computed(() => Object.values(enabled).some(Boolean))
@@ -380,6 +382,14 @@ onUnmounted(() => {
           <div class="text-body-2 text-medium-emphasis mb-4">
             {{ t('albums.metadataProgress', { processed: job.processedItems, total: job.totalItems, failed: job.failedItems }) }}
           </div>
+          <v-alert
+            v-if="['partial', 'failed'].includes(job.status)"
+            class="mb-4"
+            type="error"
+            variant="tonal"
+          >
+            {{ job.failureReason ?? job.error ?? t('albums.metadataEditFailed') }}
+          </v-alert>
           <v-list v-if="job.items.some((item) => item.status === 'failed')" border rounded class="metadata-file-list" density="compact">
             <v-list-item
               v-for="item in job.items.filter((entry) => entry.status === 'failed')"
