@@ -37,12 +37,19 @@ class RunAudioAnalysis implements ShouldQueue
         $run = AudioAnalysisRun::with([
             'profile',
         ])->findOrFail($this->audioAnalysisRunId);
-        $accelerator = ApplicationSetting::current()->audioIntelligenceAccelerator();
+        $settings = ApplicationSetting::current();
+        $accelerator = $settings->audioIntelligenceAccelerator();
 
         if ($run->phase !== 'analysis') {
             return;
         }
         if (in_array($run->status, ['completed', 'partial', 'failed', 'cancelled', 'paused'], true)) {
+            $analyzer->shutdown();
+
+            return;
+        }
+        if (! $settings->audio_intelligence_enabled) {
+            $this->pause($run);
             $analyzer->shutdown();
 
             return;
@@ -80,6 +87,11 @@ class RunAudioAnalysis implements ShouldQueue
                     return;
                 }
                 if ($run->pause_requested_at !== null) {
+                    $this->pause($run);
+
+                    return;
+                }
+                if (! ApplicationSetting::current()->audio_intelligence_enabled) {
                     $this->pause($run);
 
                     return;

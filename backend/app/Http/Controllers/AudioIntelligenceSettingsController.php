@@ -73,6 +73,7 @@ class AudioIntelligenceSettingsController extends Controller
             'personalization.enabled' => ['required_with:personalization', 'boolean'],
         ]);
         $settings = ApplicationSetting::current();
+        $wasEnabled = $settings->audio_intelligence_enabled;
         $accelerator = $validated['accelerator'] ?? $settings->audioIntelligenceAccelerator();
         if ($accelerator !== $settings->audioIntelligenceAccelerator()) {
             $this->abortIfAnalysisIsRunning();
@@ -109,6 +110,9 @@ class AudioIntelligenceSettingsController extends Controller
                 ?? $settings->audio_similarity_intensity_influence,
             'audio_similarity_personalization_enabled' => $personalizationEnabled,
         ]);
+        if ($wasEnabled && ! $settings->audio_intelligence_enabled) {
+            $this->stopActiveWork();
+        }
 
         return response()->json($this->payload($settings));
     }
@@ -222,6 +226,11 @@ class AudioIntelligenceSettingsController extends Controller
 
     public function testAnalyzer(): JsonResponse
     {
+        abort_unless(
+            ApplicationSetting::current()->audio_intelligence_enabled,
+            409,
+            'Enable audio intelligence before checking the analyzer.',
+        );
         $health = $this->analyzer->health();
         $this->cacheAnalyzerHealth($health);
 
@@ -767,5 +776,23 @@ class AudioIntelligenceSettingsController extends Controller
             409,
             'Wait for the analyzer benchmark to finish or cancel it first.',
         );
+    }
+
+    private function stopActiveWork(): void
+    {
+        $requestedAt = now();
+        AudioAnalysisRun::query()
+            ->whereIn('status', ['fingerprinting', 'queued', 'running'])
+            ->update(['pause_requested_at' => $requestedAt]);
+        AudioAnalyzerBenchmark::query()
+            ->where('status', 'queued')
+            ->update([
+                'status' => 'cancelled',
+                'cancel_requested_at' => $requestedAt,
+                'finished_at' => $requestedAt,
+            ]);
+        AudioAnalyzerBenchmark::query()
+            ->where('status', 'running')
+            ->update(['cancel_requested_at' => $requestedAt]);
     }
 }

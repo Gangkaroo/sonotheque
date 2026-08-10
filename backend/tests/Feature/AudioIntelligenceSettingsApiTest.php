@@ -16,13 +16,17 @@ use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Track;
 use App\Music\Intelligence\AudioAnalyzer;
+use App\Music\Intelligence\AudioAnalyzerBenchmarkRunner;
+use App\Music\Intelligence\AudioAnalyzerHealth;
 use App\Music\Intelligence\AudioAnalysisProfileRegistry;
 use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Intelligence\EssentiaDockerAudioAnalyzer;
 use App\Music\Scanning\LibraryPathGuard;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 use Tests\Fakes\FakeAudioAnalyzer;
@@ -34,6 +38,9 @@ class AudioIntelligenceSettingsApiTest extends TestCase
 
     public function test_audio_intelligence_is_disabled_and_unprovisioned_by_default(): void
     {
+        Queue::fake();
+        Process::fake();
+
         $this->getJson('/api/settings/audio-intelligence')
             ->assertOk()
             ->assertJsonPath('enabled', false)
@@ -69,6 +76,14 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertDatabaseCount('audio_analysis_runs', 0);
         $this->assertDatabaseCount('audio_analysis_run_items', 0);
         $this->assertDatabaseCount('audio_similarity_personalizations', 0);
+        Queue::assertNothingPushed();
+        Process::assertNothingRan();
+        $this->assertFalse(collect(app(Schedule::class)->events())->contains(
+            fn (object $event): bool => str_contains(
+                (string) $event->description,
+                'audio-intelligence',
+            ),
+        ));
     }
 
     public function test_loading_settings_does_not_start_the_analyzer(): void
@@ -83,6 +98,14 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('analyzerStatus', 'unchecked');
         $this->assertSame(0, $analyzer->healthCalls);
 
+        $this->postJson('/api/settings/audio-intelligence/analyzer/test')
+            ->assertStatus(409);
+        $this->assertSame(0, $analyzer->healthCalls);
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 200,
+        ])->assertOk();
         $this->postJson('/api/settings/audio-intelligence/analyzer/test')
             ->assertOk()
             ->assertJsonPath('analyzerStatus', 'ready');
@@ -261,6 +284,57 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertNotNull($benchmark->fresh()->cancel_requested_at);
     }
 
+    public function test_disabling_audio_intelligence_stops_active_work(): void
+    {
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $run = AudioAnalysisRun::create([
+            'phase' => 'analysis',
+            'kind' => 'collection',
+            'status' => 'queued',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+        ]);
+        $benchmark = AudioAnalyzerBenchmark::create([
+            'status' => 'queued',
+            'sample_size' => 15,
+            'results' => [],
+            'completed_configuration_count' => 0,
+            'total_configuration_count' => 6,
+        ]);
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => false,
+            'validationSampleSize' => 200,
+        ])->assertOk()
+            ->assertJsonPath('enabled', false);
+
+        $this->assertNotNull($run->fresh()->pause_requested_at);
+        $benchmark->refresh();
+        $this->assertSame('cancelled', $benchmark->status);
+        $this->assertNotNull($benchmark->cancel_requested_at);
+        $this->assertNotNull($benchmark->finished_at);
+    }
+
+    public function test_queued_benchmark_job_does_not_run_while_disabled(): void
+    {
+        $benchmark = AudioAnalyzerBenchmark::create([
+            'status' => 'queued',
+            'sample_size' => 15,
+            'results' => [],
+            'completed_configuration_count' => 0,
+            'total_configuration_count' => 6,
+        ]);
+        $runner = $this->mock(AudioAnalyzerBenchmarkRunner::class);
+        $runner->shouldNotReceive('run');
+
+        (new RunAudioAnalyzerBenchmark($benchmark->id))->handle($runner);
+
+        $benchmark->refresh();
+        $this->assertSame('cancelled', $benchmark->status);
+        $this->assertNotNull($benchmark->cancel_requested_at);
+    }
+
     public function test_validation_preparation_requires_opt_in_and_dispatches_no_job(): void
     {
         Queue::fake();
@@ -415,6 +489,35 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             $run->items()->where('status', 'queued')->count(),
         );
         Queue::assertPushed(RunAudioAnalysis::class, 2);
+    }
+
+    public function test_prepared_run_stays_unchanged_when_analyzer_is_unavailable(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $run = AudioAnalysisRun::create([
+            'phase' => 'preparation',
+            'status' => 'prepared',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+        ]);
+        $analyzer = new FakeAudioAnalyzer(new AudioAnalyzerHealth(
+            status: 'dependency_missing',
+            message: 'The analyzer worker is unavailable.',
+        ));
+        $this->app->instance(AudioAnalyzer::class, $analyzer);
+
+        $this->postJson("/api/settings/audio-intelligence/runs/{$run->id}/start")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'The analyzer worker is unavailable.');
+
+        $run->refresh();
+        $this->assertSame('preparation', $run->phase);
+        $this->assertSame('prepared', $run->status);
+        Queue::assertNothingPushed();
+        $this->assertSame(1, $analyzer->healthCalls);
+        $this->assertSame([], $analyzer->requests);
     }
 
     public function test_it_prepares_an_incremental_expansion_that_keeps_existing_artifacts(): void

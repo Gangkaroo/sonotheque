@@ -740,7 +740,7 @@ Open roadmap work:
 
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
-- Remaining audio-analyzer zero-overhead and failure-path coverage
+- Remaining audio-analyzer model-upgrade and playback-independence coverage
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
@@ -1391,11 +1391,19 @@ Last.fm integration.
   need not be used by a normal listener. (Complete)
 - Verify that a default installation performs no model downloads, starts no AI
   services, schedules no analysis jobs, and has no additional steady-state CPU,
-  GPU, or memory usage. (Pending)
+  GPU, or model-memory usage. (Complete for the analyzer boundary: loading
+  Settings dispatches no jobs or processes and performs no health probe; no AI
+  task is scheduled; analyzer checks require explicit opt-in; disabling requests
+  pauses for active preparation/analysis and cancellation for benchmarks; and
+  queued jobs recheck the persisted setting before fingerprinting or starting an
+  analyzer. The isolated Laravel analysis-queue worker remains idle as shared
+  application infrastructure, but no Python or Docker analyzer service is
+  started.)
 - Add fixtures and quality tests for analysis invalidation, model upgrades,
   duplicate handling, unavailable workers, and playback independence.
-  (Fingerprint/profile reuse and guarded resume coverage complete; model
-  upgrade, unavailable-worker, and playback-independence coverage remain.)
+  (Fingerprint/profile reuse, guarded resume, disabled-job, and unavailable-
+  worker coverage are complete; model-upgrade and playback-independence
+  coverage remain.)
 
 ### 5f. Local Collection Assistant
 

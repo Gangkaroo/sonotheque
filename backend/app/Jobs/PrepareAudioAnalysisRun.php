@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\AudioAnalysisRun;
 use App\Models\AudioAnalysisRunItem;
+use App\Models\ApplicationSetting;
 use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Scanning\AudioContentFingerprinter;
 use App\Music\Scanning\LibraryPathGuard;
@@ -33,7 +34,16 @@ class PrepareAudioAnalysisRun implements ShouldQueue
     ): void {
         $run = AudioAnalysisRun::findOrFail($this->audioAnalysisRunId);
         if ($run->phase !== 'preparation'
-            || in_array($run->status, ['prepared', 'completed'], true)) {
+            || in_array(
+                $run->status,
+                ['prepared', 'completed', 'failed', 'cancelled', 'paused'],
+                true,
+            )) {
+            return;
+        }
+        if (! ApplicationSetting::current()->audio_intelligence_enabled) {
+            $this->pause($run);
+
             return;
         }
 
@@ -94,6 +104,11 @@ class PrepareAudioAnalysisRun implements ShouldQueue
                         return;
                     }
                     if ($run->pause_requested_at !== null) {
+                        $this->pause($run);
+
+                        return;
+                    }
+                    if (! ApplicationSetting::current()->audio_intelligence_enabled) {
                         $this->pause($run);
 
                         return;

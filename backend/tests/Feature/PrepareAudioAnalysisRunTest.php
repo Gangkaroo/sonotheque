@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\PrepareAudioAnalysisRun;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\AudioAnalysisRun;
 use App\Models\Library;
 use App\Models\MediaFile;
@@ -36,6 +37,7 @@ class PrepareAudioAnalysisRunTest extends TestCase
 
     public function test_it_reuses_fingerprints_and_processes_reserve_candidates_until_the_sample_is_full(): void
     {
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
         $library = Library::create(['name' => 'Analysis']);
         $root = $library->roots()->create([
             'name' => 'Root',
@@ -103,6 +105,28 @@ class PrepareAudioAnalysisRunTest extends TestCase
             hash('sha256', 'reserve audio'),
             $reserve->mediaFile->fresh()->content_fingerprint,
         );
+    }
+
+    public function test_queued_preparation_pauses_without_fingerprinting_when_disabled(): void
+    {
+        $run = AudioAnalysisRun::create([
+            'phase' => 'preparation',
+            'status' => 'fingerprinting',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 0,
+            'summary' => [],
+        ]);
+        $fingerprinter = new FakeAudioContentFingerprinter();
+
+        (new PrepareAudioAnalysisRun($run->id))->handle(
+            $fingerprinter,
+            new LibraryPathGuard(),
+            app(AudioAnalysisRunPlanner::class),
+        );
+
+        $this->assertSame('paused', $run->fresh()->status);
+        $this->assertSame(0, $fingerprinter->calls);
     }
 
     private function createTrack(

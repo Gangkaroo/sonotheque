@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\RunAudioAnalysis;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\AudioAnalysisProfile;
 use App\Models\AudioAnalysisRun;
 use App\Models\Library;
@@ -39,6 +40,7 @@ class RunAudioAnalysisTest extends TestCase
     public function test_job_persists_results_and_marks_changed_audio_stale(): void
     {
         config()->set('sonotheque.audio_intelligence.chunk_size', 1);
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
 
         $library = Library::create(['name' => 'Analysis']);
         $root = $library->roots()->create([
@@ -183,6 +185,29 @@ class RunAudioAnalysisTest extends TestCase
         $this->assertSame(1, $secondRun->summary['reusedTrackCount']);
         $this->assertSame([], $reuseAnalyzer->requests);
         $this->assertSame(1, $reuseAnalyzer->shutdownCalls);
+    }
+
+    public function test_queued_job_pauses_without_starting_analyzer_when_disabled(): void
+    {
+        $run = AudioAnalysisRun::create([
+            'phase' => 'analysis',
+            'status' => 'queued',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+            'summary' => [],
+        ]);
+        $analyzer = FakeAudioAnalyzer::ready();
+
+        (new RunAudioAnalysis($run->id))->handle(
+            $analyzer,
+            app(AudioVectorIndex::class),
+            new LibraryPathGuard(),
+        );
+
+        $this->assertSame('paused', $run->fresh()->status);
+        $this->assertSame([], $analyzer->requests);
+        $this->assertSame(1, $analyzer->shutdownCalls);
     }
 
     private function createTrack(int $rootId, Album $album, string $relativePath, string $fingerprint): Track

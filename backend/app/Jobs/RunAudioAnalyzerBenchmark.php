@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\ApplicationSetting;
 use App\Models\AudioAnalyzerBenchmark;
 use App\Music\Intelligence\AudioAnalyzerBenchmarkRunner;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,6 +26,15 @@ class RunAudioAnalyzerBenchmark implements ShouldQueue
     {
         $benchmark = AudioAnalyzerBenchmark::findOrFail($this->audioAnalyzerBenchmarkId);
         if ($benchmark->status !== 'queued') {
+            return;
+        }
+        if (! ApplicationSetting::current()->audio_intelligence_enabled) {
+            $benchmark->update([
+                'status' => 'cancelled',
+                'cancel_requested_at' => now(),
+                'finished_at' => now(),
+            ]);
+
             return;
         }
 
