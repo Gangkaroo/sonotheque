@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\Model;
     'audio_similarity_tempo_influence',
     'audio_similarity_key_influence',
     'audio_similarity_intensity_influence',
+    'audio_similarity_personalization_enabled',
     'playlist_export_format',
     'synchronize_playlists_to_files',
 ])]
@@ -58,6 +59,7 @@ class ApplicationSetting extends Model
             'audio_similarity_tempo_influence' => 5,
             'audio_similarity_key_influence' => 3,
             'audio_similarity_intensity_influence' => 4,
+            'audio_similarity_personalization_enabled' => false,
             'playlist_export_format' => 'm3u8',
             'synchronize_playlists_to_files' => false,
         ]);
@@ -145,6 +147,7 @@ class ApplicationSetting extends Model
             'audio_similarity_tempo_influence' => 'integer',
             'audio_similarity_key_influence' => 'integer',
             'audio_similarity_intensity_influence' => 'integer',
+            'audio_similarity_personalization_enabled' => 'boolean',
             'synchronize_playlists_to_files' => 'boolean',
         ];
     }

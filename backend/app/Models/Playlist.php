@@ -32,6 +32,12 @@ class Playlist extends Model
         return $this->hasMany(PlaylistItem::class)->orderBy('position');
     }
 
+    /** @return HasMany<PlaylistOrderSnapshot, $this> */
+    public function orderSnapshots(): HasMany
+    {
+        return $this->hasMany(PlaylistOrderSnapshot::class);
+    }
+
     protected function casts(): array
     {
         return [

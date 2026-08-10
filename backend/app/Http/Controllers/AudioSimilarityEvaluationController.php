@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ApplicationSetting;
 use App\Models\Track;
 use App\Music\Intelligence\AudioSimilarityEvaluator;
+use App\Music\Intelligence\AudioSimilarityPersonalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -12,6 +13,7 @@ class AudioSimilarityEvaluationController extends Controller
 {
     public function __construct(
         private readonly AudioSimilarityEvaluator $evaluator,
+        private readonly AudioSimilarityPersonalizer $personalizer,
     ) {
     }
 
@@ -36,6 +38,7 @@ class AudioSimilarityEvaluationController extends Controller
             $validated['excludeSameAlbum'] ?? false,
             $validated['excludeSameArtist'] ?? false,
             $settings->audioSimilarityReranking(),
+            $settings->audio_similarity_personalization_enabled,
         );
 
         abort_if($result === null, 404, 'This track has no compatible audio analysis artifact.');
@@ -52,15 +55,16 @@ class AudioSimilarityEvaluationController extends Controller
             'excludeSameArtist' => ['sometimes', 'boolean'],
         ]);
 
-        return response()->json(
-            $this->evaluator->recordFeedback(
+        return response()->json([
+            ...$this->evaluator->recordFeedback(
                 $track->id,
                 $candidate->id,
                 $validated['verdict'],
                 $validated['excludeSameAlbum'] ?? false,
                 $validated['excludeSameArtist'] ?? false,
             ),
-        );
+            'personalization' => $this->personalizer->status(ApplicationSetting::current()),
+        ]);
     }
 
     public function destroyFeedback(
@@ -74,14 +78,15 @@ class AudioSimilarityEvaluationController extends Controller
             'excludeSameArtist' => ['sometimes', 'boolean'],
         ]);
 
-        return response()->json(
-            $this->evaluator->removeFeedback(
+        return response()->json([
+            ...$this->evaluator->removeFeedback(
                 $track->id,
                 $candidate->id,
                 $validated['excludeSameAlbum'] ?? false,
                 $validated['excludeSameArtist'] ?? false,
             ),
-        );
+            'personalization' => $this->personalizer->status(ApplicationSetting::current()),
+        ]);
     }
 
     private function requireEnabledWorkspace(): ApplicationSetting

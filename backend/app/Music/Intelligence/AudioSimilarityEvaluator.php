@@ -30,6 +30,7 @@ class AudioSimilarityEvaluator
     public function __construct(
         private readonly AudioVectorIndex $vectorIndex,
         private readonly AudioSimilarityReranker $reranker,
+        private readonly AudioSimilarityPersonalizer $personalizer,
     ) {
     }
 
@@ -118,6 +119,7 @@ class AudioSimilarityEvaluator
             'keyInfluence' => 3,
             'intensityInfluence' => 4,
         ],
+        bool $personalizationEnabled = false,
     ): ?array {
         $profile = $this->latestProfile();
         if ($profile === null) {
@@ -129,8 +131,14 @@ class AudioSimilarityEvaluator
             return null;
         }
 
+        $personalized = $this->personalizer->apply(
+            $profile,
+            $reranking,
+            $personalizationEnabled,
+        );
+        $effectiveReranking = $personalized['preferences'];
         $limit = max(1, min(self::MAXIMUM_MATCHES, $limit));
-        $candidateLimit = $this->reranker->candidateLimit($limit, $reranking);
+        $candidateLimit = $this->reranker->candidateLimit($limit, $effectiveReranking);
         $started = hrtime(true);
         $sourcePayload = $this->trackPayload($source);
         $search = $this->vectorIndex->nearestTracks(
@@ -174,7 +182,7 @@ class AudioSimilarityEvaluator
             })
             ->filter()
             ->values(),
-            $reranking,
+            $effectiveReranking,
         );
         $calculationMs = (hrtime(true) - $started) / 1_000_000;
 
@@ -188,9 +196,14 @@ class AudioSimilarityEvaluator
                 'excludeSameArtist' => $excludeSameArtist,
             ],
             'ranking' => [
-                'method' => $reranking['enabled'] ? 'feature_reranking' : 'embedding',
+                'method' => match (true) {
+                    $personalized['personalization']['applied'] => 'personalized',
+                    $effectiveReranking['enabled'] => 'feature_reranking',
+                    default => 'embedding',
+                },
                 'candidatePoolSize' => count($search['matches']),
-                'preferences' => $reranking,
+                'preferences' => $effectiveReranking,
+                'personalization' => $personalized['personalization'],
             ],
             'matches' => $matches->take($limit)->values()->all(),
         ];

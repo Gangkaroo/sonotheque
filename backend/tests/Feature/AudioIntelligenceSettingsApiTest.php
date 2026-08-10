@@ -50,6 +50,10 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('reranking.tempoInfluence', 5)
             ->assertJsonPath('reranking.keyInfluence', 3)
             ->assertJsonPath('reranking.intensityInfluence', 4)
+            ->assertJsonPath('personalization.enabled', false)
+            ->assertJsonPath('personalization.ready', false)
+            ->assertJsonPath('personalization.canTrain', false)
+            ->assertJsonPath('personalization.minimumFeedbackCount', 20)
             ->assertJsonPath('vectorIndex.status', 'empty')
             ->assertJsonPath('vectorIndex.indexedArtifactCount', 0)
             ->assertJsonCount(0, 'collectionRuns')
@@ -64,6 +68,7 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         $this->assertSame('cpu', $settings->audioIntelligenceAccelerator());
         $this->assertDatabaseCount('audio_analysis_runs', 0);
         $this->assertDatabaseCount('audio_analysis_run_items', 0);
+        $this->assertDatabaseCount('audio_similarity_personalizations', 0);
     }
 
     public function test_loading_settings_does_not_start_the_analyzer(): void
@@ -137,6 +142,21 @@ class AudioIntelligenceSettingsApiTest extends TestCase
             ->assertJsonPath('reranking.tempoInfluence', 7)
             ->assertJsonPath('reranking.keyInfluence', 4)
             ->assertJsonPath('reranking.intensityInfluence', 6);
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 500,
+            'reranking' => [
+                'enabled' => true,
+                'tempoInfluence' => 7,
+                'keyInfluence' => 4,
+                'intensityInfluence' => 6,
+            ],
+            'personalization' => ['enabled' => true],
+        ])->assertStatus(409);
+
+        $this->postJson('/api/settings/audio-intelligence/personalization/train')
+            ->assertStatus(409);
     }
 
     public function test_analyzer_method_is_persisted_and_uses_benchmark_guidance(): void

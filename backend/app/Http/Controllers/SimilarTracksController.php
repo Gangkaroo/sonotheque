@@ -35,6 +35,7 @@ class SimilarTracksController extends Controller
             $validated['excludeSameAlbum'] ?? true,
             $validated['excludeSameArtist'] ?? true,
             $settings->audioSimilarityReranking(),
+            $settings->audio_similarity_personalization_enabled,
         );
 
         abort_if($result === null, 404, 'This track has no compatible audio analysis artifact.');

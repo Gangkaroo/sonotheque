@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PlaylistFileExportDialog from '@/components/PlaylistFileExportDialog.vue'
+import PlaylistSimilarityOrderDialog from '@/components/PlaylistSimilarityOrderDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import type { Track } from '@/stores/catalog'
@@ -81,6 +82,7 @@ const removeSelectedDialog = ref(false)
 const removeItemDialog = ref(false)
 const itemToRemove = ref<PlaylistItem | null>(null)
 const exportDialog = ref(false)
+const similarityOrderDialog = ref(false)
 const exportMessage = ref('')
 const exportMessageVisible = ref(false)
 const addToPlaylistDialog = ref(false)
@@ -345,6 +347,14 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
         >
           {{ t('playlists.fileExportAction') }}
         </v-btn>
+        <v-btn
+          prepend-icon="mdi-vector-polyline"
+          :disabled="!canReorder || playlist.items.length < 2"
+          variant="tonal"
+          @click="similarityOrderDialog = true"
+        >
+          {{ t('playlists.similarityOrderAction') }}
+        </v-btn>
       </v-card-actions>
     </v-card>
 
@@ -605,6 +615,12 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
     v-model="exportDialog"
     :playlist-id="playlist.id"
     @saved="handlePlaylistExported"
+  />
+
+  <PlaylistSimilarityOrderDialog
+    v-if="playlist"
+    v-model="similarityOrderDialog"
+    :playlist="playlist"
   />
 
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />

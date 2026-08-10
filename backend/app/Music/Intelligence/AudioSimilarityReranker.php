@@ -33,7 +33,7 @@ class AudioSimilarityReranker
     ];
 
     /**
-     * @param  array{enabled: bool, tempoInfluence: int, keyInfluence: int, intensityInfluence: int}  $preferences
+     * @param  array{enabled: bool, tempoInfluence: int|float, keyInfluence: int|float, intensityInfluence: int|float}  $preferences
      */
     public function candidateLimit(int $requestedLimit, array $preferences): int
     {
@@ -47,7 +47,7 @@ class AudioSimilarityReranker
     /**
      * @param  array<string, mixed>  $source
      * @param  Collection<int, array<string, mixed>>  $matches
-     * @param  array{enabled: bool, tempoInfluence: int, keyInfluence: int, intensityInfluence: int}  $preferences
+     * @param  array{enabled: bool, tempoInfluence: int|float, keyInfluence: int|float, intensityInfluence: int|float}  $preferences
      * @return Collection<int, array<string, mixed>>
      */
     public function rerank(array $source, Collection $matches, array $preferences): Collection
@@ -56,20 +56,7 @@ class AudioSimilarityReranker
 
         return $matches
             ->map(function (array $match) use ($enabled, $preferences, $source): array {
-                $compatibility = [
-                    'tempo' => $this->tempoCompatibility(
-                        $source['features']['bpm'] ?? null,
-                        $match['features']['bpm'] ?? null,
-                    ),
-                    'key' => $this->keyCompatibility(
-                        $source['features'] ?? [],
-                        $match['features'] ?? [],
-                    ),
-                    'intensity' => $this->intensityCompatibility(
-                        $source['features'] ?? [],
-                        $match['features'] ?? [],
-                    ),
-                ];
+                $compatibility = $this->compatibilities($source, $match);
                 $score = (float) $match['similarity'];
                 if ($enabled) {
                     foreach ([
@@ -111,7 +98,30 @@ class AudioSimilarityReranker
     }
 
     /**
-     * @param  array{enabled: bool, tempoInfluence: int, keyInfluence: int, intensityInfluence: int}  $preferences
+     * @param  array<string, mixed>  $source
+     * @param  array<string, mixed>  $candidate
+     * @return array{tempo: ?float, key: ?float, intensity: ?float}
+     */
+    public function compatibilities(array $source, array $candidate): array
+    {
+        return [
+            'tempo' => $this->tempoCompatibility(
+                $source['features']['bpm'] ?? null,
+                $candidate['features']['bpm'] ?? null,
+            ),
+            'key' => $this->keyCompatibility(
+                $source['features'] ?? [],
+                $candidate['features'] ?? [],
+            ),
+            'intensity' => $this->intensityCompatibility(
+                $source['features'] ?? [],
+                $candidate['features'] ?? [],
+            ),
+        ];
+    }
+
+    /**
+     * @param  array{enabled: bool, tempoInfluence: int|float, keyInfluence: int|float, intensityInfluence: int|float}  $preferences
      */
     private function enabled(array $preferences): bool
     {
@@ -119,7 +129,7 @@ class AudioSimilarityReranker
             $preferences['tempoInfluence'],
             $preferences['keyInfluence'],
             $preferences['intensityInfluence'],
-        ])->contains(fn (int $influence): bool => $influence > 0);
+        ])->contains(fn (int|float $influence): bool => $influence > 0);
     }
 
     private function tempoCompatibility(mixed $source, mixed $candidate): ?float

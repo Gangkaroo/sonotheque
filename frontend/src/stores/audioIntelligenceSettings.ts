@@ -130,6 +130,31 @@ export interface AudioSimilarityRerankingSettings {
   intensityInfluence: number
 }
 
+export interface AudioSimilarityPersonalizationSettings {
+  enabled: boolean
+  ready: boolean
+  applied: boolean
+  canTrain: boolean
+  minimumFeedbackCount: number
+  minimumVerdictCount: number
+  feedbackCount: number
+  relevantCount: number
+  irrelevantCount: number
+  profileId: number | null
+  adjustments: {
+    tempo: number
+    key: number
+    intensity: number
+  }
+  featureStatistics: Record<string, {
+    relevantSampleCount: number
+    irrelevantSampleCount: number
+    relevantMean: number | null
+    irrelevantMean: number | null
+  }>
+  trainedAt: string | null
+}
+
 export interface AudioIntelligenceSettings {
   enabled: boolean
   validationSampleSize: number
@@ -148,6 +173,7 @@ export interface AudioIntelligenceSettings {
     methods: Record<AudioAnalyzerAccelerator, AudioAnalyzerAcceleratorStatus>
   }
   reranking: AudioSimilarityRerankingSettings
+  personalization: AudioSimilarityPersonalizationSettings
   vectorIndex: {
     status: 'empty' | 'ready' | 'incomplete' | 'unsupported'
     dimensions: number
@@ -267,9 +293,15 @@ export interface AudioSimilarityEvaluation {
     excludeSameArtist: boolean
   }
   ranking: {
-    method: 'embedding' | 'feature_reranking'
+    method: 'embedding' | 'feature_reranking' | 'personalized'
     candidatePoolSize: number
     preferences: AudioSimilarityRerankingSettings
+    personalization: {
+      enabled: boolean
+      applied: boolean
+      adjustments: AudioSimilarityPersonalizationSettings['adjustments']
+      trainedAt: string | null
+    }
   }
   matches: Array<AudioSimilarityTrack & {
     similarity: number
@@ -308,6 +340,21 @@ const defaults: AudioIntelligenceSettings = {
     tempoInfluence: 5,
     keyInfluence: 3,
     intensityInfluence: 4,
+  },
+  personalization: {
+    enabled: false,
+    ready: false,
+    applied: false,
+    canTrain: false,
+    minimumFeedbackCount: 20,
+    minimumVerdictCount: 5,
+    feedbackCount: 0,
+    relevantCount: 0,
+    irrelevantCount: 0,
+    profileId: null,
+    adjustments: { tempo: 0, key: 0, intensity: 0 },
+    featureStatistics: {},
+    trainedAt: null,
   },
   vectorIndex: {
     status: 'empty',
@@ -378,6 +425,8 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
   const loadingEvaluation = ref(false)
   const evaluatingTrack = ref(false)
   const ratingTrackId = ref<number | null>(null)
+  const trainingPersonalization = ref(false)
+  const resettingPersonalization = ref(false)
   const evaluationError = ref<string | null>(null)
   const error = ref<string | null>(null)
 
@@ -408,13 +457,20 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     validationSampleSize: number,
     accelerator = settings.value.analyzerSelection.selected,
     reranking = settings.value.reranking ?? defaults.reranking,
+    personalizationEnabled = settings.value.personalization?.enabled ?? false,
   ) {
     saving.value = true
     error.value = null
     try {
       settings.value = await apiRequest<AudioIntelligenceSettings>('/settings/audio-intelligence', {
         method: 'PATCH',
-        body: JSON.stringify({ enabled, validationSampleSize, accelerator, reranking }),
+        body: JSON.stringify({
+          enabled,
+          validationSampleSize,
+          accelerator,
+          reranking,
+          personalization: { enabled: personalizationEnabled },
+        }),
       })
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -430,7 +486,51 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
       settings.value.validationSampleSize,
       settings.value.analyzerSelection.selected,
       reranking,
+      reranking.enabled && (settings.value.personalization?.enabled ?? false),
     )
+  }
+
+  async function setPersonalizationEnabled(enabled: boolean) {
+    await save(
+      settings.value.enabled,
+      settings.value.validationSampleSize,
+      settings.value.analyzerSelection.selected,
+      settings.value.reranking,
+      enabled,
+    )
+  }
+
+  async function trainPersonalization() {
+    trainingPersonalization.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        '/settings/audio-intelligence/personalization/train',
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      trainingPersonalization.value = false
+    }
+  }
+
+  async function resetPersonalization() {
+    resettingPersonalization.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        '/settings/audio-intelligence/personalization',
+        { method: 'DELETE' },
+      )
+      evaluationResult.value = null
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      resettingPersonalization.value = false
+    }
   }
 
   async function prepareValidationSample() {
@@ -649,6 +749,7 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
         feedback: 'relevant' | 'irrelevant' | null
         feedbackSummary: AudioSimilarityFeedbackSummary
         review: AudioSimilarityReview
+        personalization: AudioSimilarityPersonalizationSettings
       }>(
         `/settings/audio-intelligence/evaluation/${sourceTrackId}`
           + `/matches/${candidateTrackId}/feedback`
@@ -671,6 +772,7 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
       )
       evaluation.value.feedbackSummary = response.feedbackSummary
       evaluation.value.review = response.review
+      settings.value.personalization = response.personalization
       const match = evaluationResult.value?.matches.find(item => item.id === candidateTrackId)
       if (match) {
         match.feedback = response.feedback
@@ -702,12 +804,17 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     loadingEvaluation,
     evaluatingTrack,
     ratingTrackId,
+    trainingPersonalization,
+    resettingPersonalization,
     evaluationError,
     error,
     collectionRunForScope,
     load,
     save,
     saveReranking,
+    setPersonalizationEnabled,
+    trainPersonalization,
+    resetPersonalization,
     prepareValidationSample,
     expandPool,
     prepareCollection,

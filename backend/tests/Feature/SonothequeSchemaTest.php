@@ -26,7 +26,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_vectors', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback'] as $table) {
+        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_vectors', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback', 'audio_similarity_personalizations', 'playlist_order_snapshots'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -58,6 +58,10 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn(
             'application_settings',
             'audio_similarity_tempo_influence',
+        ));
+        $this->assertTrue(Schema::hasColumn(
+            'application_settings',
+            'audio_similarity_personalization_enabled',
         ));
         $this->assertTrue(Schema::hasColumn('application_settings', 'playlist_export_format'));
         $this->assertTrue(Schema::hasColumn(
@@ -107,6 +111,7 @@ class SonothequeSchemaTest extends TestCase
             ['audio_analyzer_benchmarks', 'sample_track_ids'],
             ['audio_analyzer_benchmarks', 'results'],
             ['audio_analyzer_benchmarks', 'recommendation'],
+            ['playlist_order_snapshots', 'item_ids'],
         ] as [$table, $column]) {
             $this->assertTrue(
                 DB::table('information_schema.columns')

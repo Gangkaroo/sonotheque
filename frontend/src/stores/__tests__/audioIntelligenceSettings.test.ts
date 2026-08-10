@@ -79,6 +79,7 @@ describe('audio intelligence settings store', () => {
           keyInfluence: 3,
           intensityInfluence: 4,
         },
+        personalization: { enabled: false },
       }),
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/settings/audio-intelligence/validation-runs', expect.objectContaining({
@@ -571,6 +572,12 @@ describe('audio intelligence settings store', () => {
           tempoInfluence: 5,
           keyInfluence: 3,
           intensityInfluence: 4,
+        },
+        personalization: {
+          enabled: false,
+          applied: false,
+          adjustments: { tempo: 0, key: 0, intensity: 0 },
+          trainedAt: null,
         },
       },
       matches: [{

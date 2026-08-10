@@ -375,6 +375,81 @@ describe('playlists store', () => {
     expect(store.current?.items.map((item) => item.id)).toEqual([101, 100])
   })
 
+  it('previews, applies, and restores similarity ordering', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/playlists/10/similarity-order' && !init?.method) {
+        return jsonResponse({
+          enabled: true,
+          available: true,
+          maximumAnalyzedItems: 250,
+          profile: { id: 1, modelName: 'Test', modelVersion: '1' },
+          analyzedItemIds: [100, 101],
+          unanalyzedItemIds: [],
+          canUndo: false,
+        })
+      }
+      if (url === '/api/playlists/10/similarity-order/preview' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ openingItemId: 100 })
+        return jsonResponse({
+          profile: { id: 1, modelName: 'Test', modelVersion: '1' },
+          algorithm: 'greedy_2opt',
+          maximumAnalyzedItems: 250,
+          openingItemId: 100,
+          orderSignature: 'a'.repeat(64),
+          canUndo: false,
+          summary: {
+            analyzedCount: 2,
+            unanalyzedCount: 0,
+            previousAverageSimilarity: 0.5,
+            greedyAverageSimilarity: 0.9,
+            optimizedAverageSimilarity: 0.9,
+            improvement: 0.4,
+          },
+          items: [
+            { itemId: 100, trackId: 1, analyzed: true, similarityToPrevious: null },
+            { itemId: 101, trackId: 2, analyzed: true, similarityToPrevious: 0.9 },
+          ],
+        })
+      }
+      if (url === '/api/playlists/10/similarity-order' && init?.method === 'PATCH') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          items: [101, 100],
+          orderSignature: 'a'.repeat(64),
+        })
+        return jsonResponse({ itemIds: [101, 100], canUndo: true })
+      }
+      if (url === '/api/playlists/10/similarity-order/restore' && init?.method === 'POST') {
+        return jsonResponse({ itemIds: [100, 101], canUndo: false })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const store = usePlaylistsStore()
+    store.current = {
+      id: 10,
+      name: 'Mix',
+      trackCount: 2,
+      items: [
+        { id: 100, position: 0, track: trackResponse(1) },
+        { id: 101, position: 1, track: trackResponse(2) },
+      ],
+    }
+
+    const status = await store.loadSimilarityOrderStatus(10)
+    expect(status.analyzedItemIds).toEqual([100, 101])
+
+    const preview = await store.previewSimilarityOrder(10, 100)
+    expect(preview.summary.optimizedAverageSimilarity).toBe(0.9)
+
+    await store.applySimilarityOrder(10, [101, 100], 'a'.repeat(64))
+    expect(store.current.items.map(item => item.id)).toEqual([101, 100])
+    expect(store.current.items.map(item => item.position)).toEqual([0, 1])
+
+    await store.restoreSimilarityOrder(10)
+    expect(store.current.items.map(item => item.id)).toEqual([100, 101])
+  })
+
   it('updates play statistics for every occurrence of a track in the open playlist', () => {
     const store = usePlaylistsStore()
     store.current = {

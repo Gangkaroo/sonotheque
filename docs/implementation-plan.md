@@ -1302,8 +1302,11 @@ Last.fm integration.
   version implicitly. Keep the base embedding unchanged, require a meaningful
   minimum feedback sample, provide reset/disable controls, and compare
   personalized results with the accepted vector and feature-refined baselines.
-  (Pending; current feedback records evaluation metrics and is displayed with
-  matches but does not alter ranking.)
+  (Complete for the first explicit-feedback version: training requires 20
+  ratings with at least five in each class, learns bounded adjustments to the
+  three visible influences, is profile-scoped, and supports independent
+  enablement, re-training, and reset. Implicit behavioral inputs remain
+  deliberately deferred.)
 - Add Similar Tracks and Continue This Mood actions with a reviewable queue
   preview; never modify playback or playlists without confirmation. (Complete:
   Similar Tracks is available from track details, while Continue This Mood is
@@ -1328,7 +1331,14 @@ Last.fm integration.
   optional **Thorough** mode only if it measurably improves accepted previews
   over greedy construction plus local optimization. The feature remains
   unavailable when Audio intelligence is disabled and never starts analysis
-  implicitly. (Pending)
+  implicitly. (Baseline complete: custom playlists now provide a fixed-opener
+  preview using exact in-playlist vector similarities, deterministic greedy
+  construction, and bounded 2-opt refinement. The preview exposes adjacent
+  and aggregate scores, keeps unanalyzed entries in their original relative
+  order at the end, supports applying or saving as a new playlist, and stores
+  reversible order snapshots. Pairwise work is capped at 250 analyzed entries;
+  inspectable transition penalties and an evidence-based Thorough mode remain
+  optional future refinements.)
 - Add a read-only evaluation workspace that selects an analyzed track, ranks
   exact cosine neighbours, exposes scores and feature context, and links back
   to catalog details without changing playback. Add compact feature
@@ -1527,11 +1537,12 @@ Optional feature reranking is now implemented and remains disabled by default.
 It expands only a bounded nearest-neighbour pool, applies configurable maximum
 penalties for tempo, key, and intensity compatibility, and exposes both vector
 and final scores. Missing features do not penalize a candidate and half/double
-tempo is compatible. The next recommendation milestone is a small, resettable
-personalization layer driven by explicit match feedback. The existing
-thumbs-up/down records remain evaluation-only until that layer is implemented;
-compare personalized results against both embedding-only and feature-refined
-baselines before changing any default.
+tempo is compatible. The first local personalization layer is now complete: it
+uses only explicit ratings, requires a balanced minimum sample,
+stores analyzer-profile-specific adjustments bounded to three points per
+visible influence, and can be enabled, re-trained, disabled, or reset without
+changing embeddings. Behavioral signals remain out of scope until separately
+evaluated.
 
 The playlist roadmap now also includes audio-similarity ordering from a
 user-selected opening track. Its first implementation should use deterministic

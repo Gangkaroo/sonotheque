@@ -31,6 +31,7 @@ use App\Http\Controllers\PlaybackStatisticsController;
 use App\Http\Controllers\PlaybackStatisticsSettingsController;
 use App\Http\Controllers\PlaylistExportSettingsController;
 use App\Http\Controllers\PlaylistImportController;
+use App\Http\Controllers\PlaylistSimilarityOrderController;
 use App\Http\Controllers\PlaylistsController;
 use App\Http\Controllers\ScanRunIssuesController;
 use App\Http\Controllers\SimilarTracksController;
@@ -105,6 +106,14 @@ Route::post(
 Route::post('/settings/audio-intelligence/expansions', [AudioIntelligenceSettingsController::class, 'prepareExpansion']);
 Route::post('/settings/audio-intelligence/collections', [AudioIntelligenceSettingsController::class, 'prepareCollection']);
 Route::post('/settings/audio-intelligence/analyzer/test', [AudioIntelligenceSettingsController::class, 'testAnalyzer']);
+Route::post(
+    '/settings/audio-intelligence/personalization/train',
+    [AudioIntelligenceSettingsController::class, 'trainPersonalization'],
+);
+Route::delete(
+    '/settings/audio-intelligence/personalization',
+    [AudioIntelligenceSettingsController::class, 'resetPersonalization'],
+);
 Route::post(
     '/settings/audio-intelligence/benchmarks',
     [AudioIntelligenceSettingsController::class, 'startBenchmark'],
@@ -212,6 +221,10 @@ Route::post('/playlists', [PlaylistsController::class, 'createPlaylist']);
 Route::post('/playlists/import', PlaylistImportController::class);
 Route::get('/playlists/memberships', [PlaylistsController::class, 'memberships']);
 Route::get('/playlists/{playlist}', [PlaylistsController::class, 'playlist']);
+Route::get('/playlists/{playlist}/similarity-order', [PlaylistSimilarityOrderController::class, 'show']);
+Route::post('/playlists/{playlist}/similarity-order/preview', [PlaylistSimilarityOrderController::class, 'preview']);
+Route::patch('/playlists/{playlist}/similarity-order', [PlaylistSimilarityOrderController::class, 'apply']);
+Route::post('/playlists/{playlist}/similarity-order/restore', [PlaylistSimilarityOrderController::class, 'restore']);
 Route::get('/playlists/{playlist}/file-export', [CustomPlaylistExportController::class, 'show']);
 Route::post('/playlists/{playlist}/file-export', [CustomPlaylistExportController::class, 'store']);
 Route::patch('/playlists/{playlist}', [PlaylistsController::class, 'updatePlaylist']);

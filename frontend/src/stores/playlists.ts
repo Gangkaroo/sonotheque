@@ -37,6 +37,49 @@ export interface PlaylistDetail extends PlaylistSummary {
   items: PlaylistItem[]
 }
 
+export interface PlaylistSimilarityOrderPreviewItem {
+  itemId: number
+  trackId: number
+  analyzed: boolean
+  similarityToPrevious: number | null
+}
+
+export interface PlaylistSimilarityOrderStatus {
+  enabled: boolean
+  available: boolean
+  maximumAnalyzedItems: number
+  profile: {
+    id: number
+    modelName: string
+    modelVersion: string
+  } | null
+  analyzedItemIds: number[]
+  unanalyzedItemIds: number[]
+  canUndo: boolean
+}
+
+export interface PlaylistSimilarityOrderPreview {
+  profile: {
+    id: number
+    modelName: string
+    modelVersion: string
+  }
+  algorithm: 'greedy_2opt'
+  maximumAnalyzedItems: number
+  openingItemId: number
+  orderSignature: string
+  canUndo: boolean
+  summary: {
+    analyzedCount: number
+    unanalyzedCount: number
+    previousAverageSimilarity: number | null
+    greedyAverageSimilarity: number | null
+    optimizedAverageSimilarity: number | null
+    improvement: number | null
+  }
+  items: PlaylistSimilarityOrderPreviewItem[]
+}
+
 export interface PlaylistImportWarning {
   line: number
   path: string
@@ -86,7 +129,9 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const loading = ref(false)
   const membershipsLoading = ref(false)
   const saving = ref(false)
+  const similarityOrdering = ref(false)
   const error = ref<string | null>(null)
+  const similarityOrderError = ref<string | null>(null)
   const membershipsError = ref<string | null>(null)
   let membershipRequestId = 0
 
@@ -117,6 +162,11 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  async function loadFolders() {
+    const result = await apiRequest<FolderResponse>('/playlist-folders')
+    folders.value = result.items
   }
 
   async function loadMemberships(trackIds: number[]) {
@@ -470,6 +520,96 @@ export const usePlaylistsStore = defineStore('playlists', () => {
       : playlist)
   }
 
+  async function previewSimilarityOrder(playlistId: number, openingItemId: number) {
+    similarityOrdering.value = true
+    similarityOrderError.value = null
+    try {
+      return await apiRequest<PlaylistSimilarityOrderPreview>(
+        withLibraryRootScope(`/playlists/${playlistId}/similarity-order/preview`),
+        {
+          method: 'POST',
+          body: JSON.stringify({ openingItemId }),
+        },
+      )
+    } catch (cause) {
+      similarityOrderError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      similarityOrdering.value = false
+    }
+  }
+
+  async function loadSimilarityOrderStatus(playlistId: number) {
+    similarityOrdering.value = true
+    similarityOrderError.value = null
+    try {
+      return await apiRequest<PlaylistSimilarityOrderStatus>(
+        withLibraryRootScope(`/playlists/${playlistId}/similarity-order`),
+      )
+    } catch (cause) {
+      similarityOrderError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      similarityOrdering.value = false
+    }
+  }
+
+  async function applySimilarityOrder(
+    playlistId: number,
+    itemIds: number[],
+    orderSignature: string,
+  ) {
+    similarityOrdering.value = true
+    similarityOrderError.value = null
+    try {
+      const result = await apiRequest<{ itemIds: number[], canUndo: boolean }>(
+        withLibraryRootScope(`/playlists/${playlistId}/similarity-order`),
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ items: itemIds, orderSignature }),
+        },
+      )
+      reorderCurrentPlaylist(playlistId, result.itemIds)
+      return result
+    } catch (cause) {
+      similarityOrderError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      similarityOrdering.value = false
+    }
+  }
+
+  async function restoreSimilarityOrder(playlistId: number) {
+    similarityOrdering.value = true
+    similarityOrderError.value = null
+    try {
+      const result = await apiRequest<{ itemIds: number[], canUndo: boolean }>(
+        withLibraryRootScope(`/playlists/${playlistId}/similarity-order/restore`),
+        { method: 'POST' },
+      )
+      reorderCurrentPlaylist(playlistId, result.itemIds)
+      return result
+    } catch (cause) {
+      similarityOrderError.value = errorMessage(cause)
+      throw cause
+    } finally {
+      similarityOrdering.value = false
+    }
+  }
+
+  function reorderCurrentPlaylist(playlistId: number, itemIds: number[]) {
+    if (current.value?.id !== playlistId) return
+
+    const items = new Map(current.value.items.map((item) => [item.id, item]))
+    current.value = {
+      ...current.value,
+      items: itemIds.flatMap((itemId, position) => {
+        const item = items.get(itemId)
+        return item ? [{ ...item, position }] : []
+      }),
+    }
+  }
+
   async function importPlaylist(payload: {
     path: string
     name: string
@@ -548,9 +688,12 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     loading,
     membershipsLoading,
     saving,
+    similarityOrdering,
     error,
+    similarityOrderError,
     membershipsError,
     loadAll,
+    loadFolders,
     loadPlaylist,
     loadMemberships,
     updateTrackPlayStatistics,
@@ -568,6 +711,10 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     removeTrackFromPlaylist,
     removeItems,
     reorderItems,
+    loadSimilarityOrderStatus,
+    previewSimilarityOrder,
+    applySimilarityOrder,
+    restoreSimilarityOrder,
   }
 })
 

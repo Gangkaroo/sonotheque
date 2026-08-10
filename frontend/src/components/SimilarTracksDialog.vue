@@ -149,14 +149,16 @@ function continueWithMatches() {
             {{ dialogDescription }}
           </div>
           <v-chip
-            v-if="result.ranking.method === 'feature_reranking'"
+            v-if="result.ranking.method !== 'embedding'"
             class="mb-3"
             color="primary"
             prepend-icon="mdi-tune-variant"
             size="small"
             variant="tonal"
           >
-            {{ t('tracks.featureRefinedSimilarity') }}
+            {{ t(result.ranking.method === 'personalized'
+              ? 'tracks.personalizedSimilarity'
+              : 'tracks.featureRefinedSimilarity') }}
           </v-chip>
           <v-list v-if="result.matches.length" border lines="two" rounded="lg">
             <v-list-item

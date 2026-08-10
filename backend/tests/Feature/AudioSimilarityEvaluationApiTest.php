@@ -8,6 +8,7 @@ use App\Models\Artist;
 use App\Models\AudioAnalysisArtifact;
 use App\Models\AudioAnalysisProfile;
 use App\Models\AudioAnalysisRun;
+use App\Models\AudioSimilarityFeedback;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
@@ -201,6 +202,53 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             ->assertJsonPath('feedback', null)
             ->assertJsonPath('feedbackSummary.relevant', 0)
             ->assertJsonPath('review.quality.all.ratedMatchCount', 0);
+
+        $tracks = [$source, $near, $far];
+        $configurations = ['all', 'exclude_album', 'exclude_artist', 'exclude_album_artist'];
+        $ratingIndex = 0;
+        foreach ($tracks as $ratedSource) {
+            foreach ($tracks as $candidate) {
+                if ($ratedSource->is($candidate)) {
+                    continue;
+                }
+                foreach ($configurations as $configuration) {
+                    AudioSimilarityFeedback::create([
+                        'audio_analysis_profile_id' => $profile->id,
+                        'source_track_id' => $ratedSource->id,
+                        'candidate_track_id' => $candidate->id,
+                        'configuration' => $configuration,
+                        'verdict' => $ratingIndex++ % 2 === 0 ? 'relevant' : 'irrelevant',
+                    ]);
+                }
+            }
+        }
+
+        $this->postJson('/api/settings/audio-intelligence/personalization/train')
+            ->assertOk()
+            ->assertJsonPath('personalization.ready', true)
+            ->assertJsonPath('personalization.canTrain', true)
+            ->assertJsonPath('personalization.feedbackCount', 24)
+            ->assertJsonPath('personalization.relevantCount', 12)
+            ->assertJsonPath('personalization.irrelevantCount', 12);
+        $this->assertDatabaseCount('audio_similarity_personalizations', 1);
+
+        $this->patchJson('/api/settings/audio-intelligence', [
+            'enabled' => true,
+            'validationSampleSize' => 200,
+            'personalization' => ['enabled' => true],
+        ])->assertOk()
+            ->assertJsonPath('personalization.enabled', true)
+            ->assertJsonPath('personalization.applied', true);
+        $this->getJson("/api/settings/audio-intelligence/evaluation/{$source->id}?limit=2")
+            ->assertOk()
+            ->assertJsonPath('ranking.method', 'personalized')
+            ->assertJsonPath('ranking.personalization.applied', true);
+
+        $this->deleteJson('/api/settings/audio-intelligence/personalization')
+            ->assertOk()
+            ->assertJsonPath('personalization.enabled', false)
+            ->assertJsonPath('personalization.ready', false);
+        $this->assertDatabaseCount('audio_similarity_personalizations', 0);
     }
 
     public function test_evaluation_requires_opt_in_and_analyzed_source_track(): void

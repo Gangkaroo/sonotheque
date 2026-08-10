@@ -241,6 +241,17 @@ half/double tempo is treated as compatible. The configured influence values are
 maximum percentage-point penalties, so the embedding remains the dominant
 signal and no track needs to be analyzed again.
 
+Local personalization is a separate, disabled-by-default layer on top of that
+refinement. It can be trained only after the current analyzer/model profile has
+at least 20 explicit similarity ratings, including at least five relevant and
+five not-relevant ratings. Training compares the tempo, key, and intensity
+compatibility of both verdict classes and stores at most a three-point
+adjustment for each visible influence. The embedding and analyzed artifacts are
+never modified. Listening history, skips, favorites, and playlists are not
+inputs. A profile can be re-trained as ratings accumulate, disabled without
+deleting it, or reset completely; replacing the analyzer/model starts with no
+personalization for the new profile.
+
 The structured review queue deterministically chooses up to 30 source tracks
 while balancing library roots, genres, artists, and albums. It resumes a
 partially rated source before offering a new one and tracks completed sources,

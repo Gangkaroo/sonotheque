@@ -225,6 +225,31 @@ async function saveReranking() {
   audioIntelligence.evaluationResult = null
 }
 
+async function setPersonalizationEnabled(value: boolean | null) {
+  if (value === null) return
+
+  await audioIntelligence.setPersonalizationEnabled(value)
+  audioIntelligence.evaluationResult = null
+}
+
+function personalizationAdjustment(value: number) {
+  const formatted = new Intl.NumberFormat(locale.value, {
+    maximumFractionDigits: 2,
+    signDisplay: 'always',
+  }).format(value)
+
+  return t('settings.audioPersonalizationAdjustmentValue', { value: formatted })
+}
+
+function personalizationTrainedAt(value: string | null) {
+  if (!value) return null
+
+  return new Intl.DateTimeFormat(locale.value, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 function acceleratorStatus(accelerator: AudioAnalyzerAccelerator) {
   return audioIntelligence.settings.analyzerSelection.methods[accelerator]
 }
@@ -666,6 +691,109 @@ async function toggleMatchFeedback(
           >
             {{ t('settings.saveAudioSimilarityRefinement') }}
           </v-btn>
+        </section>
+
+        <v-divider class="my-6" />
+
+        <section>
+          <div class="text-subtitle-1 font-weight-bold">
+            {{ t('settings.audioPersonalization') }}
+          </div>
+          <div class="text-body-2 text-medium-emphasis mb-3">
+            {{ t('settings.audioPersonalizationDescription') }}
+          </div>
+          <div class="d-flex flex-wrap ga-2 mb-3">
+            <v-chip size="small" variant="tonal">
+              {{ t('settings.audioPersonalizationFeedbackCount', {
+                count: audioIntelligence.settings.personalization.feedbackCount,
+                minimum: audioIntelligence.settings.personalization.minimumFeedbackCount,
+              }) }}
+            </v-chip>
+            <v-chip color="success" size="small" variant="tonal">
+              {{ t('settings.audioPersonalizationRelevantCount', {
+                count: audioIntelligence.settings.personalization.relevantCount,
+              }) }}
+            </v-chip>
+            <v-chip color="error" size="small" variant="tonal">
+              {{ t('settings.audioPersonalizationIrrelevantCount', {
+                count: audioIntelligence.settings.personalization.irrelevantCount,
+              }) }}
+            </v-chip>
+          </div>
+          <v-alert
+            v-if="!audioIntelligence.settings.personalization.canTrain"
+            class="mb-3"
+            density="compact"
+            :text="t('settings.audioPersonalizationNeedsFeedback', {
+              total: audioIntelligence.settings.personalization.minimumFeedbackCount,
+              each: audioIntelligence.settings.personalization.minimumVerdictCount,
+            })"
+            type="info"
+            variant="tonal"
+          />
+          <template v-if="audioIntelligence.settings.personalization.ready">
+            <div class="d-flex flex-wrap ga-2 mb-2">
+              <v-chip color="primary" size="small" variant="outlined">
+                {{ t('settings.audioSimilarityTempoInfluence') }}
+                {{ personalizationAdjustment(
+                  audioIntelligence.settings.personalization.adjustments.tempo,
+                ) }}
+              </v-chip>
+              <v-chip color="primary" size="small" variant="outlined">
+                {{ t('settings.audioSimilarityKeyInfluence') }}
+                {{ personalizationAdjustment(
+                  audioIntelligence.settings.personalization.adjustments.key,
+                ) }}
+              </v-chip>
+              <v-chip color="primary" size="small" variant="outlined">
+                {{ t('settings.audioSimilarityIntensityInfluence') }}
+                {{ personalizationAdjustment(
+                  audioIntelligence.settings.personalization.adjustments.intensity,
+                ) }}
+              </v-chip>
+            </div>
+            <div class="text-caption text-medium-emphasis mb-2">
+              {{ t('settings.audioPersonalizationTrainedAt', {
+                date: personalizationTrainedAt(
+                  audioIntelligence.settings.personalization.trainedAt,
+                ),
+              }) }}
+            </div>
+          </template>
+          <v-switch
+            color="primary"
+            :disabled="audioIntelligence.saving
+              || !audioIntelligence.settings.personalization.ready
+              || !audioIntelligence.settings.reranking.enabled"
+            :hint="t('settings.audioPersonalizationEnabledHint')"
+            :label="t('settings.audioPersonalizationEnabled')"
+            :model-value="audioIntelligence.settings.personalization.enabled"
+            persistent-hint
+            @update:model-value="setPersonalizationEnabled"
+          />
+          <div class="d-flex flex-wrap ga-2 mt-3">
+            <v-btn
+              color="primary"
+              :disabled="!audioIntelligence.settings.personalization.canTrain"
+              :loading="audioIntelligence.trainingPersonalization"
+              prepend-icon="mdi-account-cog-outline"
+              variant="tonal"
+              @click="audioIntelligence.trainPersonalization"
+            >
+              {{ audioIntelligence.settings.personalization.ready
+                ? t('settings.retrainAudioPersonalization')
+                : t('settings.trainAudioPersonalization') }}
+            </v-btn>
+            <v-btn
+              v-if="audioIntelligence.settings.personalization.ready"
+              :loading="audioIntelligence.resettingPersonalization"
+              prepend-icon="mdi-restore"
+              variant="text"
+              @click="audioIntelligence.resetPersonalization"
+            >
+              {{ t('settings.resetAudioPersonalization') }}
+            </v-btn>
+          </div>
         </section>
 
         <v-divider class="my-6" />
@@ -1356,9 +1484,11 @@ async function toggleMatchFeedback(
                   }) }}
                 </div>
                 <div class="text-caption text-medium-emphasis">
-                  {{ t(audioIntelligence.evaluationResult.ranking.method === 'feature_reranking'
-                    ? 'settings.audioSimilarityRefinedCalculation'
-                    : 'settings.audioSimilarityCalculation', {
+                  {{ t(audioIntelligence.evaluationResult.ranking.method === 'embedding'
+                    ? 'settings.audioSimilarityCalculation'
+                    : audioIntelligence.evaluationResult.ranking.method === 'personalized'
+                      ? 'settings.audioSimilarityPersonalizedCalculation'
+                      : 'settings.audioSimilarityRefinedCalculation', {
                     candidates: audioIntelligence.evaluationResult.candidateCount,
                     pool: audioIntelligence.evaluationResult.ranking.candidatePoolSize,
                     milliseconds: audioIntelligence.evaluationResult.calculationMs,

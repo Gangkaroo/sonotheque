@@ -14,6 +14,7 @@ use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioAnalyzerHealth;
 use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Intelligence\AudioVectorIndex;
+use App\Music\Intelligence\AudioSimilarityPersonalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -28,6 +29,7 @@ class AudioIntelligenceSettingsController extends Controller
         private readonly AudioAnalyzer $analyzer,
         private readonly AudioAnalysisProfileRegistry $profileRegistry,
         private readonly AudioVectorIndex $vectorIndex,
+        private readonly AudioSimilarityPersonalizer $personalizer,
     ) {
     }
 
@@ -67,6 +69,8 @@ class AudioIntelligenceSettingsController extends Controller
                 'min:0',
                 'max:10',
             ],
+            'personalization' => ['sometimes', 'array'],
+            'personalization.enabled' => ['required_with:personalization', 'boolean'],
         ]);
         $settings = ApplicationSetting::current();
         $accelerator = $validated['accelerator'] ?? $settings->audioIntelligenceAccelerator();
@@ -74,6 +78,22 @@ class AudioIntelligenceSettingsController extends Controller
             $this->abortIfAnalysisIsRunning();
             $this->abortIfBenchmarkActive();
             Cache::forget(self::ANALYZER_HEALTH_CACHE_KEY);
+        }
+        $rerankingEnabled = $validated['reranking']['enabled']
+            ?? $settings->audio_similarity_reranking_enabled;
+        $personalizationEnabled = $validated['personalization']['enabled']
+            ?? $settings->audio_similarity_personalization_enabled;
+        if ($personalizationEnabled) {
+            abort_unless(
+                $rerankingEnabled,
+                409,
+                'Enable recommendation refinement before personalization.',
+            );
+            abort_unless(
+                $this->personalizer->status($settings)['ready'],
+                409,
+                'Train a personalization profile before enabling it.',
+            );
         }
         $settings->update([
             'audio_intelligence_enabled' => $validated['enabled'],
@@ -87,6 +107,7 @@ class AudioIntelligenceSettingsController extends Controller
                 ?? $settings->audio_similarity_key_influence,
             'audio_similarity_intensity_influence' => $validated['reranking']['intensityInfluence']
                 ?? $settings->audio_similarity_intensity_influence,
+            'audio_similarity_personalization_enabled' => $personalizationEnabled,
         ]);
 
         return response()->json($this->payload($settings));
@@ -205,6 +226,28 @@ class AudioIntelligenceSettingsController extends Controller
         $this->cacheAnalyzerHealth($health);
 
         return response()->json($this->payload(ApplicationSetting::current(), health: $health));
+    }
+
+    public function trainPersonalization(): JsonResponse
+    {
+        $settings = ApplicationSetting::current();
+        abort_unless(
+            $settings->audio_intelligence_enabled,
+            409,
+            'Enable audio intelligence before training personalization.',
+        );
+
+        $this->personalizer->train($settings);
+
+        return response()->json($this->payload($settings->fresh()));
+    }
+
+    public function resetPersonalization(): JsonResponse
+    {
+        $settings = ApplicationSetting::current();
+        $this->personalizer->reset($settings);
+
+        return response()->json($this->payload($settings->fresh()));
     }
 
     public function startBenchmark(): JsonResponse
@@ -483,6 +526,7 @@ class AudioIntelligenceSettingsController extends Controller
             'enabled' => $settings->audio_intelligence_enabled,
             'validationSampleSize' => $settings->audio_intelligence_validation_sample_size,
             'reranking' => $settings->audioSimilarityReranking(),
+            'personalization' => $this->personalizer->status($settings),
             'eligibleTrackCount' => $coverage['eligibleTrackCount'],
             'fingerprintedTrackCount' => $coverage['fingerprintedTrackCount'],
             'eligibleRoots' => $this->runPlanner->eligibleRoots()
