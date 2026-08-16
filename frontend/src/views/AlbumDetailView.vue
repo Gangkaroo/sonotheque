@@ -149,11 +149,35 @@ const backMusicianId = computed(() => {
 })
 const backToTracks = computed(() => route.query.backTo === 'tracks')
 const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
+const backToMusicianReview = computed(() => route.query.backTo === 'musician-review')
+const backArtistDetailQuery = computed(() => ({
+  ...(route.query.backArtistTab === 'tracks' ? { tab: 'tracks' } : {}),
+  ...(positiveQueryPage(route.query.backArtistAlbumPage, 'albumPage')),
+  ...(positiveQueryPage(route.query.backArtistTrackPage, 'trackPage')),
+  ...(route.query.backArtistBackTo === 'audio-intelligence' ? { backTo: 'audio-intelligence' } : {}),
+}))
 const backRoute = computed(() => {
-  if (backArtistId.value) return { name: 'artist-detail', params: { id: backArtistId.value } }
+  if (backArtistId.value) {
+    return {
+      name: 'artist-detail',
+      params: { id: backArtistId.value },
+      query: backArtistDetailQuery.value,
+    }
+  }
   if (backMusicianId.value) return { name: 'musician-detail', params: { id: backMusicianId.value } }
   if (backToTracks.value) return { name: 'tracks' }
   if (backToAudioIntelligence.value) return { name: 'settings', query: { tab: 'intelligence' } }
+  if (backToMusicianReview.value) {
+    return {
+      name: 'musician-review',
+      query: {
+        ...(route.query.reviewStatus && route.query.reviewStatus !== 'ambiguous'
+          ? { status: route.query.reviewStatus }
+          : {}),
+        ...(route.query.reviewPage ? { page: route.query.reviewPage } : {}),
+      },
+    }
+  }
 
   return { name: 'albums' }
 })
@@ -162,6 +186,7 @@ const backLabel = computed(() => {
   if (backMusicianId.value) return t('albums.backToMusician')
   if (backToTracks.value) return t('albums.backToTracks')
   if (backToAudioIntelligence.value) return t('albums.backToAudioIntelligence')
+  if (backToMusicianReview.value) return t('albums.backToMusicianReview')
 
   return t('albums.back')
 })
@@ -177,6 +202,11 @@ const selectedTracks = computed(() => {
   const selected = new Set(selectedTrackIds.value)
   return tracks.value.filter((track) => selected.has(track.id))
 })
+
+function positiveQueryPage(value: unknown, key: 'albumPage' | 'trackPage') {
+  const parsed = typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(parsed) && parsed > 1 ? { [key]: String(parsed) } : {}
+}
 const allTracksSelected = computed(() => tracks.value.length > 0 && selectedTrackIds.value.length === tracks.value.length)
 const albumGenres = computed(() => album.value?.genres ?? [])
 const albumTechnicalChips = computed(() => {

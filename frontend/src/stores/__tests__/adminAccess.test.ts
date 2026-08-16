@@ -53,11 +53,13 @@ describe('admin access store', () => {
   it('keeps the response status on API errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       message: 'Protected operation.',
+      errorCode: 'admin_required',
     }), { status: 403 })))
 
     await expect(apiRequest('/settings/access')).rejects.toMatchObject<Partial<ApiError>>({
       message: 'Protected operation.',
       status: 403,
+      errorCode: 'admin_required',
     })
   })
 })

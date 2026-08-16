@@ -14,9 +14,10 @@ import type {
   TrackInformation,
 } from '@/stores/onlineEnrichment'
 import { openExternalUrl } from '@/utils/externalLinks'
+import type { MusicBrainzReleaseCandidate } from '@/types/musicianCredits'
 
+import MusicBrainzReleaseChooser from './MusicBrainzReleaseChooser.vue'
 import MusicianCreditsEditor from './MusicianCreditsEditor.vue'
-import TooltipIconButton from './TooltipIconButton.vue'
 
 const props = withDefaults(defineProps<{
   trackId: number
@@ -72,20 +73,6 @@ interface AlbumMusician {
   disambiguation?: string | null
   entityType?: string | null
   credits: MusicianCredit[]
-}
-
-interface MusicBrainzReleaseCandidate {
-  id: string
-  title?: string | null
-  artistName?: string | null
-  date?: string | null
-  country?: string | null
-  status?: string | null
-  formats: string[]
-  trackCount?: number | null
-  barcode?: string | null
-  score?: number | null
-  sourceUrl?: string | null
 }
 
 interface AlbumMusicianResult {
@@ -280,16 +267,6 @@ function openMusicianReleaseDialog() {
     ?? null
   musicianReleaseError.value = null
   musicianReleaseDialog.value = true
-}
-
-function musicianReleaseDetails(candidate: MusicBrainzReleaseCandidate) {
-  return [
-    candidate.date,
-    candidate.country,
-    candidate.formats.join(', ') || null,
-    candidate.trackCount ? t('albums.trackCount', { count: candidate.trackCount }) : null,
-    candidate.barcode ? t('albums.musicianReleaseBarcode', { barcode: candidate.barcode }) : null,
-  ].filter(Boolean).join(' · ')
 }
 
 async function resolveMusicianRelease() {
@@ -611,41 +588,10 @@ async function resolveMusicianRelease() {
             {{ musicianReleaseError }}
           </v-alert>
           <p class="text-body-2 text-medium-emphasis mb-4">{{ t('albums.musicianReleaseHint') }}</p>
-          <v-radio-group v-model="selectedMusicianReleaseId" hide-details>
-            <v-list border lines="three" rounded="lg">
-              <v-list-item
-                v-for="candidate in musicianReleaseCandidates"
-                :key="candidate.id"
-                class="musician-release-candidate"
-                @click="selectedMusicianReleaseId = candidate.id"
-              >
-                <template #prepend>
-                  <v-radio class="mr-3" :value="candidate.id" @click.stop />
-                </template>
-                <v-list-item-title>{{ candidate.title }}</v-list-item-title>
-                <v-list-item-subtitle v-if="candidate.artistName">{{ candidate.artistName }}</v-list-item-subtitle>
-                <v-list-item-subtitle v-if="musicianReleaseDetails(candidate)">
-                  {{ musicianReleaseDetails(candidate) }}
-                </v-list-item-subtitle>
-                <template #append>
-                  <div class="d-flex align-center ga-2">
-                    <v-chip v-if="candidate.score" size="x-small" variant="tonal">
-                      {{ t('albums.musicianReleaseScore', { score: candidate.score }) }}
-                    </v-chip>
-                    <TooltipIconButton
-                      v-if="candidate.sourceUrl"
-                      :aria-label="t('albums.openMusicianRelease')"
-                      icon="mdi-open-in-new"
-                      size="small"
-                      :text="t('albums.openMusicianRelease')"
-                      variant="text"
-                      @click.stop="openExternalUrl(candidate.sourceUrl)"
-                    />
-                  </div>
-                </template>
-              </v-list-item>
-            </v-list>
-          </v-radio-group>
+          <MusicBrainzReleaseChooser
+            v-model="selectedMusicianReleaseId"
+            :candidates="musicianReleaseCandidates"
+          />
         </v-card-text>
         <v-card-actions>
           <v-spacer />

@@ -341,6 +341,62 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('items.0.id', $album->id);
     }
 
+    public function test_artist_track_navigation_returns_adjacent_tracks_without_wrapping(): void
+    {
+        [$artist, $album, $firstTrack] = $this->createCatalog();
+        $secondAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Second Album',
+            'sort_title' => 'Second Album',
+            'relative_path' => 'Artist/Second Album',
+            'relative_path_hash' => hash('sha256', 'artist/second album'),
+            'original_release_year' => 2002,
+        ]);
+        $secondTrack = $this->createTrackForAlbum($album->libraryRoot, $secondAlbum);
+        $secondTrack->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
+
+        $this->getJson("/api/catalog/artists/{$artist->id}/tracks/{$firstTrack->id}/navigation")
+            ->assertOk()
+            ->assertJsonPath('previousTrackId', null)
+            ->assertJsonPath('nextTrackId', $secondTrack->id);
+
+        $this->getJson("/api/catalog/artists/{$artist->id}/tracks/{$secondTrack->id}/navigation")
+            ->assertOk()
+            ->assertJsonPath('previousTrackId', $firstTrack->id)
+            ->assertJsonPath('nextTrackId', null);
+    }
+
+    public function test_artist_playback_tracks_are_ordered_and_require_confirmation_for_large_actions(): void
+    {
+        [$artist, $album, $firstTrack] = $this->createCatalog();
+        $secondAlbum = Album::create([
+            'library_root_id' => $album->library_root_id,
+            'primary_artist_id' => $artist->id,
+            'title' => 'Second Album',
+            'sort_title' => 'Second Album',
+            'relative_path' => 'Artist/Second Album',
+            'relative_path_hash' => hash('sha256', 'artist/second album'),
+            'original_release_year' => 2002,
+        ]);
+        $secondTrack = $this->createTrackForAlbum($album->libraryRoot, $secondAlbum);
+        $secondTrack->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
+
+        $this->getJson("/api/catalog/artists/{$artist->id}/tracks?confirmationThreshold=2")
+            ->assertOk()
+            ->assertJsonPath('total', 2)
+            ->assertJsonPath('requiresConfirmation', true)
+            ->assertJsonCount(0, 'tracks');
+
+        $this->getJson("/api/catalog/artists/{$artist->id}/tracks")
+            ->assertOk()
+            ->assertJsonPath('total', 2)
+            ->assertJsonPath('requiresConfirmation', false)
+            ->assertJsonPath('tracks.0.id', $firstTrack->id)
+            ->assertJsonPath('tracks.1.id', $secondTrack->id)
+            ->assertJsonPath('tracks.0.streamUrl', "/api/tracks/{$firstTrack->id}/stream");
+    }
+
     public function test_track_detail_returns_catalog_and_media_file_metadata(): void
     {
         [$artist, $album, $track, $genre] = $this->createCatalog();

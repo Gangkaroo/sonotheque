@@ -95,9 +95,11 @@ The implemented release baseline and active roadmap include:
   recommendations using versioned pretrained models, reusable background
   analysis, pgvector HNSW neighbour search, a persisted CPU/CUDA method
   selector, and optional transparent tempo/key/intensity refinement
-- Planned, independently disabled-by-default local collection assistant that answers
-  questions and prepares searches or queue previews through validated,
-  read-only Sonotheque tools
+- Independently disabled-by-default local collection assistant with a
+  root-aware conversational view, local history, linked catalog references,
+  safe Markdown rendering, and validated read-only Sonotheque tools for
+  collection totals, catalog search, listening history, rankings, and
+  unplayed albums
 - English and German translations
 - Localhost access by default and optional LAN access
 
@@ -478,9 +480,19 @@ existing album data and playback remain immediately available. Persist positive,
 negative, ambiguous, and failed outcomes so repeat visits do not repeat work.
 Expose how many albums have musician data, because filters over a partially
 enriched collection must not imply that unchecked albums have no matching
-musician. A disabled-by-default, root-scoped, pausable, resumable backfill may be
-added later and must skip albums whose current musician lookup version is
-already complete.
+musician. The optional, manually started backfill is root-scoped, pausable,
+resumable, progress-aware, and skips albums whose current musician lookup
+version is already complete.
+
+Centralize outcomes that require a user decision in a dedicated, root-scoped
+**Musician Review** page linked from the Musicians section and the backfill
+summary. It should paginate ambiguous matches and failed lookups separately,
+show the local album alongside compact MusicBrainz release candidates, and
+reuse the existing exact-release selection workflow. Users should also be able
+to retry transient failures, open the album's musician editor, or explicitly
+mark an item as reviewed without a suitable provider match. Persist review
+decisions independently from imported credits so backfills do not repeatedly
+surface dismissed cases; a newer lookup version may make them reviewable again.
 
 MusicBrainz musician retrieval requires a new cache/payload schema version.
 Previously cached album identity responses did not request recording-level
@@ -667,7 +679,7 @@ Completed:
   release year, playback activity, creation or update time, and track count
   where applicable
 - Runtime guide and manual Windows lifecycle scripts for Docker PostgreSQL,
-  Laravel, the supervised queue listener, Vite, health checks, logs, scanning,
+  Laravel, automatically restarted queue workers, Vite, health checks, logs, scanning,
   troubleshooting, and lightweight backup
 - Setup and distribution documentation for the non-developer packaged runtime with
   one app URL, Docker-mounted music folders, first-run setup, health checks,
@@ -735,14 +747,18 @@ Completed:
   CPU preparation, plus a cancellable CPU/CUDA benchmark that records verified
   throughput and a hardware-specific recommendation without changing analysis
   artifacts or run progress
+- Optional local Collection Assistant with explicit Ollama discovery and model
+  verification, root-scoped browser-local conversations, bounded context,
+  guarded catalog and listening-statistics tools, verified navigation
+  references, safe Markdown display, direct low-latency collection totals, and
+  configurable model residency and output limits. Track, album, artist, and
+  genre rankings support aggregate all-time statistics and timestamped periods.
 
 Open roadmap work:
 
 - Packaged Audio Intelligence delivery that provisions the optional analyzer
   images, reviewed model mount, and narrowly scoped Docker access without
   weakening the packaged backend boundary
-- Disabled-by-default, root-scoped musician-credit backfill in Connections,
-  with provider rate limits, pause/resume, coverage, progress, and ETA
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
@@ -750,7 +766,8 @@ Open roadmap work:
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
-- Local collection assistant over guarded Sonotheque tools
+- Collection Assistant similarity search over the existing pgvector index,
+  followed by previewed queue/playback actions with explicit confirmation
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
@@ -1232,13 +1249,25 @@ Last.fm integration.
   must be refetched once as albums are encountered. A completed current-version
   result must be reused. (Complete through a versioned per-album enrichment
   state that treats albums without a current musician lookup as pending.)
-- Consider a disabled-by-default musician-credit backfill after the lazy
-  workflow is stable. It must be rate-limited, root-scoped, pausable, resumable,
+- Add a manually started musician-credit backfill after the lazy workflow is
+  stable. It must be rate-limited, root-scoped, pausable, resumable,
   progress-aware, and skip current-version completed albums. Discogs credits
-  may later supplement an exact linked owned release, but providers must not be
-  merged by name alone. Place the backfill controls in **Settings >
-  Connections** beside the MusicBrainz and Discogs provider configuration,
-  with a root selector, coverage, progress, pause/resume, and an ETA. (Pending)
+  may supplement an exact linked release, but providers must not be merged by
+  name alone. Place the controls in **Settings > Connections** beside the
+  provider configuration, with a root selector, coverage, progress,
+  pause/resume, cancellation, and an ETA. (Complete: durable checkpointed runs
+  process one album per queue job, preserve provider ambiguity for review, and
+  report positive, negative, ambiguous, and failed outcomes.)
+- Add a dedicated, root-scoped **Musician Review** page for backfill outcomes
+  that need attention. Show local album context and candidate release details,
+  reuse exact MusicBrainz release selection, separate ambiguous matches from
+  retryable provider failures, and link to manual musician-credit curation.
+  Persist explicit dismissal/no-suitable-match decisions without modifying
+  imported credits, and revisit them only when requested or when the musician
+  lookup version changes. (Complete: ambiguous, failed, and reviewed tabs are
+  linked from the Musicians catalog and backfill summary; exact-release
+  selection, retry, manual curation, dismissal, and reopening reuse the current
+  root scope and preserve album back-navigation.)
 - Add a dedicated **Musicians** catalog section with a searchable, root-scoped
   list of normalized musicians, album/track credit counts, and honest coverage
   context for the partially enriched collection. Link musician names in album
@@ -1247,7 +1276,10 @@ Last.fm integration.
   A-Z navigation, persisted pagination/search state, effective credit counts,
   checked/credited album coverage, and direct musician-ID filters for album and
   track lists. Each musician has a root-scoped detail page with release-year-
-  ordered albums and album-detail return navigation.)
+  ordered albums and album-detail return navigation. The detail page summarizes
+  roles/instruments, credited-as names, provider provenance, and the local
+  release-year range, while each album card identifies its credit roles, scope,
+  source, and guest/additional context.)
 - Add a dashboard KPI for the number of distinct musicians currently present in
   effective credits. The KPI should link to the Musicians section and remain
   explicit that its value grows as lazy enrichment or the optional backfill
@@ -1427,22 +1459,36 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
 
 - Add an optional local-LLM adapter with Ollama as the first candidate and keep
   the provider interface replaceable. Keep it independently disabled by default
-  and never start or download a model implicitly. (Pending)
+  and never start or download a model implicitly. (Foundation complete:
+  persisted opt-in and model selection, environment-controlled endpoint,
+  explicit installed-model discovery, and a real tool-call capability check.
+  Guarded backend conversation execution and the initial user-facing view are
+  complete.)
 - Expose a small allowlist of structured Laravel tools for catalog searches,
   aggregates, listening history, similar tracks, and queue previews. Never expose
-  raw SQL, filesystem paths, provider secrets, or unrestricted APIs. (Pending)
+  raw SQL, filesystem paths, provider secrets, or unrestricted APIs. (Initial
+  collection-summary, bounded catalog search, listening totals, track/album/
+  artist/genre rankings, recent history, and unplayed-album tools are complete.
+  Unambiguous collection totals bypass the model while retaining the same
+  validated tool boundary. Similarity and queue previews remain pending.)
 - Validate tool schemas, result limits, library-root scope, timeouts, and the
-  maximum number of tool iterations server-side. (Pending)
+  maximum number of tool iterations server-side. (Complete for the initial
+  tool registry and Ollama conversation loop.)
 - Require linked catalog evidence for factual collection answers and distinguish
   database facts, model interpretations, and uncertain audio-analysis labels.
-  (Pending)
+  (Linked references from trusted catalog tools are complete; explicit labels
+  for interpretations and uncertain audio-analysis data remain pending.)
 - Add a dedicated Collection Assistant view with conversational history kept
   locally and explicit confirmation for any generated queue, playlist, or
-  playback action. (Pending)
+  playback action. (The root-aware view, bounded local history, safe Markdown
+  rendering, linked evidence, model warm-up, and concise synthesis path are
+  complete; generated mutations are not exposed yet and will require
+  confirmation when added.)
 - Support English and German questions while normalizing semantic audio prompts
   to the language expected by the configured embedding model. (Pending)
 - Add disabled/unavailable/model-error states that leave normal browsing and
-  playback fully functional. (Pending)
+  playback fully functional. (Complete for setup and the initial Assistant
+  view.)
 - Consider opt-in lightweight personalization only after explicit recommendation
   feedback and evaluation controls exist. Do not train a foundation model from
   the private collection. (Ready to implement: explicit feedback and baseline
@@ -1505,7 +1551,9 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
 - Add Settings > System health checks for database, queue worker, scheduler,
   storage, mounted roots, stale scans, and failed queue jobs. (Complete for
   database and queue state, scheduler heartbeat, storage, mounted roots, active
-  and failed scans, and failed queue jobs)
+  and failed scans, and failed queue jobs. Native local/LAN startup now also
+  supervises and automatically restarts exited queue workers while preserving
+  their prior logs; packaged queue services use Docker restart policies.)
 - Add manual backup and restore commands for PostgreSQL data and application
   storage. (Complete with checksummed development and packaged bundles,
   APP_KEY preservation, safety backups, and Settings status)
@@ -1522,9 +1570,23 @@ unfinished implementation milestones.
 The current Audio Intelligence milestone is also complete for the development
 runtime. Normal collection analysis no longer depends on the earlier validation
 stage; validation, bounded pool expansion, benchmarking, and structured review
-remain optional Advanced diagnostics. The next substantial product milestone is
-the disabled-by-default musician-credit backfill. Packaged delivery of the
-optional analyzer is the remaining distribution task for Audio Intelligence.
+remain optional Advanced diagnostics. The musician-credit backfill and its
+centralized, root-scoped ambiguous/failure review workflow are complete.
+Packaged delivery of the optional analyzer is the remaining distribution task
+for Audio Intelligence.
+
+The Collection Assistant foundation is complete. Ollama remains independently
+optional and disabled by default; installed models are discovered and verified
+explicitly, with `qwen3:4b` recommended as the responsive tool-capable starting
+point. Conversations are separated by library-root scope and retain bounded
+browser-local context. Guarded tools cover collection totals, catalog search,
+all-time and period listening statistics, recent history, unplayed albums, and
+track/album/artist/genre rankings. Common total-count questions avoid an LLM
+round trip, while arbitrary questions use a bounded tool-selection and concise
+result-synthesis flow. The next Assistant milestone is a read-only,
+root-scoped similarity tool backed by the existing pgvector service. Results
+must identify the reference track, analysis coverage, vector and refined
+scores, and uncertainty before any later queue or playback action is offered.
 
 The expanded similarity review produced predominantly useful matches and is
 accepted as the go decision for the unweighted embedding baseline. Sonotheque
@@ -1637,6 +1699,9 @@ follow playback and allow direct seeking while plain lyrics remain the fallback.
 Album details now reuse the cached MusicBrainz and Last.fm results in a tabbed,
 attributed panel. Artist names open a dedicated page with summary statistics,
 paginated album and track tabs, playback actions, and cached artist context.
+Artist-originated album and track navigation preserves the active tab and both
+page positions; track details also provide non-wrapping previous/next navigation
+across the artist's complete root-scoped track order.
 Optional artist portraits are resolved from MusicBrainz IDs through Wikidata,
 downloaded from Wikimedia Commons through a host-restricted Laravel proxy,
 attributed, validated, cached privately, and shown with a local fallback.
@@ -1660,9 +1725,11 @@ effective album and track credit counts, partial-collection coverage, and links
 to root-scoped musician detail pages with release-year-ordered credited albums.
 Album navigation preserves a direct return to the musician, while the catalog
 also offers musician-ID-filtered album and track lists. The dashboard includes
-the same effective musician count. The remaining musician milestone is the disabled-by-default,
-provider-related, root-scoped backfill under Settings > Connections rather than
-on ordinary album pages.
+the same effective musician count. Settings > Connections now provides an
+optional root-scoped musician backfill with honest coverage, durable
+checkpoints, five-second background progress updates, pause/resume/cancel
+controls, provider outcome counts, and an ETA. Current-version completed albums
+are never requested again.
 
 The player now includes an optional Web Audio API visualizer in the expanded
 footer. It is local-only, dependency-free, persisted in player preferences, and

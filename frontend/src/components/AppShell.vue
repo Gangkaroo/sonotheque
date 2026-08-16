@@ -57,6 +57,7 @@ const libraryRootOptions = computed(() => [
 const navigationGroups = computed(() => [
   [
     { title: t('navigation.dashboard'), icon: 'mdi-view-dashboard-outline', to: '/' },
+    { title: t('navigation.assistant'), icon: 'mdi-message-processing-outline', to: '/assistant' },
   ],
   [
     { title: t('navigation.albums'), icon: 'mdi-album', to: '/albums' },

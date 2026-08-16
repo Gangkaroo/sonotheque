@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'runtime-common.ps1')
 $startedServices = [System.Collections.Generic.List[string]]::new()
+$runtimeStateUpdated = $false
 
 try {
     Initialize-RuntimeDirectory
@@ -42,18 +43,11 @@ try {
         throw 'Ports 8000 or 5173 are already in use by a runtime with an unknown mode. Stop it before starting LAN mode.'
     }
 
-    $backendEnvironment = @{
-        SONOTHEQUE_LAN_ENABLED = if ($Lan) { 'true' } else { 'false' }
-        SONOTHEQUE_TRUSTED_HOSTS = 'localhost,127.0.0.1,::1'
-    }
+    $backendEnvironment = Get-BackendRuntimeEnvironment -Mode $mode -FrontendHost $frontendHost
     $frontendEnvironment = @{}
-    $adminToken = $null
+    $adminToken = if ($Lan) { $backendEnvironment.SONOTHEQUE_ADMIN_TOKEN } else { $null }
 
     if ($Lan) {
-        $adminToken = Get-LanAdminToken
-        $trustedHosts = Get-LanTrustedHosts -LanAddress $frontendHost
-        $backendEnvironment.SONOTHEQUE_ADMIN_TOKEN = $adminToken
-        $backendEnvironment.SONOTHEQUE_TRUSTED_HOSTS = $trustedHosts -join ','
         $frontendEnvironment.SONOTHEQUE_VITE_ALLOWED_HOSTS = [System.Net.Dns]::GetHostName()
 
         Write-Host "Preparing explicit LAN mode on $frontendHost..."
@@ -97,11 +91,7 @@ try {
         Write-Host "Laravel API is already available on port 8000 (external PID $apiOwner)."
     }
 
-    foreach ($queueWorker in @(
-        @{ Name = 'queue-default'; Queue = 'default'; Label = 'interactive' }
-        @{ Name = 'queue-scans'; Queue = 'scans'; Label = 'library scan' }
-        @{ Name = 'queue-analysis'; Queue = 'analysis'; Label = 'audio analysis' }
-    )) {
+    foreach ($queueWorker in (Get-QueueWorkerDefinitions)) {
         $managedQueueWorker = Get-ManagedProcess -Name $queueWorker.Name
         $externalQueueWorker = if ($null -eq $managedQueueWorker) {
             Find-ExternalQueueWorker -Queue $queueWorker.Queue
@@ -111,19 +101,15 @@ try {
         }
 
         if ($null -eq $managedQueueWorker -and $null -eq $externalQueueWorker) {
-            Write-Host "Starting $($queueWorker.Label) queue worker..."
-            Start-ManagedProcess `
-                -Name $queueWorker.Name `
-                -FilePath $php `
-                -ArgumentList @('artisan', 'queue:work', "--queue=$($queueWorker.Queue)", '--tries=1', '--timeout=0', '--memory=512', '--sleep=1') `
-                -WorkingDirectory $script:BackendDirectory `
-                -StandardOutputPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).out.log") `
-                -StandardErrorPath (Join-Path $script:RuntimeLogDirectory "$($queueWorker.Name).err.log") `
+            Write-Host "Starting $($queueWorker.Label.ToLowerInvariant())..."
+            Start-QueueWorker `
+                -Definition $queueWorker `
+                -PhpPath $php `
                 -EnvironmentVariables $backendEnvironment | Out-Null
             $startedServices.Add($queueWorker.Name)
         }
         else {
-            Write-Host "$($queueWorker.Label) queue worker is already running."
+            Write-Host "$($queueWorker.Label) is already running."
         }
     }
 
@@ -182,6 +168,28 @@ try {
     }
 
     Set-RuntimeModeState -Mode $mode -FrontendHost $frontendHost
+    $runtimeStateUpdated = $true
+
+    if ($null -eq (Get-ManagedProcess -Name 'worker-supervisor')) {
+        Write-Host 'Starting queue worker supervisor...'
+        $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+        $supervisorScript = Join-Path $PSScriptRoot 'supervise-workers.ps1'
+        Start-ManagedProcess `
+            -Name 'worker-supervisor' `
+            -FilePath $powershell `
+            -ArgumentList @(
+                '-NoProfile',
+                '-NonInteractive',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                "`"$supervisorScript`""
+            ) `
+            -WorkingDirectory $script:RepositoryRoot `
+            -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'worker-supervisor.out.log') `
+            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'worker-supervisor.err.log') | Out-Null
+        $startedServices.Add('worker-supervisor')
+    }
 
     Write-Host ''
     Get-RuntimeStatus | Format-Table -AutoSize
@@ -195,20 +203,29 @@ try {
     }
 }
 catch {
-    if ($Lan) {
-        foreach ($service in @(
-            'frontend',
-            'scheduler',
-            'queue-analysis',
-            'queue-scans',
-            'queue-default',
-            'api'
-        )) {
-            if ($startedServices.Contains($service)) {
-                Stop-ManagedProcess -Name $service | Out-Null
-            }
+    foreach ($service in @(
+        'worker-supervisor',
+        'frontend',
+        'scheduler',
+        'queue-analysis',
+        'queue-scans',
+        'queue-default',
+        'api'
+    )) {
+        if ($startedServices.Contains($service)) {
+            Stop-ManagedProcess -Name $service | Out-Null
         }
-        Remove-RuntimeModeState
+    }
+
+    if ($runtimeStateUpdated) {
+        if ($null -ne $existingMode) {
+            Set-RuntimeModeState `
+                -Mode ([string]$existingMode.mode) `
+                -FrontendHost ([string]$existingMode.frontendHost)
+        }
+        else {
+            Remove-RuntimeModeState
+        }
     }
 
     Write-Error $_

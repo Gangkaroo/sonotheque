@@ -12,6 +12,8 @@ use App\Http\Controllers\AudioIntelligenceSettingsController;
 use App\Http\Controllers\AudioSimilarityEvaluationController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
+use App\Http\Controllers\CollectionAssistantSettingsController;
+use App\Http\Controllers\CollectionAssistantController;
 use App\Http\Controllers\CustomPlaylistExportController;
 use App\Http\Controllers\DashboardMetricsController;
 use App\Http\Controllers\DiscogsSettingsController;
@@ -24,6 +26,8 @@ use App\Http\Controllers\LibraryActivityLogController;
 use App\Http\Controllers\LibraryFolderController;
 use App\Http\Controllers\MetadataBackupSettingsController;
 use App\Http\Controllers\MusicianCatalogController;
+use App\Http\Controllers\MusicianCreditBackfillController;
+use App\Http\Controllers\MusicianReviewController;
 use App\Http\Controllers\OnlineEnrichmentSettingsController;
 use App\Http\Controllers\OnlineEnrichmentController;
 use App\Http\Controllers\OwnedAlbumCopyController;
@@ -42,9 +46,15 @@ use App\Http\Controllers\TrashController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/catalog/artists', [CatalogBrowseController::class, 'artists']);
+Route::get('/catalog/artists/{artist}/tracks', [CatalogBrowseController::class, 'artistTracks']);
+Route::get('/catalog/artists/{artist}/tracks/{track}/navigation', [CatalogBrowseController::class, 'artistTrackNavigation']);
 Route::get('/catalog/artists/{artist}', [CatalogBrowseController::class, 'artist']);
 Route::get('/catalog/musicians', [MusicianCatalogController::class, 'index']);
 Route::get('/catalog/musicians/{musician}', [MusicianCatalogController::class, 'show']);
+Route::get('/musician-reviews', [MusicianReviewController::class, 'index']);
+Route::post('/musician-reviews/{album}/retry', [MusicianReviewController::class, 'retry']);
+Route::put('/musician-reviews/{album}/decision', [MusicianReviewController::class, 'decide']);
+Route::delete('/musician-reviews/{album}/decision', [MusicianReviewController::class, 'reopen']);
 Route::get('/catalog/albums', [CatalogBrowseController::class, 'albums']);
 Route::get('/catalog/playback/albums/random', [CatalogBrowseController::class, 'randomAlbum']);
 Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::class, 'nextAlbum']);
@@ -98,6 +108,11 @@ Route::get('/statistics/most-played-albums', [PlaybackStatisticsController::clas
 Route::get('/statistics/tracks/{track}/recent-plays', [PlaybackStatisticsController::class, 'trackRecentPlays']);
 Route::get('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'show']);
 Route::get('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'show']);
+Route::get('/settings/collection-assistant', [CollectionAssistantSettingsController::class, 'show']);
+Route::patch('/settings/collection-assistant', [CollectionAssistantSettingsController::class, 'update']);
+Route::post('/settings/collection-assistant/models', [CollectionAssistantSettingsController::class, 'models']);
+Route::post('/settings/collection-assistant/test', [CollectionAssistantSettingsController::class, 'test']);
+Route::post('/assistant/query', CollectionAssistantController::class);
 Route::patch('/settings/audio-intelligence', [AudioIntelligenceSettingsController::class, 'update']);
 Route::post(
     '/settings/audio-intelligence/validation-runs',
@@ -190,6 +205,11 @@ Route::get('/settings/online-enrichment', [OnlineEnrichmentSettingsController::c
 Route::patch('/settings/online-enrichment', [OnlineEnrichmentSettingsController::class, 'update']);
 Route::delete('/settings/online-enrichment/cache', [OnlineEnrichmentSettingsController::class, 'clearCache']);
 Route::post('/settings/online-enrichment/providers/{provider}/test', [OnlineEnrichmentSettingsController::class, 'testProvider']);
+Route::get('/settings/online-enrichment/musician-backfill', [MusicianCreditBackfillController::class, 'show']);
+Route::post('/settings/online-enrichment/musician-backfill', [MusicianCreditBackfillController::class, 'store']);
+Route::post('/settings/online-enrichment/musician-backfill/{musicianCreditBackfillRun}/pause', [MusicianCreditBackfillController::class, 'pause']);
+Route::post('/settings/online-enrichment/musician-backfill/{musicianCreditBackfillRun}/resume', [MusicianCreditBackfillController::class, 'resume']);
+Route::delete('/settings/online-enrichment/musician-backfill/{musicianCreditBackfillRun}', [MusicianCreditBackfillController::class, 'destroy']);
 Route::get('/settings/system-health', SystemHealthController::class);
 Route::get('/library-activity', LibraryActivityLogController::class);
 Route::get('/scan_runs/{scanRun}/issues', ScanRunIssuesController::class);

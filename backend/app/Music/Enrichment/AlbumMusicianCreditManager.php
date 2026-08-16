@@ -9,6 +9,7 @@ use App\Models\AlbumDiscogsMusicianSource;
 use App\Models\AlbumMusicianCredit;
 use App\Models\AlbumMusicianEnrichment;
 use App\Models\AlbumMusicianCreditSuppression;
+use App\Models\AlbumMusicianReview;
 use App\Models\ApplicationSetting;
 use App\Models\ManualAlbumMusicianCredit;
 use App\Models\Musician;
@@ -47,7 +48,7 @@ class AlbumMusicianCreditManager
         }
 
         $enrichment = AlbumMusicianEnrichment::query()->find($album->id);
-        if ($this->needsRefresh($enrichment)) {
+        if ($this->needsRefresh($enrichment) && ! $this->hasCurrentReview($album)) {
             $enrichment = $this->queueRefresh($album, $enrichment);
         } elseif (
             $enrichment?->status === OnlineContentStatus::Pending
@@ -265,19 +266,22 @@ class AlbumMusicianCreditManager
             ]);
         }
 
-        $enrichment->update([
-            'provider' => self::PROVIDER,
-            'lookup_version' => self::LOOKUP_VERSION,
-            'status' => OnlineContentStatus::Pending,
-            'selected_release_id' => $releaseId,
-            'provider_release_id' => null,
-            'source_url' => null,
-            'fetched_at' => null,
-            'expires_at' => null,
-            'retry_after' => null,
-            'failure_count' => 0,
-            'last_error_code' => null,
-        ]);
+        DB::transaction(function () use ($album, $enrichment, $releaseId): void {
+            $this->clearCurrentReview($album);
+            $enrichment->update([
+                'provider' => self::PROVIDER,
+                'lookup_version' => self::LOOKUP_VERSION,
+                'status' => OnlineContentStatus::Pending,
+                'selected_release_id' => $releaseId,
+                'provider_release_id' => null,
+                'source_url' => null,
+                'fetched_at' => null,
+                'expires_at' => null,
+                'retry_after' => null,
+                'failure_count' => 0,
+                'last_error_code' => null,
+            ]);
+        });
         RefreshAlbumMusicianCredits::dispatch($album->id, self::LOOKUP_VERSION);
 
         return $this->state(
@@ -286,11 +290,45 @@ class AlbumMusicianCreditManager
         );
     }
 
-    public function refresh(int $albumId): void
+    /** @return array<string, mixed> */
+    public function retry(Album $album): array
+    {
+        if (! ApplicationSetting::current()->online_information_enabled) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException(
+                'Enable online information before retrying musician credits.',
+            );
+        }
+
+        $enrichment = DB::transaction(function () use ($album): AlbumMusicianEnrichment {
+            $this->clearCurrentReview($album);
+
+            return AlbumMusicianEnrichment::query()->updateOrCreate(
+                ['album_id' => $album->id],
+                [
+                    'provider' => self::PROVIDER,
+                    'lookup_version' => self::LOOKUP_VERSION,
+                    'status' => OnlineContentStatus::Pending,
+                    'fetched_at' => null,
+                    'expires_at' => null,
+                    'retry_after' => null,
+                    'failure_count' => 0,
+                    'last_error_code' => null,
+                ],
+            );
+        });
+        RefreshAlbumMusicianCredits::dispatch($album->id, self::LOOKUP_VERSION);
+
+        return $this->state(
+            OnlineContentStatus::Pending->value,
+            $this->resolutionPayload($enrichment),
+        );
+    }
+
+    public function refresh(int $albumId): ?OnlineContentStatus
     {
         $album = Album::query()->find($albumId);
         if ($album === null || ! ApplicationSetting::current()->online_information_enabled) {
-            return;
+            return null;
         }
 
         $enrichment = AlbumMusicianEnrichment::query()->updateOrCreate(
@@ -307,16 +345,24 @@ class AlbumMusicianCreditManager
             if ($result === null) {
                 $this->completeWithoutCredits($album, $enrichment, OnlineContentStatus::NotFound);
 
-                return;
+                return OnlineContentStatus::NotFound;
             }
 
             $this->store($album, $enrichment, $result);
+
+            return OnlineContentStatus::Ready;
         } catch (AmbiguousMusicBrainzReleaseException $exception) {
             $this->completeAmbiguous($album, $enrichment, $exception->candidates);
+
+            return OnlineContentStatus::Ambiguous;
         } catch (AmbiguousEnrichmentMatchException) {
             $this->completeAmbiguous($album, $enrichment, []);
+
+            return OnlineContentStatus::Ambiguous;
         } catch (EnrichmentProviderException $exception) {
             $this->markFailure($enrichment, $exception->errorCode, $exception->retryAfterSeconds);
+
+            return OnlineContentStatus::Error;
         } catch (Throwable $exception) {
             $this->markFailure($enrichment, 'provider_error');
 
@@ -422,6 +468,7 @@ class AlbumMusicianCreditManager
                 'failure_count' => 0,
                 'last_error_code' => null,
             ]);
+            $this->clearCurrentReview($album);
         });
 
         $this->discogs->syncMusicBrainzSourceIfUnselected(
@@ -455,6 +502,7 @@ class AlbumMusicianCreditManager
                 'failure_count' => 0,
                 'last_error_code' => null,
             ]);
+            $this->clearCurrentReview($album);
         });
     }
 
@@ -511,6 +559,22 @@ class AlbumMusicianCreditManager
             'failure_count' => $failureCount,
             'last_error_code' => $errorCode,
         ]);
+    }
+
+    private function hasCurrentReview(Album $album): bool
+    {
+        return AlbumMusicianReview::query()
+            ->where('album_id', $album->id)
+            ->where('lookup_version', self::LOOKUP_VERSION)
+            ->exists();
+    }
+
+    private function clearCurrentReview(Album $album): void
+    {
+        AlbumMusicianReview::query()
+            ->where('album_id', $album->id)
+            ->where('lookup_version', self::LOOKUP_VERSION)
+            ->delete();
     }
 
     /** @return array<string, mixed> */

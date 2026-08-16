@@ -236,6 +236,8 @@ describe('player store', () => {
       libraryRootId: 7,
       libraryRootName: 'Archive',
       search: 'Alpha Track',
+      artistId: 101,
+      artistName: 'Alpha Artist',
       genreId: 12,
       genreName: 'Rock',
       musicianId: null,
@@ -252,12 +254,12 @@ describe('player store', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      '/api/catalog/playback/tracks/random?libraryRoot=7&search=Alpha+Track&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
+      '/api/catalog/playback/tracks/random?libraryRoot=7&search=Alpha+Track&artist=101&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
       expect.any(Object),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/catalog/playback/tracks/random?exclude=1&libraryRoot=7&search=Alpha+Track&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
+      '/api/catalog/playback/tracks/random?exclude=1&libraryRoot=7&search=Alpha+Track&artist=101&genre=12&physicalCopy=owned&playStatus=never&sort=year_desc',
       expect.any(Object),
     )
     expect(player.currentTrack?.title).toBe('Scoped random track')

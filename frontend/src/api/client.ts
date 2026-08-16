@@ -5,6 +5,7 @@ export class ApiError extends Error {
     message: string,
     public readonly violations: Record<string, string[]> = {},
     public readonly status = 0,
+    public readonly errorCode: string | null = null,
   ) {
     super(message)
   }
@@ -34,6 +35,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       payload.detail ?? payload.message ?? 'The request could not be completed.',
       violations,
       response.status,
+      typeof payload.errorCode === 'string' ? payload.errorCode : null,
     )
   }
 

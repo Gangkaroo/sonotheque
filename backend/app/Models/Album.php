@@ -154,6 +154,12 @@ class Album extends Model
         return $this->hasOne(AlbumMusicianEnrichment::class);
     }
 
+    /** @return HasMany<AlbumMusicianReview, $this> */
+    public function musicianReviews(): HasMany
+    {
+        return $this->hasMany(AlbumMusicianReview::class);
+    }
+
     /** @return HasMany<AlbumMusicianCredit, $this> */
     public function musicianCredits(): HasMany
     {

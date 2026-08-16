@@ -25,6 +25,40 @@ export interface ProviderTestResult {
 
 export type OnlineEnrichmentProvider = 'lastfm' | 'lrclib' | 'musicbrainz'
 
+export interface MusicianBackfillCoverage {
+  checkedAlbums: number
+  creditedAlbums: number
+  totalAlbums: number
+  percentage: number
+}
+
+export interface MusicianBackfillRun {
+  id: number
+  status: 'queued' | 'running' | 'paused' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  lookupVersion: number
+  libraryRoot: { id: number, name: string } | null
+  totalAlbumCount: number
+  processedAlbumCount: number
+  readyAlbumCount: number
+  notFoundAlbumCount: number
+  ambiguousAlbumCount: number
+  failedAlbumCount: number
+  estimatedRemainingMilliseconds: number | null
+  lastError: string | null
+  retryAfter: string | null
+  resumable: boolean
+  pauseRequested: boolean
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string | null
+}
+
+export interface MusicianBackfillState {
+  coverage: MusicianBackfillCoverage
+  run: MusicianBackfillRun | null
+  activeRun: MusicianBackfillRun | null
+}
+
 const defaults: OnlineEnrichmentSettings = {
   informationEnabled: false,
   lyricsEnabled: false,
@@ -38,7 +72,11 @@ export const useOnlineEnrichmentSettingsStore = defineStore('onlineEnrichmentSet
   const clearingCache = ref(false)
   const testingProvider = ref<OnlineEnrichmentProvider | null>(null)
   const providerTests = ref<Partial<Record<OnlineEnrichmentProvider, ProviderTestResult>>>({})
+  const musicianBackfill = ref<MusicianBackfillState | null>(null)
+  const loadingMusicianBackfill = ref(false)
+  const musicianBackfillOperation = ref<'start' | 'pause' | 'resume' | 'cancel' | null>(null)
   const error = ref<string | null>(null)
+  let musicianBackfillRequestId = 0
 
   async function load() {
     loading.value = true
@@ -104,6 +142,66 @@ export const useOnlineEnrichmentSettingsStore = defineStore('onlineEnrichmentSet
     }
   }
 
+  async function loadMusicianBackfill(libraryRootId: number | null, { silent = false } = {}) {
+    const requestId = ++musicianBackfillRequestId
+    if (!silent) loadingMusicianBackfill.value = true
+    try {
+      const result = await apiRequest<MusicianBackfillState>(backfillPath(libraryRootId))
+      if (requestId === musicianBackfillRequestId) musicianBackfill.value = result
+      return result
+    } catch (cause) {
+      if (requestId === musicianBackfillRequestId) error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      if (requestId === musicianBackfillRequestId) loadingMusicianBackfill.value = false
+    }
+  }
+
+  async function startMusicianBackfill(libraryRootId: number | null) {
+    return runBackfillOperation('start', backfillPath(libraryRootId), 'POST')
+  }
+
+  async function pauseMusicianBackfill(runId: number) {
+    return runBackfillOperation(
+      'pause',
+      `/settings/online-enrichment/musician-backfill/${runId}/pause`,
+      'POST',
+    )
+  }
+
+  async function resumeMusicianBackfill(runId: number) {
+    return runBackfillOperation(
+      'resume',
+      `/settings/online-enrichment/musician-backfill/${runId}/resume`,
+      'POST',
+    )
+  }
+
+  async function cancelMusicianBackfill(runId: number) {
+    return runBackfillOperation(
+      'cancel',
+      `/settings/online-enrichment/musician-backfill/${runId}`,
+      'DELETE',
+    )
+  }
+
+  async function runBackfillOperation(
+    operation: 'start' | 'pause' | 'resume' | 'cancel',
+    path: string,
+    method: 'POST' | 'DELETE',
+  ) {
+    musicianBackfillOperation.value = operation
+    error.value = null
+    try {
+      return await apiRequest<MusicianBackfillState>(path, { method })
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      musicianBackfillOperation.value = null
+    }
+  }
+
   return {
     settings,
     loading,
@@ -111,13 +209,26 @@ export const useOnlineEnrichmentSettingsStore = defineStore('onlineEnrichmentSet
     clearingCache,
     testingProvider,
     providerTests,
+    musicianBackfill,
+    loadingMusicianBackfill,
+    musicianBackfillOperation,
     error,
     load,
     save,
     clearCache,
     testProvider,
+    loadMusicianBackfill,
+    startMusicianBackfill,
+    pauseMusicianBackfill,
+    resumeMusicianBackfill,
+    cancelMusicianBackfill,
   }
 })
+
+function backfillPath(libraryRootId: number | null) {
+  const path = '/settings/online-enrichment/musician-backfill'
+  return libraryRootId === null ? path : `${path}?libraryRoot=${libraryRootId}`
+}
 
 function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : 'Online content settings could not be saved.'

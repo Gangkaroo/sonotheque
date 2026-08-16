@@ -214,6 +214,27 @@ function Remove-StaleProcessState {
     }
 }
 
+function Move-ExistingRuntimeLog {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $log = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $log -or $log.Length -eq 0) {
+        return
+    }
+
+    $directory = Split-Path -Parent $Path
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $extension = [System.IO.Path]::GetExtension($Path)
+    $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ')
+    $destination = Join-Path $directory "$baseName.$timestamp$extension"
+
+    Move-Item -LiteralPath $Path -Destination $destination -Force
+}
+
 function Start-ManagedProcess {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -231,6 +252,8 @@ function Start-ManagedProcess {
     }
 
     Remove-StaleProcessState -Name $Name
+    Move-ExistingRuntimeLog -Path $StandardOutputPath
+    Move-ExistingRuntimeLog -Path $StandardErrorPath
     $previousEnvironment = @{}
     try {
         foreach ($environmentName in $EnvironmentVariables.Keys) {
@@ -546,6 +569,72 @@ function Find-ExternalScheduler {
         Select-Object -First 1
 }
 
+function Get-QueueWorkerDefinitions {
+    return @(
+        [pscustomobject]@{
+            Name = 'queue-default'
+            Queue = 'default'
+            Label = 'Interactive queue'
+        }
+        [pscustomobject]@{
+            Name = 'queue-scans'
+            Queue = 'scans'
+            Label = 'Library scan queue'
+        }
+        [pscustomobject]@{
+            Name = 'queue-analysis'
+            Queue = 'analysis'
+            Label = 'Audio analysis queue'
+        }
+    )
+}
+
+function Get-BackendRuntimeEnvironment {
+    param(
+        [Parameter(Mandatory)][ValidateSet('local', 'lan')][string]$Mode,
+        [Parameter(Mandatory)][string]$FrontendHost
+    )
+
+    $environment = @{
+        SONOTHEQUE_LAN_ENABLED = if ($Mode -eq 'lan') { 'true' } else { 'false' }
+        SONOTHEQUE_TRUSTED_HOSTS = 'localhost,127.0.0.1,::1'
+    }
+
+    if ($Mode -eq 'lan') {
+        $environment.SONOTHEQUE_ADMIN_TOKEN = Get-LanAdminToken
+        $environment.SONOTHEQUE_TRUSTED_HOSTS = (
+            Get-LanTrustedHosts -LanAddress $FrontendHost
+        ) -join ','
+    }
+
+    return $environment
+}
+
+function Start-QueueWorker {
+    param(
+        [Parameter(Mandatory)][object]$Definition,
+        [Parameter(Mandatory)][string]$PhpPath,
+        [Parameter(Mandatory)][hashtable]$EnvironmentVariables
+    )
+
+    return Start-ManagedProcess `
+        -Name $Definition.Name `
+        -FilePath $PhpPath `
+        -ArgumentList @(
+            'artisan',
+            'queue:work',
+            "--queue=$($Definition.Queue)",
+            '--tries=1',
+            '--timeout=0',
+            '--memory=512',
+            '--sleep=1'
+        ) `
+        -WorkingDirectory $script:BackendDirectory `
+        -StandardOutputPath (Join-Path $script:RuntimeLogDirectory "$($Definition.Name).out.log") `
+        -StandardErrorPath (Join-Path $script:RuntimeLogDirectory "$($Definition.Name).err.log") `
+        -EnvironmentVariables $EnvironmentVariables
+}
+
 function Get-RuntimeStatus {
     $runtimeMode = Get-RuntimeModeState
     $frontendHost = if ($null -ne $runtimeMode -and $runtimeMode.mode -eq 'lan') {
@@ -559,11 +648,7 @@ function Get-RuntimeStatus {
     $apiProcess = Get-ManagedProcess -Name 'api'
     $apiOwner = Get-PortOwner -Port 8000
     $apiHealthy = Test-HttpEndpoint -Uri 'http://127.0.0.1:8000/up'
-    $queueStatuses = foreach ($queue in @(
-        @{ Name = 'queue-default'; Queue = 'default'; Label = 'Interactive queue' }
-        @{ Name = 'queue-scans'; Queue = 'scans'; Label = 'Library scan queue' }
-        @{ Name = 'queue-analysis'; Queue = 'analysis'; Label = 'Audio analysis queue' }
-    )) {
+    $queueStatuses = foreach ($queue in (Get-QueueWorkerDefinitions)) {
         $queueProcess = Get-ManagedProcess -Name $queue.Name
         $externalQueue = if ($null -eq $queueProcess) {
             Find-ExternalQueueWorker -Queue $queue.Queue
@@ -583,6 +668,7 @@ function Get-RuntimeStatus {
     $frontendProcess = Get-ManagedProcess -Name 'frontend'
     $frontendOwner = Get-PortOwner -Port 5173
     $frontendHealthy = Test-HttpEndpoint -Uri $frontendUri
+    $supervisorProcess = Get-ManagedProcess -Name 'worker-supervisor'
 
     return @(
         [pscustomobject]@{
@@ -596,6 +682,27 @@ function Get-RuntimeStatus {
             Details = if ($null -ne $apiProcess) { "managed PID $($apiProcess.Id)" } elseif ($null -ne $apiOwner) { "external PID $apiOwner" } else { '-' }
         },
         $queueStatuses
+        [pscustomobject]@{
+            Service = 'Worker supervisor'
+            Status = if ($null -ne $supervisorProcess) {
+                'Running'
+            }
+            elseif ($null -eq $runtimeMode) {
+                'Not managed'
+            }
+            else {
+                'Stopped'
+            }
+            Details = if ($null -ne $supervisorProcess) {
+                "managed PID $($supervisorProcess.Id)"
+            }
+            elseif ($null -eq $runtimeMode) {
+                'start.ps1 was not used'
+            }
+            else {
+                '-'
+            }
+        },
         [pscustomobject]@{
             Service = 'Scheduler'
             Status = if ($null -ne $schedulerProcess -or $null -ne $externalScheduler) { 'Running' } else { 'Stopped' }

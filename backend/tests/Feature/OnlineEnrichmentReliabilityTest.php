@@ -93,6 +93,49 @@ class OnlineEnrichmentReliabilityTest extends TestCase
         }
     }
 
+    public function test_provider_request_gate_shares_remote_cooldowns(): void
+    {
+        $provider = 'musicbrainz';
+        $cooldownKey = "online-enrichment:provider:{$provider}:cooldown-until";
+        Cache::forget($cooldownKey);
+        RateLimiter::clear("online-enrichment:provider:{$provider}");
+        config([
+            'sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0,
+            'sonotheque.enrichment.providers.musicbrainz.cooldown_seconds' => 60,
+        ]);
+        $gate = app(ProviderRequestGate::class);
+        $requests = 0;
+
+        try {
+            $gate->run($provider, function () use (&$requests): never {
+                $requests++;
+
+                throw new EnrichmentProviderException(
+                    'MusicBrainz is busy.',
+                    errorCode: 'rate_limited',
+                    retryAfterSeconds: 30,
+                );
+            });
+            $this->fail('The provider response should have started a cooldown.');
+        } catch (EnrichmentProviderException $exception) {
+            $this->assertSame(30, $exception->retryAfterSeconds);
+        }
+
+        try {
+            $gate->run($provider, function () use (&$requests): string {
+                $requests++;
+
+                return 'unexpected';
+            });
+            $this->fail('The shared cooldown should prevent another provider request.');
+        } catch (EnrichmentProviderException $exception) {
+            $this->assertSame('rate_limited', $exception->errorCode);
+            $this->assertGreaterThan(0, $exception->retryAfterSeconds);
+        }
+
+        $this->assertSame(1, $requests);
+    }
+
     public function test_failed_background_refresh_keeps_stale_content_and_records_backoff(): void
     {
         RateLimiter::clear('online-enrichment:provider:lrclib');

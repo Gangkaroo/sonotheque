@@ -73,6 +73,17 @@ return [
         'resume_stale_minutes' => (int) env('AUDIO_INTELLIGENCE_RESUME_STALE_MINUTES', 10),
     ],
 
+    'collection_assistant' => [
+        'provider' => 'ollama',
+        'ollama_url' => env('COLLECTION_ASSISTANT_OLLAMA_URL', 'http://127.0.0.1:11434'),
+        'timeout_seconds' => (int) env('COLLECTION_ASSISTANT_TIMEOUT_SECONDS', 10),
+        'test_timeout_seconds' => (int) env('COLLECTION_ASSISTANT_TEST_TIMEOUT_SECONDS', 120),
+        'keep_alive' => env('COLLECTION_ASSISTANT_KEEP_ALIVE', '15m'),
+        'context_window' => (int) env('COLLECTION_ASSISTANT_CONTEXT_WINDOW', 4096),
+        'max_answer_tokens' => (int) env('COLLECTION_ASSISTANT_MAX_ANSWER_TOKENS', 256),
+        'recommended_model' => env('COLLECTION_ASSISTANT_RECOMMENDED_MODEL', 'qwen3:4b'),
+    ],
+
     'system_health' => [
         'backup_status_path' => storage_path('app/system-backups/latest.json'),
         'scheduler_heartbeat_key' => 'sonotheque:system-health:scheduler-heartbeat',
@@ -123,8 +134,9 @@ return [
                 'max_requests_per_minute' => (int) env('LRCLIB_REQUESTS_PER_MINUTE', 60),
             ],
             'musicbrainz' => [
-                'max_requests_per_minute' => (int) env('MUSICBRAINZ_REQUESTS_PER_MINUTE', 55),
-                'minimum_interval_ms' => (int) env('MUSICBRAINZ_MINIMUM_INTERVAL_MS', 1100),
+                'max_requests_per_minute' => (int) env('MUSICBRAINZ_REQUESTS_PER_MINUTE', 40),
+                'minimum_interval_ms' => (int) env('MUSICBRAINZ_MINIMUM_INTERVAL_MS', 1500),
+                'cooldown_seconds' => (int) env('MUSICBRAINZ_COOLDOWN_SECONDS', 60),
             ],
             'wikimedia' => [
                 'max_requests_per_minute' => (int) env('WIKIMEDIA_REQUESTS_PER_MINUTE', 30),
@@ -190,6 +202,7 @@ return [
             'api/albums/*/owned-copies*',
             'api/albums/*/musician-credits*',
             'api/metadata-edits*',
+            'api/musician-reviews*',
             'api/enrichment/albums/*/musicians/release',
         ],
     ],

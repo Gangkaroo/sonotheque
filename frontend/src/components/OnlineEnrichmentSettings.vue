@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import MusicianBackfillSettings from '@/components/MusicianBackfillSettings.vue'
 import { useOnlineEnrichmentSettingsStore } from '@/stores/onlineEnrichmentSettings'
 import type { OnlineEnrichmentProvider } from '@/stores/onlineEnrichmentSettings'
 
@@ -90,6 +91,10 @@ function providerResultColor(provider: OnlineEnrichmentProvider) {
           persistent-hint
           @update:model-value="setLyricsEnabled"
         />
+
+        <v-divider class="my-6" />
+
+        <MusicianBackfillSettings />
 
         <v-divider class="my-6" />
 

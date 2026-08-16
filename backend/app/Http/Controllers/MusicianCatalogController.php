@@ -58,7 +58,11 @@ class MusicianCatalogController extends Controller
         $libraryRootId = $this->libraryRootScope->id($request);
         $musician = $this->musicians->query($libraryRootId)->findOrFail($musician->id);
 
-        return response()->json($this->payload($musician));
+        return response()->json([
+            ...$this->payload($musician),
+            ...$this->musicians->profile($musician, $libraryRootId),
+            'identity' => $this->identityPayload($musician),
+        ]);
     }
 
     /** @return array<string, mixed> */
@@ -77,5 +81,27 @@ class MusicianCatalogController extends Controller
     private function escapeLike(string $value): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($value));
+    }
+
+    /** @return array{provider: string, reference: string, sourceUrl: string|null}|null */
+    private function identityPayload(Musician $musician): ?array
+    {
+        if ($musician->provider === null || $musician->provider_reference === null) {
+            return null;
+        }
+
+        $sourceUrl = match ($musician->provider) {
+            'musicbrainz' => rtrim((string) config('sonotheque.enrichment.musicbrainz.web_url'), '/')
+                .'/artist/'.rawurlencode($musician->provider_reference),
+            'discogs' => rtrim((string) config('sonotheque.discogs.web_url'), '/')
+                .'/artist/'.rawurlencode($musician->provider_reference),
+            default => null,
+        };
+
+        return [
+            'provider' => $musician->provider,
+            'reference' => $musician->provider_reference,
+            'sourceUrl' => $sourceUrl,
+        ];
     }
 }

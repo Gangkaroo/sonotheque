@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
@@ -10,20 +10,35 @@ import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
-import { usePlayerStore } from '@/stores/player'
+import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
+import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { usePlayerStore, type TrackPlaybackScope } from '@/stores/player'
 import { formatDateTime, formatDuration as duration } from '@/utils/formatters'
+
+type ArtistPlaybackAction = 'play' | 'queue'
+
+const LARGE_ARTIST_ACTION_TRACK_COUNT = 500
 
 const { locale, t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
+const libraryRootScope = useLibraryRootScopeStore()
+const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
-const activeTab = ref<'albums' | 'tracks'>('albums')
-const albumPage = ref(1)
-const trackPage = ref(1)
+const activeTab = ref<'albums' | 'tracks'>(artistDetailTab(route.query.tab))
+const albumPage = ref(positivePage(route.query.albumPage))
+const trackPage = ref(positivePage(route.query.trackPage))
 const artistImageUrl = ref<string | null>(null)
 const albumResultsTop = ref<HTMLElement | null>(null)
 const trackResultsTop = ref<HTMLElement | null>(null)
+const artistActionLoading = ref<ArtistPlaybackAction | null>(null)
+const largeActionDialog = ref(false)
+const largeActionLoading = ref(false)
+const pendingArtistAction = ref<{ action: ArtistPlaybackAction, total: number } | null>(null)
+const notice = ref('')
+const noticeVisible = ref(false)
 
 const artistId = computed(() => Number(route.params.id))
 const artist = computed(() => catalog.artistDetail)
@@ -37,15 +52,23 @@ const backLabel = computed(() => backToAudioIntelligence.value
 
 watch(artistId, (id) => {
   artistImageUrl.value = null
-  activeTab.value = 'albums'
-  albumPage.value = 1
-  trackPage.value = 1
+  activeTab.value = artistDetailTab(route.query.tab)
+  albumPage.value = positivePage(route.query.albumPage)
+  trackPage.value = positivePage(route.query.trackPage)
   void catalog.loadArtist(id)
-  void catalog.loadAlbums({ artist: id, page: 1 })
+  if (activeTab.value === 'tracks') {
+    void catalog.loadTracks({ artist: id, page: trackPage.value })
+  } else {
+    void catalog.loadAlbums({ artist: id, page: albumPage.value })
+  }
 }, { immediate: true })
 
 watch(activeTab, (tab) => {
-  if (tab === 'tracks') void catalog.loadTracks({ artist: artistId.value, page: trackPage.value })
+  if (tab === 'tracks') {
+    void catalog.loadTracks({ artist: artistId.value, page: trackPage.value })
+  } else {
+    void catalog.loadAlbums({ artist: artistId.value, page: albumPage.value })
+  }
 })
 
 watch(albumPage, (page, previousPage) => {
@@ -57,6 +80,8 @@ watch(trackPage, (page, previousPage) => {
     void catalog.loadTracks({ artist: artistId.value, page })
   }
 })
+
+watch([activeTab, albumPage, trackPage], syncDetailStateToRoute)
 
 function changeAlbumPage(value: number) {
   if (value === albumPage.value) return
@@ -91,6 +116,146 @@ function toggleTrack(track: Track) {
   }
 
   player.playTrack(track, catalog.tracks.items, 'track-list')
+}
+
+async function useArtistTracks(action: ArtistPlaybackAction) {
+  const currentArtist = artist.value
+  if (!currentArtist) return
+
+  artistActionLoading.value = action
+  try {
+    const result = await catalog.loadArtistPlaybackTracks(
+      currentArtist.id,
+      LARGE_ARTIST_ACTION_TRACK_COUNT,
+    )
+    if (result.requiresConfirmation) {
+      pendingArtistAction.value = { action, total: result.total }
+      largeActionDialog.value = true
+      return
+    }
+
+    applyArtistPlaybackAction(action, result.tracks, result.total)
+  } catch (cause) {
+    showNotice(cause instanceof Error ? cause.message : t('artists.actionFailed'))
+  } finally {
+    artistActionLoading.value = null
+  }
+}
+
+function applyArtistPlaybackAction(action: ArtistPlaybackAction, tracks: Track[], total: number) {
+  const currentArtist = artist.value
+  if (!currentArtist) return
+  if (!tracks.length) {
+    showNotice(t('artists.noPlayableTracks'))
+    return
+  }
+
+  if (action === 'play') {
+    const selectedRoot = libraryRoots.roots.find(root => root.id === libraryRootScope.selectedRootId)
+    const scope: TrackPlaybackScope = {
+      type: 'tracks',
+      libraryRootId: libraryRootScope.selectedRootId,
+      libraryRootName: selectedRoot?.name ?? null,
+      search: '',
+      artistId: currentArtist.id,
+      artistName: currentArtist.name,
+      genreId: null,
+      genreName: '',
+      musicianId: null,
+      musicianName: '',
+      playStatus: null,
+      physicalCopy: null,
+      sort: 'album',
+    }
+    player.playTrack(tracks[0]!, tracks, 'track-list', scope)
+    return
+  }
+
+  player.queueTracks(tracks, 'track-list')
+  showNotice(t('artists.tracksQueued', { count: total, artist: currentArtist.name }))
+}
+
+async function confirmLargeArtistAction() {
+  const currentArtist = artist.value
+  const pending = pendingArtistAction.value
+  if (!currentArtist || !pending) return
+
+  largeActionLoading.value = true
+  try {
+    const result = await catalog.loadArtistPlaybackTracks(currentArtist.id)
+    resetLargeActionDialog()
+    applyArtistPlaybackAction(pending.action, result.tracks, result.total)
+  } catch (cause) {
+    showNotice(cause instanceof Error ? cause.message : t('artists.actionFailed'))
+  } finally {
+    largeActionLoading.value = false
+  }
+}
+
+function closeLargeActionDialog() {
+  if (!largeActionLoading.value) resetLargeActionDialog()
+}
+
+function resetLargeActionDialog() {
+  largeActionDialog.value = false
+  pendingArtistAction.value = null
+}
+
+function largeActionMessage() {
+  const pending = pendingArtistAction.value
+  const currentArtist = artist.value
+  if (!pending || !currentArtist) return ''
+
+  return t(pending.action === 'play' ? 'artists.largePlayConfirm' : 'artists.largeQueueConfirm', {
+    count: pending.total,
+    artist: currentArtist.name,
+  })
+}
+
+function showNotice(message: string) {
+  notice.value = message
+  noticeVisible.value = true
+}
+
+function artistDetailTab(value: unknown): 'albums' | 'tracks' {
+  return value === 'tracks' ? 'tracks' : 'albums'
+}
+
+function positivePage(value: unknown): number {
+  const parsed = typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
+}
+
+function detailStateQuery() {
+  return {
+    ...(activeTab.value === 'tracks' ? { tab: 'tracks' } : {}),
+    ...(albumPage.value > 1 ? { albumPage: String(albumPage.value) } : {}),
+    ...(trackPage.value > 1 ? { trackPage: String(trackPage.value) } : {}),
+  }
+}
+
+function returnContextQuery() {
+  return {
+    backArtist: String(artistId.value),
+    backArtistTab: activeTab.value,
+    backArtistAlbumPage: String(albumPage.value),
+    backArtistTrackPage: String(trackPage.value),
+    ...(backToAudioIntelligence.value ? { backArtistBackTo: 'audio-intelligence' } : {}),
+  }
+}
+
+function syncDetailStateToRoute() {
+  if (route.name !== 'artist-detail') return
+
+  const state = detailStateQuery()
+  const nextQuery = { ...route.query }
+  delete nextQuery.tab
+  delete nextQuery.albumPage
+  delete nextQuery.trackPage
+  Object.assign(nextQuery, state)
+  if (JSON.stringify(route.query) === JSON.stringify(nextQuery)) return
+
+  void router.replace({ name: 'artist-detail', params: { id: artistId.value }, query: nextQuery })
 }
 </script>
 
@@ -156,7 +321,28 @@ function toggleTrack(track: Track) {
           </div>
         </div>
       </v-card-text>
-
+      <v-card-actions class="artist-actions px-4 pb-4 pt-0">
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-play"
+          :disabled="artist.trackCount === 0"
+          :loading="artistActionLoading === 'play'"
+          variant="flat"
+          @click="void useArtistTracks('play')"
+        >
+          {{ t('artists.playAll') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          prepend-icon="mdi-playlist-plus"
+          :disabled="artist.trackCount === 0"
+          :loading="artistActionLoading === 'queue'"
+          variant="tonal"
+          @click="void useArtistTracks('queue')"
+        >
+          {{ t('artists.queueAll') }}
+        </v-btn>
+      </v-card-actions>
     </v-card>
 
     <v-card border rounded="xl" class="mb-8">
@@ -181,7 +367,7 @@ function toggleTrack(track: Track) {
             <v-row v-else-if="catalog.albums.items.length" dense>
               <v-col v-for="album in catalog.albums.items" :key="album.id" cols="12" sm="6" lg="4">
                 <v-card
-                  :to="{ name: 'album-detail', params: { id: album.id }, query: { backArtist: artist.id } }"
+                  :to="{ name: 'album-detail', params: { id: album.id }, query: returnContextQuery() }"
                   variant="tonal"
                   height="100%"
                 >
@@ -225,7 +411,10 @@ function toggleTrack(track: Track) {
             <v-list v-else-if="catalog.tracks.items.length" lines="two">
               <v-list-item v-for="track in catalog.tracks.items" :key="track.id" class="artist-track-item">
                 <v-list-item-title class="font-weight-bold">
-                  <RouterLink class="catalog-link" :to="{ name: 'track-detail', params: { id: track.id } }">
+                  <RouterLink
+                    class="catalog-link"
+                    :to="{ name: 'track-detail', params: { id: track.id }, query: returnContextQuery() }"
+                  >
                     {{ track.title }}
                   </RouterLink>
                 </v-list-item-title>
@@ -233,7 +422,7 @@ function toggleTrack(track: Track) {
                   <RouterLink
                     v-if="track.album"
                     class="catalog-link"
-                    :to="{ name: 'album-detail', params: { id: track.album.id }, query: { backArtist: artist.id } }"
+                    :to="{ name: 'album-detail', params: { id: track.album.id }, query: returnContextQuery() }"
                   >
                     {{ track.album.title }}
                   </RouterLink>
@@ -287,6 +476,37 @@ function toggleTrack(track: Track) {
       @artist-image="artistImageUrl = $event"
     />
   </template>
+
+  <v-dialog
+    v-model="largeActionDialog"
+    max-width="540"
+    :persistent="largeActionLoading"
+    @after-leave="pendingArtistAction = null"
+  >
+    <v-card rounded="xl">
+      <v-card-title class="d-flex align-center ga-2 pa-5 pb-2">
+        <v-icon color="warning" icon="mdi-account-music-outline" />
+        {{ t('artists.largeActionTitle') }}
+      </v-card-title>
+      <v-card-text class="px-5">{{ largeActionMessage() }}</v-card-text>
+      <v-card-actions class="px-5 pb-5">
+        <v-spacer />
+        <v-btn :disabled="largeActionLoading" variant="text" @click="closeLargeActionDialog">
+          {{ t('artists.cancel') }}
+        </v-btn>
+        <v-btn
+          color="primary"
+          :loading="largeActionLoading"
+          variant="flat"
+          @click="void confirmLargeArtistAction()"
+        >
+          {{ t('artists.continueAction') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-snackbar v-model="noticeVisible" :timeout="6000">{{ notice }}</v-snackbar>
 </template>
 
 <style scoped>
@@ -308,6 +528,11 @@ function toggleTrack(track: Track) {
 
 .artist-track-item:hover {
   background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.artist-actions {
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .catalog-link {

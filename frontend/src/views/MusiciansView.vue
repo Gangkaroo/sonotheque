@@ -203,9 +203,14 @@ onUnmounted(() => {
           }) }}
         </div>
       </div>
-      <v-chip color="primary" prepend-icon="mdi-album" variant="tonal">
-        {{ t('musicians.creditedAlbums', { count: catalog.musicians.coverage.creditedAlbums }) }}
-      </v-chip>
+      <div class="d-flex flex-wrap ga-2">
+        <v-chip color="primary" prepend-icon="mdi-album" variant="tonal">
+          {{ t('musicians.creditedAlbums', { count: catalog.musicians.coverage.creditedAlbums }) }}
+        </v-chip>
+        <v-btn prepend-icon="mdi-account-question-outline" :to="{ name: 'musician-review' }" variant="tonal">
+          {{ t('musicians.review') }}
+        </v-btn>
+      </div>
     </div>
     <v-progress-linear
       color="primary"

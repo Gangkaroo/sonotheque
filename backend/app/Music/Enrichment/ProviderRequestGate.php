@@ -14,6 +14,7 @@ class ProviderRequestGate
      */
     public function run(string $provider, callable $request): mixed
     {
+        $this->ensureAvailable($provider);
         $this->pace($provider);
 
         $key = "online-enrichment:provider:{$provider}";
@@ -21,12 +22,38 @@ class ProviderRequestGate
             "sonotheque.enrichment.providers.{$provider}.max_requests_per_minute",
             60,
         ));
-        $result = RateLimiter::attempt(
-            $key,
-            $maximum,
-            static fn (): array => ['value' => $request()],
-            60,
-        );
+        try {
+            $result = RateLimiter::attempt(
+                $key,
+                $maximum,
+                static fn (): array => ['value' => $request()],
+                60,
+            );
+        } catch (EnrichmentProviderException $exception) {
+            if ($exception->errorCode !== 'rate_limited') {
+                throw $exception;
+            }
+
+            $retryAfterSeconds = max(
+                1,
+                $exception->retryAfterSeconds ?? (int) config(
+                    "sonotheque.enrichment.providers.{$provider}.cooldown_seconds",
+                    60,
+                ),
+            );
+            Cache::put(
+                $this->cooldownKey($provider),
+                now()->addSeconds($retryAfterSeconds)->timestamp,
+                now()->addSeconds($retryAfterSeconds + 60),
+            );
+
+            throw new EnrichmentProviderException(
+                $exception->getMessage(),
+                $exception->retriable,
+                $exception->errorCode,
+                $retryAfterSeconds,
+            );
+        }
 
         if ($result === false) {
             throw new EnrichmentProviderException(
@@ -37,6 +64,21 @@ class ProviderRequestGate
         }
 
         return $result['value'];
+    }
+
+    private function ensureAvailable(string $provider): void
+    {
+        $availableAt = (int) Cache::get($this->cooldownKey($provider), 0);
+        $retryAfterSeconds = $availableAt - now()->timestamp;
+        if ($retryAfterSeconds <= 0) {
+            return;
+        }
+
+        throw new EnrichmentProviderException(
+            'The provider is cooling down after a rate-limit response.',
+            errorCode: 'rate_limited',
+            retryAfterSeconds: $retryAfterSeconds,
+        );
     }
 
     private function pace(string $provider): void
@@ -72,5 +114,10 @@ class ProviderRequestGate
                 retryAfterSeconds: max(1, (int) ceil($minimumInterval / 1000)),
             );
         }
+    }
+
+    private function cooldownKey(string $provider): string
+    {
+        return "online-enrichment:provider:{$provider}:cooldown-until";
     }
 }

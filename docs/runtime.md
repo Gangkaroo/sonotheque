@@ -463,8 +463,10 @@ content for another 7 days while a unique background refresh runs, and missing
 results are cached for 24 hours. Repeated failures use exponential backoff.
 Atomic cache locks deduplicate concurrent misses, while configurable
 provider-specific request limits prevent bursts. MusicBrainz requests are also
-paced to at least 1.1 seconds apart by default. Playback, seeking, and queue
-progression never wait for background refreshes.
+paced through one shared gate at least 1.5 seconds apart by default. A remote
+rate-limit response starts a provider-wide cooldown so concurrent enrichment
+jobs do not keep contacting MusicBrainz. Playback, seeking, and queue progression
+never wait for background refreshes.
 
 Settings > Connections provides explicit Last.fm, MusicBrainz, and LRCLIB connection checks,
 cache statistics, and a confirmation-protected action that clears only online
@@ -473,6 +475,19 @@ values rather than the currently playing track. Cache durations, lock timing,
 request limits, and LRCLIB connection settings can be adjusted with the
 `ENRICHMENT_*`, `LASTFM_ENRICHMENT_*`, `MUSICBRAINZ_*`, and `LRCLIB_*` values documented in
 `backend/.env.example`.
+
+The same page provides an optional musician-credit backfill for all enabled
+library roots or one selected root. It checks only albums without a completed
+current-version musician lookup, processes one rate-limited album per queue
+job, and records a durable checkpoint after every result. The UI reports
+coverage, progress, positive/negative/ambiguous/error counts, and an estimated
+remaining duration. Pausing takes effect after the current provider request;
+the run can then be resumed without repeating completed albums or cancelled.
+If MusicBrainz asks the app to slow down, the run waits in its current checkpoint
+and retries that same album after the cooldown instead of recording every
+subsequent album as failed.
+This workflow is never started automatically and ordinary album access remains
+lazy.
 
 Set `ENRICHMENT_CA_BUNDLE` when PHP needs an explicit certificate authority
 bundle for outbound HTTPS. `LASTFM_CA_BUNDLE`, `MUSICBRAINZ_CA_BUNDLE`, and
@@ -528,6 +543,14 @@ identity under `runtime-logs/`. Shutdown only terminates native processes whose
 recorded identity still matches. Services that were started manually are shown
 as `external` and are left untouched. The named PostgreSQL Compose service is
 stopped by default unless `-KeepDatabase` is used.
+
+Local and LAN startup also launches a lightweight queue-worker supervisor. It
+checks the `default`, `scans`, and `analysis` workers every 30 seconds and
+restarts only a worker whose process has actually exited. Busy workers are not
+restarted merely because their database heartbeat is old. Deliberate shutdown
+stops the supervisor first so it cannot recreate workers while the app is
+stopping. The packaged Docker runtime provides the equivalent behavior through
+the queue services' `restart: unless-stopped` policy.
 
 If the local PowerShell execution policy blocks repository scripts, invoke them
 without changing the system-wide policy:
@@ -815,12 +838,22 @@ Useful files:
 - `runtime-logs/queue-scans.err.log`
 - `runtime-logs/queue-analysis.out.log`
 - `runtime-logs/queue-analysis.err.log`
+- `runtime-logs/worker-supervisor-events.log`
+- `runtime-logs/worker-supervisor-heartbeat.json`
+- `runtime-logs/worker-supervisor.out.log`
+- `runtime-logs/worker-supervisor.err.log`
 - `runtime-logs/frontend-vite.out.log`
 - `runtime-logs/frontend-vite.err.log`
 
 The `*.process.json` files in the same directory are ownership records used by
 the shutdown script. They are runtime state, not configuration, and should not
 be edited manually.
+
+When a managed process is started again, non-empty output and error logs from
+its previous process are timestamped before the new log files are opened. The
+supervisor event log records the time, queue, and new PID for automatic worker
+restarts. Use `scripts/status.ps1` to confirm that the supervisor and all three
+workers are running.
 
 ## Verification
 

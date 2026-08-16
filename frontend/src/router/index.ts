@@ -8,9 +8,11 @@ export const router = createRouter({
   routes: [
     { path: '/setup', name: 'setup', component: () => import('@/views/SetupView.vue') },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue'), meta: { keepAlive: true } },
+    { path: '/assistant', name: 'assistant', component: () => import('@/views/CollectionAssistantView.vue') },
     { path: '/artists', name: 'artists', component: () => import('@/views/ArtistsView.vue'), meta: { keepAlive: true } },
     { path: '/artists/:id', name: 'artist-detail', component: () => import('@/views/ArtistDetailView.vue') },
     { path: '/musicians', name: 'musicians', component: () => import('@/views/MusiciansView.vue'), meta: { keepAlive: true } },
+    { path: '/musicians/review', name: 'musician-review', component: () => import('@/views/MusicianReviewView.vue') },
     { path: '/musicians/:id', name: 'musician-detail', component: () => import('@/views/MusicianDetailView.vue') },
     { path: '/albums', name: 'albums', component: () => import('@/views/AlbumsView.vue'), meta: { keepAlive: true } },
     { path: '/albums/:id', name: 'album-detail', component: () => import('@/views/AlbumDetailView.vue') },

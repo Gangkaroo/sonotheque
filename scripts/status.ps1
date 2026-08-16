@@ -19,7 +19,7 @@ try {
     }
 
     $healthy = @($status | Where-Object {
-        $_.Status -notin @('Healthy', 'Running')
+        $_.Status -notin @('Healthy', 'Running', 'Not managed')
     }).Count -eq 0
 
     if (-not $healthy) {

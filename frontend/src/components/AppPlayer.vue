@@ -184,6 +184,9 @@ const playbackScopeLabels = computed(() => {
   ]
 
   if (scope.search) labels.push(t('player.playbackScopeSearch', { value: scope.search }))
+  if (scope.type === 'tracks' && scope.artistId !== null) {
+    labels.push(t('player.playbackScopeArtist', { value: scope.artistName || `#${scope.artistId}` }))
+  }
   if (scope.genreId !== null) {
     labels.push(t('player.playbackScopeGenre', { value: scope.genreName || `#${scope.genreId}` }))
   }
@@ -520,8 +523,11 @@ function seekTo(value: number) {
   player.setPlaybackPosition(target)
 }
 
-function onEnded() {
+function onEnded(event?: Event) {
+  if (!isCurrentMediaEvent(event)) return
+
   suspendListenedPlayback(audio.value?.currentTime)
+  maybeRecordCountedPlay()
   player.setPlaybackPosition(0)
   void player.next()
 }
@@ -764,8 +770,7 @@ function maybeRecordCountedPlay() {
     }),
   }).then((result) => {
     if (!result.counted) {
-      if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
-      nextPlayReportListenedMs = listenedMs + 1000
+      deferPlayReportRetry(playKey, listenedMs, 1000)
       return
     }
 
@@ -774,9 +779,15 @@ function maybeRecordCountedPlay() {
     playlists.updateTrackPlayStatistics(trackId, result.statistics)
     statistics.markHistoryStale()
   }).catch(() => {
-    if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
-    nextPlayReportListenedMs = listenedMs + 5000
+    deferPlayReportRetry(playKey, listenedMs, 5000)
   })
+}
+
+function deferPlayReportRetry(playKey: string, listenedMs: number, delayMs: number) {
+  if (currentPlayKey.value !== playKey) return
+
+  if (reportedPlayKey.value === playKey) reportedPlayKey.value = null
+  nextPlayReportListenedMs = listenedMs + delayMs
 }
 
 function openAddToPlaylist(tracks: typeof player.queue) {

@@ -57,6 +57,25 @@ describe('catalog store', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/artists/7', expect.any(Object))
   })
 
+  it('loads root-scoped artist tracks with an optional confirmation threshold', async () => {
+    const result = {
+      total: 700,
+      requiresConfirmation: true,
+      tracks: [],
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(result), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    useLibraryRootScopeStore().select(12)
+
+    const store = useCatalogStore()
+    await expect(store.loadArtistPlaybackTracks(7, 500)).resolves.toEqual(result)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/catalog/artists/7/tracks?confirmationThreshold=500&libraryRoot=12',
+      expect.any(Object),
+    )
+  })
+
   it('loads the root-scoped musician catalog with coverage', async () => {
     const page = {
       items: [{ id: 8, name: 'Jamie Player', albumCount: 3, trackCount: 7 }],

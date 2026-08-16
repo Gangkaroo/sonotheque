@@ -9,6 +9,7 @@ use App\Models\Musician;
 use App\Music\Enrichment\AlbumMusicianCreditManager;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class MusicianCatalog
@@ -97,6 +98,75 @@ class MusicianCatalog
             ->select('track_id');
     }
 
+    /**
+     * @return array{
+     *     roles: list<array{name: string, albumCount: int, trackCount: int}>,
+     *     creditedAs: list<string>,
+     *     sources: list<string>,
+     *     firstReleaseYear: int|null,
+     *     lastReleaseYear: int|null
+     * }
+     */
+    public function profile(Musician $musician, ?int $libraryRootId): array
+    {
+        $credits = $this->effectiveCredits($libraryRootId, $musician->id)->get();
+        $albumIds = $credits->pluck('album_id')->unique()->values();
+        $years = Album::query()
+            ->whereIn('id', $albumIds)
+            ->whereNotNull('original_release_year');
+
+        return [
+            'roles' => $this->roleSummaries($credits),
+            'creditedAs' => $this->uniqueText(
+                $credits->pluck('credited_as')
+                    ->filter(fn (mixed $name): bool => is_string($name)
+                        && trim($name) !== ''
+                        && mb_strtolower(trim($name)) !== mb_strtolower($musician->name)),
+            ),
+            'sources' => $this->uniqueText($credits->pluck('provider')),
+            'firstReleaseYear' => (clone $years)->min('original_release_year'),
+            'lastReleaseYear' => (clone $years)->max('original_release_year'),
+        ];
+    }
+
+    /**
+     * @param list<int> $albumIds
+     * @return array<int, array{
+     *     roles: list<string>,
+     *     creditedAs: list<string>,
+     *     sources: list<string>,
+     *     albumWide: bool,
+     *     trackCreditCount: int,
+     *     guest: bool,
+     *     additional: bool
+     * }>
+     */
+    public function albumCreditSummaries(
+        int $musicianId,
+        array $albumIds,
+        ?int $libraryRootId,
+    ): array {
+        if ($albumIds === []) {
+            return [];
+        }
+
+        return $this->effectiveCredits($libraryRootId, $musicianId, $albumIds)
+            ->get()
+            ->groupBy('album_id')
+            ->map(function (Collection $credits): array {
+                return [
+                    'roles' => $this->uniqueText($credits->pluck('role')),
+                    'creditedAs' => $this->uniqueText($credits->pluck('credited_as')),
+                    'sources' => $this->uniqueText($credits->pluck('provider')),
+                    'albumWide' => $credits->contains(fn (object $credit): bool => $credit->track_id === null),
+                    'trackCreditCount' => $credits->pluck('track_id')->filter()->unique()->count(),
+                    'guest' => $credits->contains(fn (object $credit): bool => (bool) $credit->is_guest),
+                    'additional' => $credits->contains(fn (object $credit): bool => (bool) $credit->is_additional),
+                ];
+            })
+            ->all();
+    }
+
     private function effectiveAlbumPairs(
         ?int $libraryRootId,
         ?int $musicianId = null,
@@ -163,6 +233,92 @@ class MusicianCatalog
         }
 
         return $imported->union($manual);
+    }
+
+    /** @param list<int> $albumIds */
+    private function effectiveCredits(
+        ?int $libraryRootId,
+        int $musicianId,
+        array $albumIds = [],
+    ): QueryBuilder {
+        $imported = DB::table('album_musician_credits as imported_credits')
+            ->join('albums as imported_albums', 'imported_albums.id', '=', 'imported_credits.album_id')
+            ->select([
+                'imported_credits.album_id',
+                'imported_credits.track_id',
+                'imported_credits.role',
+                'imported_credits.credited_as',
+                'imported_credits.provider',
+                'imported_credits.is_guest',
+                'imported_credits.is_additional',
+            ])
+            ->where('imported_credits.musician_id', $musicianId)
+            ->when($albumIds !== [], fn (QueryBuilder $query) => $query
+                ->whereIn('imported_credits.album_id', $albumIds))
+            ->whereNotExists(fn (QueryBuilder $suppressions) => $suppressions
+                ->selectRaw('1')
+                ->from('album_musician_credit_suppressions as suppressions')
+                ->whereColumn('suppressions.album_id', 'imported_credits.album_id')
+                ->whereColumn('suppressions.provider', 'imported_credits.provider')
+                ->whereColumn('suppressions.source_credit_key', 'imported_credits.source_credit_key'));
+        $manual = DB::table('manual_album_musician_credits as manual_credits')
+            ->join('albums as manual_albums', 'manual_albums.id', '=', 'manual_credits.album_id')
+            ->leftJoin(
+                'manual_album_musician_credit_track as manual_tracks',
+                'manual_tracks.manual_album_musician_credit_id',
+                '=',
+                'manual_credits.id',
+            )
+            ->select([
+                'manual_credits.album_id',
+                'manual_tracks.track_id',
+                'manual_credits.role',
+                'manual_credits.credited_as',
+            ])
+            ->selectRaw("'manual' as provider")
+            ->addSelect(['manual_credits.is_guest', 'manual_credits.is_additional'])
+            ->where('manual_credits.musician_id', $musicianId)
+            ->when($albumIds !== [], fn (QueryBuilder $query) => $query
+                ->whereIn('manual_credits.album_id', $albumIds));
+
+        $this->scopeAlbums($imported, 'imported_albums', $libraryRootId);
+        $this->scopeAlbums($manual, 'manual_albums', $libraryRootId);
+
+        return $imported->unionAll($manual);
+    }
+
+    /** @return list<array{name: string, albumCount: int, trackCount: int}> */
+    private function roleSummaries(Collection $credits): array
+    {
+        return $credits
+            ->filter(fn (object $credit): bool => is_string($credit->role) && trim($credit->role) !== '')
+            ->groupBy(fn (object $credit): string => mb_strtolower(trim($credit->role)))
+            ->map(function (Collection $roleCredits): array {
+                return [
+                    'name' => trim((string) $roleCredits->first()->role),
+                    'albumCount' => $roleCredits->pluck('album_id')->unique()->count(),
+                    'trackCount' => $roleCredits->pluck('track_id')->filter()->unique()->count(),
+                ];
+            })
+            ->sort(function (array $left, array $right): int {
+                return $right['albumCount'] <=> $left['albumCount']
+                    ?: $right['trackCount'] <=> $left['trackCount']
+                    ?: strcasecmp($left['name'], $right['name']);
+            })
+            ->values()
+            ->all();
+    }
+
+    /** @return list<string> */
+    private function uniqueText(Collection $values): array
+    {
+        return $values
+            ->filter(fn (mixed $value): bool => is_string($value) && trim($value) !== '')
+            ->map(fn (string $value): string => trim($value))
+            ->unique(fn (string $value): string => mb_strtolower($value))
+            ->sort(fn (string $left, string $right): int => strcasecmp($left, $right))
+            ->values()
+            ->all();
     }
 
     private function scopeAlbums(

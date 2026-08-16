@@ -11,7 +11,7 @@ import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMen
 import { apiRequest } from '@/api/client'
 import { useCatalogStore, type AdditionalMetadataTag } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
-import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
+import { useLibraryRootScopeStore, withLibraryRootScope } from '@/stores/libraryRootScope'
 import { usePlayerStore } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { useStatisticsStore } from '@/stores/statistics'
@@ -37,6 +37,8 @@ const metadataSuccess = ref(false)
 const metadataPreview = ref<MetadataPreview | null>(null)
 const metadataJob = ref<MetadataEditJob | null>(null)
 const metadataRemovedTagKeys = ref<string[]>([])
+const artistNavigation = ref<ArtistTrackNavigation | null>(null)
+const artistNavigationLoading = ref(false)
 const metadataForm = reactive({
   title: '',
   artistNames: [] as string[],
@@ -49,6 +51,12 @@ const metadataForm = reactive({
   year: '',
 })
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
+let artistNavigationRequest = 0
+
+interface ArtistTrackNavigation {
+  previousTrackId: number | null
+  nextTrackId: number | null
+}
 
 interface MetadataChange {
   field: 'title' | 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year' | 'removedTagKeys'
@@ -103,6 +111,10 @@ const backAlbumId = computed(() => {
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
+const backArtistId = computed(() => {
+  const parsed = typeof route.query.backArtist === 'string' ? Number(route.query.backArtist) : NaN
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+})
 const backPlaylistId = computed(() => {
   const parsed = typeof route.query.backPlaylist === 'string' ? Number(route.query.backPlaylist) : NaN
 
@@ -114,9 +126,22 @@ const backPlaylistItemId = computed(() => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 })
 const backToAudioIntelligence = computed(() => route.query.backTo === 'audio-intelligence')
+const backArtistDetailQuery = computed(() => ({
+  ...(route.query.backArtistTab === 'tracks' ? { tab: 'tracks' } : {}),
+  ...(positiveQueryPage(route.query.backArtistAlbumPage, 'albumPage')),
+  ...(positiveQueryPage(route.query.backArtistTrackPage, 'trackPage')),
+  ...(route.query.backArtistBackTo === 'audio-intelligence' ? { backTo: 'audio-intelligence' } : {}),
+}))
 const backRoute = computed(() => {
   if (backAlbumId.value) {
     return { name: 'album-detail', params: { id: backAlbumId.value } }
+  }
+  if (backArtistId.value) {
+    return {
+      name: 'artist-detail',
+      params: { id: backArtistId.value },
+      query: backArtistDetailQuery.value,
+    }
   }
   if (backPlaylistId.value) {
     return {
@@ -133,6 +158,7 @@ const backRoute = computed(() => {
 })
 const backLabel = computed(() => {
   if (backAlbumId.value) return t('tracks.backToAlbum')
+  if (backArtistId.value) return t('tracks.backToArtist')
   if (backPlaylistId.value) return t('tracks.backToPlaylist')
   if (backToAudioIntelligence.value) return t('tracks.backToAudioIntelligence')
 
@@ -185,6 +211,11 @@ const previousNavigationTarget = computed(() => {
   if (backAlbumId.value) {
     return previousAlbumTrackId.value ? { trackId: previousAlbumTrackId.value, playlistItemId: null } : null
   }
+  if (backArtistId.value) {
+    return artistNavigation.value?.previousTrackId
+      ? { trackId: artistNavigation.value.previousTrackId, playlistItemId: null }
+      : null
+  }
 
   return previousPlaylistItem.value
     ? { trackId: previousPlaylistItem.value.track.id, playlistItemId: previousPlaylistItem.value.id }
@@ -194,18 +225,31 @@ const nextNavigationTarget = computed(() => {
   if (backAlbumId.value) {
     return nextAlbumTrackId.value ? { trackId: nextAlbumTrackId.value, playlistItemId: null } : null
   }
+  if (backArtistId.value) {
+    return artistNavigation.value?.nextTrackId
+      ? { trackId: artistNavigation.value.nextTrackId, playlistItemId: null }
+      : null
+  }
 
   return nextPlaylistItem.value
     ? { trackId: nextPlaylistItem.value.track.id, playlistItemId: nextPlaylistItem.value.id }
     : null
 })
-const previousNavigationLabel = computed(() => backAlbumId.value
-  ? t('tracks.previousAlbumTrack')
-  : t('tracks.previousPlaylistTrack'))
-const nextNavigationLabel = computed(() => backAlbumId.value
-  ? t('tracks.nextAlbumTrack')
-  : t('tracks.nextPlaylistTrack'))
-const navigationLoading = computed(() => backAlbumId.value ? catalog.albumDetailLoading : playlists.loading)
+const previousNavigationLabel = computed(() => {
+  if (backAlbumId.value) return t('tracks.previousAlbumTrack')
+  if (backArtistId.value) return t('tracks.previousArtistTrack')
+  return t('tracks.previousPlaylistTrack')
+})
+const nextNavigationLabel = computed(() => {
+  if (backAlbumId.value) return t('tracks.nextAlbumTrack')
+  if (backArtistId.value) return t('tracks.nextArtistTrack')
+  return t('tracks.nextPlaylistTrack')
+})
+const navigationLoading = computed(() => {
+  if (backAlbumId.value) return catalog.albumDetailLoading
+  if (backArtistId.value) return artistNavigationLoading.value
+  return playlists.loading
+})
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const additionalMetadataTags = computed(() => track.value?.mediaFile?.additionalTags ?? [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
@@ -491,6 +535,15 @@ function navigateToContextTrack(target: { trackId: number, playlistItemId: numbe
     return
   }
 
+  if (backArtistId.value) {
+    void router.push({
+      name: 'track-detail',
+      params: { id: target.trackId },
+      query: { ...route.query },
+    })
+    return
+  }
+
   if (backPlaylistId.value && target.playlistItemId) {
     void router.push({
       name: 'track-detail',
@@ -500,6 +553,32 @@ function navigateToContextTrack(target: { trackId: number, playlistItemId: numbe
         playlistItem: String(target.playlistItemId),
       },
     })
+  }
+}
+
+function positiveQueryPage(value: unknown, key: 'albumPage' | 'trackPage') {
+  const parsed = typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(parsed) && parsed > 1 ? { [key]: String(parsed) } : {}
+}
+
+async function loadArtistNavigation() {
+  const request = ++artistNavigationRequest
+  if (!backArtistId.value) {
+    artistNavigation.value = null
+    artistNavigationLoading.value = false
+    return
+  }
+
+  artistNavigationLoading.value = true
+  try {
+    const result = await apiRequest<ArtistTrackNavigation>(withLibraryRootScope(
+      `/catalog/artists/${backArtistId.value}/tracks/${trackId.value}/navigation`,
+    ))
+    if (request === artistNavigationRequest) artistNavigation.value = result
+  } catch {
+    if (request === artistNavigationRequest) artistNavigation.value = null
+  } finally {
+    if (request === artistNavigationRequest) artistNavigationLoading.value = false
   }
 }
 
@@ -524,6 +603,10 @@ watch([backPlaylistId, () => libraryRootScope.selectedRootId], ([playlistId]) =>
   void playlists.loadPlaylist(playlistId)
 }, { immediate: true })
 
+watch([backArtistId, trackId, () => libraryRootScope.selectedRootId], () => {
+  void loadArtistNavigation()
+}, { immediate: true })
+
 onUnmounted(() => {
   if (metadataPollTimer) clearTimeout(metadataPollTimer)
 })
@@ -534,7 +617,7 @@ onUnmounted(() => {
     <v-btn variant="text" prepend-icon="mdi-arrow-left" :to="backRoute">
       {{ backLabel }}
     </v-btn>
-    <div v-if="backAlbumId || backPlaylistId" class="d-flex ga-1">
+    <div v-if="backAlbumId || backArtistId || backPlaylistId" class="d-flex ga-1">
       <TooltipIconButton
         :text="previousNavigationLabel"
         :aria-label="previousNavigationLabel"

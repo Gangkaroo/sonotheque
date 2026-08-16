@@ -73,6 +73,50 @@ class CatalogBrowseController extends Controller
         ]);
     }
 
+    public function artistTrackNavigation(Request $request, Artist $artist, Track $track): JsonResponse
+    {
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $ids = $this->orderedTrackIds($libraryRootId, ['artist' => $artist->id]);
+        $index = array_search($track->id, $ids, true);
+        abort_if($index === false, 404);
+
+        return response()->json([
+            'previousTrackId' => $index > 0 ? $ids[$index - 1] : null,
+            'nextTrackId' => $index < count($ids) - 1 ? $ids[$index + 1] : null,
+        ]);
+    }
+
+    public function artistTracks(Request $request, Artist $artist): JsonResponse
+    {
+        $libraryRootId = $this->libraryRootScope->id($request);
+        $filters = $request->validate([
+            'confirmationThreshold' => ['sometimes', 'integer', 'min:1', 'max:1000000'],
+        ]);
+        $filteredTracks = $this->filteredTrackQuery($libraryRootId, ['artist' => $artist->id]);
+        $total = (clone $filteredTracks)->count();
+
+        if (
+            isset($filters['confirmationThreshold'])
+            && $total >= (int) $filters['confirmationThreshold']
+        ) {
+            return response()->json([
+                'total' => $total,
+                'requiresConfirmation' => true,
+                'tracks' => [],
+            ]);
+        }
+
+        $tracks = $this->applyTrackSort($this->trackBrowseQuery($filteredTracks), 'album')->get();
+
+        return response()->json([
+            'total' => $tracks->count(),
+            'requiresConfirmation' => false,
+            'tracks' => $tracks
+                ->map(fn (Track $track) => $this->payloads->trackSummary($track))
+                ->values(),
+        ]);
+    }
+
     public function albums(Request $request): JsonResponse
     {
         $libraryRootId = $this->libraryRootScope->id($request);
@@ -100,7 +144,23 @@ class CatalogBrowseController extends Controller
                 total: $this->albumPaginationTotal($libraryRootId, $filters),
             );
 
-        return response()->json($this->payloads->paginated($albums, fn (Album $album) => $this->payloads->albumSummary($album)));
+        $musicianId = isset($filters['musician']) ? (int) $filters['musician'] : null;
+        $creditSummaries = $musicianId === null
+            ? []
+            : $this->musicians->albumCreditSummaries(
+                $musicianId,
+                collect($albums->items())->pluck('id')->map(fn (mixed $id): int => (int) $id)->all(),
+                $libraryRootId,
+            );
+
+        return response()->json($this->payloads->paginated($albums, function (Album $album) use ($creditSummaries, $musicianId): array {
+            return [
+                ...$this->payloads->albumSummary($album),
+                ...($musicianId === null ? [] : [
+                    'musicianCredits' => $creditSummaries[$album->id] ?? null,
+                ]),
+            ];
+        }));
     }
 
     public function album(Request $request, Album $album): JsonResponse
@@ -191,21 +251,7 @@ class CatalogBrowseController extends Controller
         ]);
 
         $filteredTracks = $this->filteredTrackQuery($libraryRootId, $filters);
-        $tracks = (clone $filteredTracks)
-            ->leftJoin('albums as sort_albums', 'sort_albums.id', '=', 'tracks.album_id')
-            ->leftJoin('artists as sort_artists', 'sort_artists.id', '=', 'sort_albums.primary_artist_id')
-            ->leftJoin('track_play_statistics as sort_statistics', 'sort_statistics.track_id', '=', 'tracks.id')
-            ->select([
-                'tracks.id',
-                'tracks.title',
-                'tracks.sort_title',
-                'tracks.duration_ms',
-                'tracks.track_number',
-                'tracks.disc_number',
-                'tracks.year',
-                'tracks.album_id',
-            ])
-            ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at']);
+        $tracks = $this->trackBrowseQuery($filteredTracks);
 
         $tracks = $this->applyTrackSort($tracks, $filters['sort'] ?? 'album')
             ->paginate(
@@ -660,6 +706,31 @@ class CatalogBrowseController extends Controller
                     });
                 }
             });
+    }
+
+    private function trackBrowseQuery(Builder $filteredTracks): Builder
+    {
+        return (clone $filteredTracks)
+            ->leftJoin('albums as sort_albums', 'sort_albums.id', '=', 'tracks.album_id')
+            ->leftJoin('artists as sort_artists', 'sort_artists.id', '=', 'sort_albums.primary_artist_id')
+            ->leftJoin('track_play_statistics as sort_statistics', 'sort_statistics.track_id', '=', 'tracks.id')
+            ->select([
+                'tracks.id',
+                'tracks.title',
+                'tracks.sort_title',
+                'tracks.duration_ms',
+                'tracks.track_number',
+                'tracks.disc_number',
+                'tracks.year',
+                'tracks.album_id',
+            ])
+            ->with([
+                'album:id,title,original_release_year,artwork_id',
+                'album.personalMetadata',
+                'album.ownedCopies',
+                'artists:id,name',
+                'playStatistic:track_id,play_count,first_played_at,last_played_at',
+            ]);
     }
 
     private function applyAlbumSort(Builder $query, string $sort): Builder

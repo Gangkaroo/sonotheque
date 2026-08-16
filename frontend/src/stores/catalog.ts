@@ -128,6 +128,7 @@ export interface Album {
   artworkWidth?: number | null
   artworkHeight?: number | null
   personalMetadata: AlbumPersonalMetadata
+  musicianCredits?: MusicianAlbumCredits | null
 }
 
 export interface AlbumDetail extends Album {
@@ -163,6 +164,12 @@ export interface Track {
   } | null
   artists: NamedCatalogItem[]
   playStatistics: TrackPlayStatistics
+}
+
+export interface ArtistPlaybackTracks {
+  total: number
+  requiresConfirmation: boolean
+  tracks: Track[]
 }
 
 export interface AdditionalMetadataTag {
@@ -216,6 +223,35 @@ export interface Musician {
   disambiguation?: string | null
   albumCount: number
   trackCount: number
+}
+
+export interface MusicianRoleSummary {
+  name: string
+  albumCount: number
+  trackCount: number
+}
+
+export interface MusicianAlbumCredits {
+  roles: string[]
+  creditedAs: string[]
+  sources: string[]
+  albumWide: boolean
+  trackCreditCount: number
+  guest: boolean
+  additional: boolean
+}
+
+export interface MusicianDetail extends Musician {
+  roles: MusicianRoleSummary[]
+  creditedAs: string[]
+  sources: string[]
+  firstReleaseYear?: number | null
+  lastReleaseYear?: number | null
+  identity?: {
+    provider: string
+    reference: string
+    sourceUrl?: string | null
+  } | null
 }
 
 export interface MusicianCoverage {
@@ -323,7 +359,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     ...emptyPage<Musician>(),
     coverage: { checkedAlbums: 0, creditedAlbums: 0, totalAlbums: 0, percentage: 0 },
   })
-  const musicianDetail = ref<Musician | null>(null)
+  const musicianDetail = ref<MusicianDetail | null>(null)
   const artistDetail = ref<ArtistDetail | null>(null)
   const albums = ref<CatalogPage<Album>>(emptyPage())
   const albumDetail = ref<AlbumDetail | null>(null)
@@ -468,7 +504,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     musicianDetailLoading.value = true
     musicianDetailError.value = null
     try {
-      const result = await apiRequest<Musician>(withLibraryRootScope(`/catalog/musicians/${id}`))
+      const result = await apiRequest<MusicianDetail>(withLibraryRootScope(`/catalog/musicians/${id}`))
       if (request === musicianDetailRequest) musicianDetail.value = result
     } catch (cause) {
       if (request === musicianDetailRequest) musicianDetailError.value = errorMessage(cause)
@@ -490,6 +526,18 @@ export const useCatalogStore = defineStore('catalog', () => {
     } finally {
       if (request === artistDetailRequest) artistDetailLoading.value = false
     }
+  }
+
+  async function loadArtistPlaybackTracks(id: number, confirmationThreshold?: number) {
+    const parameters = new URLSearchParams()
+    if (confirmationThreshold !== undefined) {
+      parameters.set('confirmationThreshold', String(confirmationThreshold))
+    }
+    const query = parameters.size ? `?${parameters}` : ''
+
+    return apiRequest<ArtistPlaybackTracks>(
+      withLibraryRootScope(`/catalog/artists/${id}/tracks${query}`),
+    )
   }
 
   async function loadAlbums(query: CatalogQuery = {}) {
@@ -839,6 +887,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadMusicians,
     loadMusician,
     loadArtist,
+    loadArtistPlaybackTracks,
     loadAlbums,
     loadAlbum,
     loadTracks,

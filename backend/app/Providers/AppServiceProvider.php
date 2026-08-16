@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Models\ApplicationSetting;
+use App\Music\Assistant\CollectionAssistantProvider;
+use App\Music\Assistant\OllamaCollectionAssistantProvider;
 use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioBenchmarkAnalyzerFactory;
@@ -38,6 +40,21 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(QueueWorkerHeartbeat::class);
+        $this->app->bind(
+            CollectionAssistantProvider::class,
+            fn (): CollectionAssistantProvider => new OllamaCollectionAssistantProvider(
+                baseUrl: (string) config('sonotheque.collection_assistant.ollama_url'),
+                timeoutSeconds: (int) config('sonotheque.collection_assistant.timeout_seconds'),
+                testTimeoutSeconds: (int) config(
+                    'sonotheque.collection_assistant.test_timeout_seconds',
+                ),
+                keepAlive: (string) config('sonotheque.collection_assistant.keep_alive'),
+                contextWindow: (int) config('sonotheque.collection_assistant.context_window'),
+                maxAnswerTokens: (int) config(
+                    'sonotheque.collection_assistant.max_answer_tokens',
+                ),
+            ),
+        );
 
         $this->app->bind(AudioAnalyzer::class, function (): AudioAnalyzer {
             $accelerator = ApplicationSetting::current()->audioIntelligenceAccelerator();

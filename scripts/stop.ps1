@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 try {
     foreach ($service in @(
+        'worker-supervisor',
         'frontend',
         'scheduler',
         'queue-analysis',

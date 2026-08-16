@@ -322,6 +322,8 @@ function playRandomTrack() {
     libraryRootId: libraryRootScope.selectedRootId,
     libraryRootName: selectedRoot?.name ?? null,
     search: filters.search.trim(),
+    artistId: null,
+    artistName: '',
     genreId: filters.genre,
     genreName: filters.genreName,
     musicianId: filters.musician,

@@ -32,6 +32,8 @@ export interface TrackPlaybackScope {
   libraryRootId: number | null
   libraryRootName: string | null
   search: string
+  artistId: number | null
+  artistName: string
   genreId: number | null
   genreName: string
   musicianId: number | null
@@ -636,6 +638,9 @@ function catalogPlaybackPath(
 
   if (scope.libraryRootId !== null) url.searchParams.set('libraryRoot', String(scope.libraryRootId))
   if (scope.search) url.searchParams.set('search', scope.search)
+  if (scope.type === 'tracks' && scope.artistId !== null) {
+    url.searchParams.set('artist', String(scope.artistId))
+  }
   if (scope.genreId !== null) url.searchParams.set('genre', String(scope.genreId))
   if (scope.musicianId !== null) url.searchParams.set('musician', String(scope.musicianId))
   if (scope.physicalCopy !== null) url.searchParams.set('physicalCopy', scope.physicalCopy)
@@ -715,6 +720,8 @@ function normalizeTrackPlaybackScope(scope: unknown): TrackPlaybackScope | null 
       ? value.libraryRootName.trim()
       : null,
     search: typeof value.search === 'string' ? value.search.trim() : '',
+    artistId: positiveInteger(value.artistId),
+    artistName: typeof value.artistName === 'string' ? value.artistName.trim() : '',
     genreId: positiveInteger(value.genreId),
     genreName: typeof value.genreName === 'string' ? value.genreName.trim() : '',
     musicianId: positiveInteger(value.musicianId),
