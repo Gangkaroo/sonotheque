@@ -52,7 +52,15 @@ export function startPackagedStack() {
     'migrate',
   ])
   compose(['up', '-d', '--wait', 'backend'])
-  compose(['up', '-d', 'queue', 'scheduler', 'web'])
+  compose([
+    'up',
+    '-d',
+    'queue-default',
+    'queue-scans',
+    'queue-analysis',
+    'scheduler',
+    'web',
+  ])
 }
 
 export function stopPackagedStack(ignoreErrors = false) {

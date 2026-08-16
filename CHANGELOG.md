@@ -16,6 +16,8 @@
   updated toolchain while keeping packaged builds on the rolling Node 22 image.
 - Document the development-to-master release workflow and require release
   notes for each published version.
+- Update packaged and upgrade browser verification to start the split default,
+  scan, and analysis queue workers used by the current runtime.
 
 ## 0.2.0 - 2026-08-16
 

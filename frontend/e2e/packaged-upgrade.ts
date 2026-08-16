@@ -140,7 +140,15 @@ function startStack(sourceDirectory: string) {
     'migrate',
   ])
   compose(sourceDirectory, ['up', '-d', '--wait', 'backend'])
-  compose(sourceDirectory, ['up', '-d', 'queue', 'scheduler', 'web'])
+  compose(sourceDirectory, [
+    'up',
+    '-d',
+    'queue-default',
+    'queue-scans',
+    'queue-analysis',
+    'scheduler',
+    'web',
+  ])
 }
 
 function compose(sourceDirectory: string, arguments_: string[]) {
