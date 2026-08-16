@@ -33,10 +33,30 @@ if ($version -ne [string] $frontendLock['version'] -or
     throw "Release tag version '$version' does not match frontend/package-lock.json."
 }
 
-$changelog = Get-Content -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md')
+$changelog = @(Get-Content -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md'))
 $headingPattern = '^##\s+' + [regex]::Escape($version) + '(?:\s+-.*)?$'
-if (-not ($changelog | Where-Object { $_ -match $headingPattern })) {
+$headingIndex = -1
+for ($index = 0; $index -lt $changelog.Count; $index++) {
+    if ($changelog[$index] -match $headingPattern) {
+        $headingIndex = $index
+        break
+    }
+}
+if ($headingIndex -lt 0) {
     throw "CHANGELOG.md has no section for version $version."
+}
+$hasReleaseNotes = $false
+for ($index = $headingIndex + 1; $index -lt $changelog.Count; $index++) {
+    if ($changelog[$index] -match '^##\s+') {
+        break
+    }
+    if (-not [string]::IsNullOrWhiteSpace($changelog[$index])) {
+        $hasReleaseNotes = $true
+        break
+    }
+}
+if (-not $hasReleaseNotes) {
+    throw "CHANGELOG.md has no release notes for version $version."
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) {

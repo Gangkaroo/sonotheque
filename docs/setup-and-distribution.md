@@ -418,16 +418,28 @@ migrations.
 Release publication is intentionally tag-driven. Ordinary branch pushes never
 create downloadable releases.
 
-1. Update `VERSION`, `frontend/package.json`, and both version entries in
-   `frontend/package-lock.json` to the same semantic version.
-2. Add a matching `## X.Y.Z` section to `CHANGELOG.md` and replace
-   `Unreleased` with the release date when the contents are final.
-3. Merge the intended release commit into the release branch.
-4. Create and push an annotated tag:
+Ongoing work is integrated into `development`; `master` contains released
+checkpoints. Short-lived branches, when needed, start from and return to
+`development`.
+
+1. On `development`, update `VERSION`, `frontend/package.json`, and both
+   version entries in `frontend/package-lock.json` to the same semantic
+   version.
+2. Add a dated, non-empty `## X.Y.Z` section to `CHANGELOG.md`. That section is
+   the canonical release-note reference and becomes the GitHub Release
+   description.
+3. Run the release validation and relevant application tests on
+   `development`.
+4. Merge or fast-forward the validated release commit directly into `master`
+   and push `master`.
+5. Create the annotated tag on that exact `master` commit and push it:
 
 ```powershell
-git tag -a v0.1.0 -m "Sonotheque 0.1.0"
-git push origin v0.1.0
+git switch master
+git merge --ff-only development
+git push origin master
+git tag -a v0.2.0 -m "Sonotheque 0.2.0"
+git push origin v0.2.0
 ```
 
 The `Publish Sonotheque Release` workflow then runs the PostgreSQL-backed PHP
@@ -439,9 +451,9 @@ matching changelog section.
 Maintainers can reproduce the package checks locally without publishing:
 
 ```powershell
-.\scripts\assert-release-version.ps1 -Tag v0.1.0
-.\scripts\build-release.ps1 -Version 0.1.0
-.\scripts\verify-release.ps1 -Version 0.1.0
+.\scripts\assert-release-version.ps1 -Tag v0.2.0
+.\scripts\build-release.ps1 -Version 0.2.0
+.\scripts\verify-release.ps1 -Version 0.2.0
 ```
 
 ## Open Decisions

@@ -1,5 +1,22 @@
 # Repository Rules
 
+## Branching And Releases
+
+- Use `development` as the integration branch for ongoing development. Start
+  ordinary implementation and documentation work there, not on `master`.
+- If a short-lived feature or fix branch is useful, branch it from
+  `development` and merge it back into `development` when complete.
+- Keep `master` release-only. When a new version is ready, validate the release
+  commit on `development`, then merge or fast-forward that exact commit into
+  `master` and push `master` before creating the version tag.
+- Create version tags only from commits already contained in `master`. Do not
+  publish a release directly from `development` or a feature branch.
+- Every release must have a dated, non-empty `## X.Y.Z` section in
+  `CHANGELOG.md`. This section is the canonical release-note reference and is
+  published as the GitHub Release description by the release workflow.
+- Keep the version in `VERSION`, `frontend/package.json`, and both root-package
+  entries in `frontend/package-lock.json` synchronized for every release.
+
 ## PHP
 
 - On this Windows workspace, never assume that `php` or `composer` from
