@@ -2,10 +2,22 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { ApiError, apiRequest } from '@/api/client'
+import type { Track } from '@/stores/catalog'
 
 export interface CollectionAssistantReference {
   path: string
   label: string
+}
+
+export interface CollectionAssistantAction {
+  type: 'track_queue'
+  mode: 'play' | 'queue'
+  scope: {
+    id: number | null
+    name: string
+  }
+  tracks: Track[]
+  state?: 'confirmed' | 'dismissed'
 }
 
 export interface CollectionAssistantMessage {
@@ -15,12 +27,14 @@ export interface CollectionAssistantMessage {
   createdAt: string
   toolsUsed: string[]
   references: CollectionAssistantReference[]
+  action: CollectionAssistantAction | null
 }
 
 interface CollectionAssistantResponse {
   answer: string
   toolsUsed: string[]
   references: CollectionAssistantReference[]
+  action?: CollectionAssistantAction
 }
 
 interface ConversationState {
@@ -88,6 +102,7 @@ export const useCollectionAssistantStore = defineStore('collectionAssistant', ()
         result.answer,
         result.toolsUsed,
         result.references,
+        result.action ?? null,
       ))
 
       return result
@@ -105,6 +120,23 @@ export const useCollectionAssistantStore = defineStore('collectionAssistant', ()
   function clear(scopeKey: string) {
     delete conversations.value[scopeKey]
     delete errors.value[scopeKey]
+    persist()
+  }
+
+  function setActionState(
+    scopeKey: string,
+    messageId: string,
+    state: 'confirmed' | 'dismissed',
+  ) {
+    const conversation = conversations.value[scopeKey]
+    if (!conversation) return
+
+    conversations.value[scopeKey] = {
+      updatedAt: new Date().toISOString(),
+      messages: conversation.messages.map((message) => message.id === messageId && message.action
+        ? { ...message, action: { ...message.action, state } }
+        : message),
+    }
     persist()
   }
 
@@ -138,6 +170,7 @@ export const useCollectionAssistantStore = defineStore('collectionAssistant', ()
     isSubmitting,
     ask,
     clear,
+    setActionState,
   }
 })
 
@@ -146,6 +179,7 @@ function createMessage(
   content: string,
   toolsUsed: string[] = [],
   references: CollectionAssistantReference[] = [],
+  action: CollectionAssistantAction | null = null,
 ): CollectionAssistantMessage {
   return {
     id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -156,6 +190,7 @@ function createMessage(
     createdAt: new Date().toISOString(),
     toolsUsed,
     references,
+    action,
   }
 }
 

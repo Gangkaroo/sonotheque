@@ -5,7 +5,7 @@ organizing the local music library.
 
 ## Requirements
 
-- Node.js 22.12 or newer
+- Node.js 22.18 or newer
 - npm 10 or newer
 - The Laravel backend running on `http://127.0.0.1:8000`
 

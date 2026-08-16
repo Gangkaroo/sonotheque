@@ -2,16 +2,19 @@
 
 namespace App\Music\Assistant;
 
+use App\Enums\MediaFileStatus;
 use App\Models\ApplicationSetting;
 use App\Models\LibraryRoot;
 use App\Models\Track;
 use App\Music\Intelligence\AudioAnalysisProfileSelector;
 use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Intelligence\AudioSimilarityEvaluator;
+use App\Support\CatalogPayloads;
 use App\Support\LibraryRootScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class CollectionAssistantSimilarityTools
 {
@@ -20,6 +23,7 @@ class CollectionAssistantSimilarityTools
         private readonly LibraryRootScope $libraryRootScope,
         private readonly AudioAnalysisProfileSelector $profileSelector,
         private readonly AudioAnalysisRunPlanner $runPlanner,
+        private readonly CatalogPayloads $payloads,
     ) {
     }
 
@@ -63,6 +67,11 @@ class CollectionAssistantSimilarityTools
                             'description' => 'Exclude tracks by the reference artist. Defaults to true.',
                             'default' => true,
                         ],
+                        'action' => [
+                            'type' => 'string',
+                            'enum' => ['play', 'queue'],
+                            'description' => 'Create a non-mutating playback preview only when the user explicitly asks to play now or add the results to the queue.',
+                        ],
                     ],
                     'required' => ['title'],
                     'additionalProperties' => false,
@@ -85,6 +94,7 @@ class CollectionAssistantSimilarityTools
             'limit',
             'exclude_same_album',
             'exclude_same_artist',
+            'action',
         ]) !== []) {
             throw new CollectionAssistantToolException('invalid_arguments');
         }
@@ -95,6 +105,7 @@ class CollectionAssistantSimilarityTools
             'limit' => ['sometimes', 'integer', 'min:1', 'max:10'],
             'exclude_same_album' => ['sometimes', 'boolean'],
             'exclude_same_artist' => ['sometimes', 'boolean'],
+            'action' => ['sometimes', 'string', Rule::in(['play', 'queue'])],
         ]);
         if ($validator->fails()) {
             throw new CollectionAssistantToolException('invalid_arguments');
@@ -160,7 +171,7 @@ class CollectionAssistantSimilarityTools
             ? 0
             : $this->runPlanner->analyzedTrackCount($profile, $libraryRootId);
 
-        return [
+        $response = [
             'status' => 'ok',
             'scope' => $this->scope($libraryRootId),
             'basis' => [
@@ -181,6 +192,16 @@ class CollectionAssistantSimilarityTools
                 ->map(fn (array $track): array => $this->similarityTrackPayload($track))
                 ->all(),
         ];
+
+        if (isset($validated['action'])) {
+            $response['action'] = $this->playbackAction(
+                $validated['action'],
+                $result,
+                $libraryRootId,
+            );
+        }
+
+        return $response;
     }
 
     /** @return Collection<int, Track> */
@@ -237,6 +258,50 @@ class CollectionAssistantSimilarityTools
             'featureCompatibility' => $track['featureCompatibility'] ?? null,
             'features' => $track['features'] ?? null,
             'path' => '/tracks/'.$track['id'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>
+     */
+    private function playbackAction(string $mode, array $result, ?int $libraryRootId): array
+    {
+        $trackIds = collect([$result['source'], ...$result['matches']])
+            ->pluck('id')
+            ->filter(fn (mixed $id): bool => is_int($id) || ctype_digit((string) $id))
+            ->map(fn (mixed $id): int => (int) $id)
+            ->unique()
+            ->values();
+        $tracksById = $this->libraryRootScope
+            ->tracks(Track::query(), $libraryRootId)
+            ->whereIn('tracks.id', $trackIds)
+            ->whereHas(
+                'mediaFile',
+                fn (Builder $query) => $query->where('status', MediaFileStatus::Available->value),
+            )
+            ->with([
+                'album:id,title,original_release_year,artwork_id',
+                'album.personalMetadata',
+                'album.ownedCopies',
+                'artists:id,name',
+                'mediaFile:id,status',
+                'playStatistic:track_id,play_count,first_played_at,last_played_at',
+            ])
+            ->get()
+            ->keyBy('id');
+
+        return [
+            'type' => 'track_queue',
+            'mode' => $mode,
+            'scope' => $this->scope($libraryRootId),
+            'tracks' => $trackIds
+                ->map(fn (int $trackId): ?array => ($track = $tracksById->get($trackId))
+                    ? $this->payloads->trackSummary($track)
+                    : null)
+                ->filter()
+                ->values()
+                ->all(),
         ];
     }
 

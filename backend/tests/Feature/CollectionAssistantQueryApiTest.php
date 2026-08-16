@@ -10,9 +10,11 @@ use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
+use App\Music\Assistant\CollectionAssistantToolRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Mockery;
 use Tests\TestCase;
 
 class CollectionAssistantQueryApiTest extends TestCase
@@ -110,6 +112,91 @@ class CollectionAssistantQueryApiTest extends TestCase
             ->assertJsonPath('errorCode', 'assistant_disabled');
 
         Http::assertNothingSent();
+    }
+
+    public function test_playback_preview_is_returned_to_the_client_but_not_to_the_model(): void
+    {
+        ApplicationSetting::current()->update([
+            'collection_assistant_enabled' => true,
+            'collection_assistant_model' => 'qwen3:8b',
+        ]);
+        $action = [
+            'type' => 'track_queue',
+            'mode' => 'play',
+            'scope' => ['id' => null, 'name' => 'All library roots'],
+            'tracks' => [[
+                'id' => 42,
+                'title' => 'Verified track',
+                'available' => true,
+                'streamUrl' => '/api/tracks/42/stream',
+                'durationMs' => 180000,
+                'trackNumber' => 1,
+                'discNumber' => 1,
+                'year' => 2026,
+                'album' => null,
+                'artists' => [],
+                'playStatistics' => [
+                    'playCount' => 0,
+                    'firstPlayedAt' => null,
+                    'lastPlayedAt' => null,
+                ],
+            ]],
+        ];
+        $tools = Mockery::mock(CollectionAssistantToolRegistry::class);
+        $tools->shouldReceive('definitions')->once()->andReturn([[
+            'type' => 'function',
+            'function' => ['name' => 'find_similar_tracks'],
+        ]]);
+        $tools->shouldReceive('execute')
+            ->once()
+            ->with('find_similar_tracks', ['title' => 'Verified track', 'action' => 'play'], null)
+            ->andReturn([
+                'status' => 'ok',
+                'action' => $action,
+            ]);
+        $this->app->instance(CollectionAssistantToolRegistry::class, $tools);
+        Http::fake([
+            'http://ollama.test:11434/api/chat' => Http::sequence()
+                ->push([
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => '',
+                        'tool_calls' => [[
+                            'function' => [
+                                'name' => 'find_similar_tracks',
+                                'arguments' => [
+                                    'title' => 'Verified track',
+                                    'action' => 'play',
+                                ],
+                            ],
+                        ]],
+                    ],
+                ])
+                ->push([
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => 'I prepared a playback preview.',
+                    ],
+                ]),
+        ]);
+
+        $this->postJson('/api/assistant/query', [
+            'question' => 'Play music similar to Verified track.',
+        ])->assertOk()
+            ->assertJsonPath('action.type', 'track_queue')
+            ->assertJsonPath('action.mode', 'play')
+            ->assertJsonPath('action.tracks.0.id', 42);
+
+        Http::assertSent(function (Request $request): bool {
+            $toolMessage = collect($request['messages'] ?? [])->firstWhere('role', 'tool');
+            if (! is_array($toolMessage)) {
+                return false;
+            }
+
+            $toolResult = json_decode($toolMessage['content'] ?? '', true);
+
+            return is_array($toolResult) && ! array_key_exists('action', $toolResult);
+        });
     }
 
     public function test_simple_collection_count_question_bypasses_the_model(): void

@@ -60,11 +60,23 @@ export default {
     inputHint: 'Drücke Eingabe zum Senden und Umschalt+Eingabe für eine neue Zeile.',
     send: 'Frage senden',
     thinking: 'Sammlung wird durchsucht ...',
+    action: {
+      title: 'Wiedergabevorschau',
+      playDescription: 'Ersetzt die aktuelle Warteschlange durch diese Titel und startet den ersten Titel.',
+      queueDescription: 'Fügt diese Titel am Ende der aktuellen Warteschlange hinzu.',
+      trackCount: '{count} Titel',
+      playConfirm: 'Jetzt abspielen',
+      queueConfirm: 'Zur Warteschlange hinzufügen',
+      dismiss: 'Abbrechen',
+      confirmed: 'Die Wiedergabeaktion wurde ausgeführt.',
+      dismissed: 'Die Wiedergabeaktion wurde abgebrochen.',
+    },
     suggestions: {
       summary: 'Wie viele Alben und Titel enthält diese Sammlung?',
       artistAlbums: 'Finde bis zu fünf Alben von The Cure.',
       topPlayed: 'Welche fünf Alben habe ich am häufigsten gehört?',
       unplayed: 'Zeige mir fünf Alben, die ich noch nie gehört habe.',
+      similar: 'Spiele fünf Titel, die Pictures of You von The Cure ähneln.',
     },
     errors: {
       assistant_disabled: 'Der Sammlungsassistent ist deaktiviert. Aktiviere ihn zuerst in den Einstellungen.',

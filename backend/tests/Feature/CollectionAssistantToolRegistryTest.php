@@ -145,6 +145,7 @@ class CollectionAssistantToolRegistryTest extends TestCase
                 'title' => 'Source Track',
                 'artist_name' => 'Source Artist',
                 'limit' => 3,
+                'action' => 'play',
             ],
             $root->id,
         );
@@ -157,6 +158,16 @@ class CollectionAssistantToolRegistryTest extends TestCase
         $this->assertSame('/tracks/'.$source->id, $result['reference']['path']);
         $this->assertSame('/tracks/'.$match->id, $result['results'][0]['path']);
         $this->assertSame(0.87, $result['results'][0]['rankingScore']);
+        $this->assertSame('track_queue', $result['action']['type']);
+        $this->assertSame('play', $result['action']['mode']);
+        $this->assertSame(
+            [$source->id, $match->id],
+            array_column($result['action']['tracks'], 'id'),
+        );
+        $this->assertSame(
+            "/api/tracks/{$source->id}/stream",
+            $result['action']['tracks'][0]['streamUrl'],
+        );
     }
 
     public function test_similarity_tool_reports_ambiguous_disabled_and_unanalyzed_references(): void

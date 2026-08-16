@@ -755,7 +755,9 @@ Completed:
   genre rankings support aggregate all-time statistics and timestamped periods.
   A guarded similarity tool resolves one named reference track, reports
   ambiguity and analysis coverage, and returns existing pgvector results with
-  embedding and refined scores without mutating playback state.
+  embedding and refined scores without mutating playback state. Explicit
+  play-now and add-to-queue requests return a verified preview whose playable
+  payload stays outside model context and requires browser-side confirmation.
 
 Open roadmap work:
 
@@ -769,8 +771,6 @@ Open roadmap work:
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
-- Collection Assistant previewed queue/playback actions with explicit
-  confirmation, building on the completed read-only pgvector similarity tool
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
@@ -1473,8 +1473,9 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
   collection-summary, bounded catalog search, listening totals, track/album/
   artist/genre rankings, recent history, unplayed-album, and root-scoped
   similar-track tools are complete. Unambiguous collection totals bypass the
-  model while retaining the same validated tool boundary. Queue previews remain
-  pending.)
+  model while retaining the same validated tool boundary. Similarity-backed
+  play-now and add-to-queue previews are complete; broader generated selections
+  remain a future extension.)
 - Validate tool schemas, result limits, library-root scope, timeouts, and the
   maximum number of tool iterations server-side. (Complete for the initial
   tool registry and Ollama conversation loop.)
@@ -1487,8 +1488,9 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
   locally and explicit confirmation for any generated queue, playlist, or
   playback action. (The root-aware view, bounded local history, safe Markdown
   rendering, linked evidence, model warm-up, and concise synthesis path are
-  complete; generated mutations are not exposed yet and will require
-  confirmation when added.)
+  complete. Similarity requests can return a bounded, verified playback preview;
+  Sonotheque changes the browser queue only after explicit confirmation, and the
+  model never receives direct mutation access.)
 - Support English and German questions while normalizing semantic audio prompts
   to the language expected by the configured embedding model. (Pending)
 - Add disabled/unavailable/model-error states that leave normal browsing and
@@ -1592,9 +1594,10 @@ round trip, while arbitrary questions use a bounded tool-selection and concise
 result-synthesis flow. Named reference tracks can now be resolved safely for
 root-scoped pgvector similarity search; ambiguous, disabled, and unanalyzed
 states remain explicit, and results include coverage, ranking method, raw and
-refined scores, uncertainty, and verified track links. The next Assistant
-milestone is a previewed queue/playback action that requires explicit user
-confirmation and does not grant the model direct mutation access.
+refined scores, uncertainty, and verified track links. Similarity-based play-now
+and add-to-queue requests now produce a verified preview with explicit Confirm
+and Cancel controls. Playable payloads remain outside model context, and the
+model has no direct mutation access.
 
 The expanded similarity review produced predominantly useful matches and is
 accepted as the go decision for the unweighted embedding baseline. Sonotheque

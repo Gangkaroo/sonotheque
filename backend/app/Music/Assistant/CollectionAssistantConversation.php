@@ -21,7 +21,7 @@ class CollectionAssistantConversation
 
     /**
      * @param  list<array{role: string, content: string}>  $history
-     * @return array{answer: string, toolsUsed: list<string>, references: list<array{path: string, label: string}>}
+     * @return array{answer: string, toolsUsed: list<string>, references: list<array{path: string, label: string}>, action?: array<string, mixed>}
      */
     public function ask(
         string $model,
@@ -46,6 +46,7 @@ class CollectionAssistantConversation
                     'For albums by a named artist, use search_albums_by_artist instead of broad catalog search.',
                     'Use the listening tools for play history and rankings.',
                     'Use find_similar_tracks for requests about tracks that sound similar, and explain when the reference is ambiguous, not analyzed, or audio intelligence is disabled.',
+                    'When the user explicitly asks to play similar tracks now, set find_similar_tracks action to play. When they explicitly ask to add similar tracks to the queue, set its action to queue. This only creates a preview that the user must confirm. Never claim that playback started or the queue changed; say that the preview is ready and awaits confirmation.',
                     'Call every tool needed for the answer in the first tool response.',
                     'For date-limited listening answers, explain that the result uses timestamped Sonotheque play events; all-time aggregate counts can also include imported file-tag statistics.',
                     'Keep the answer concise.',
@@ -57,6 +58,7 @@ class CollectionAssistantConversation
         $messages[] = ['role' => 'user', 'content' => $question];
         $toolsUsed = [];
         $references = [];
+        $action = null;
         $toolCallCount = 0;
         $toolDefinitions = $this->tools->definitions();
 
@@ -69,11 +71,17 @@ class CollectionAssistantConversation
                     throw new CollectionAssistantConversationException('empty_response');
                 }
 
-                return [
+                $result = [
                     'answer' => $answer,
                     'toolsUsed' => array_values(array_unique($toolsUsed)),
                     'references' => array_values($references),
                 ];
+
+                if ($action !== null) {
+                    $result['action'] = $action;
+                }
+
+                return $result;
             }
 
             $messages[] = $this->messageForProvider($message);
@@ -95,6 +103,10 @@ class CollectionAssistantConversation
                         $toolsUsed[] = $name;
                         $executedTool = true;
                         $this->collectReferences($result, $references);
+                        if ($action === null && isset($result['action']) && is_array($result['action'])) {
+                            $action = $result['action'];
+                        }
+                        unset($result['action']);
                     } catch (CollectionAssistantToolException $exception) {
                         $result = ['error' => $exception->errorCode];
                     }

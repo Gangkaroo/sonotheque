@@ -23,7 +23,9 @@ The implemented backend provides:
 - bounded conversational context and locally retained conversations separated
   by library-root scope; and
 - verified Sonotheque references rendered as navigation actions instead of
-  trusting model-generated URLs.
+  trusting model-generated URLs; and
+- bounded similarity playback previews that require an explicit browser-side
+  confirmation before replacing or extending the queue.
 
 Opening Settings does not contact Ollama, load a model, or start a process.
 Sonotheque never downloads a language model or starts Ollama automatically.
@@ -105,8 +107,10 @@ guessing; add the artist name to disambiguate them.
 Similarity answers include the analyzed coverage of the selected scope and the
 ranking method used. Raw embedding similarity and an optional refined score may
 both be present. These values order candidates; they are not probabilities or
-claims that two tracks are objectively alike. The feature only returns linked
-results. It does not change the queue or start playback.
+claims that two tracks are objectively alike. When a question explicitly asks
+to play the results or add them to the queue, Sonotheque displays the verified
+tracks in a preview. The browser changes playback only after **Play now** or
+**Add to queue** is selected; cancelling the preview has no playback effect.
 
 ## Safety Boundary
 
@@ -128,6 +132,7 @@ Tool results contain display metadata and Sonotheque navigation paths, not
 physical file locations.
 
 The model does not receive database credentials, SQL, filesystem paths,
-provider secrets, or arbitrary HTTP access. Queue, playlist, and playback
-changes remain unavailable and will require explicit user confirmation if they
-are added later.
+provider secrets, arbitrary HTTP access, or playable stream payloads. The
+backend constructs similarity playback previews from verified catalog records,
+and only the browser can apply them after explicit confirmation. Other queue,
+playlist, and playback mutations remain unavailable to the model.

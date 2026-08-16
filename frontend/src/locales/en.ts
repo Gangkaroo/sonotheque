@@ -60,11 +60,23 @@ export default {
     inputHint: 'Press Enter to send. Use Shift+Enter for a new line.',
     send: 'Send question',
     thinking: 'Checking your collection...',
+    action: {
+      title: 'Playback preview',
+      playDescription: 'Replace the current queue with these tracks and start playing the first one.',
+      queueDescription: 'Add these tracks to the end of the current queue.',
+      trackCount: '{count} tracks',
+      playConfirm: 'Play now',
+      queueConfirm: 'Add to queue',
+      dismiss: 'Cancel',
+      confirmed: 'The playback action was applied.',
+      dismissed: 'The playback action was cancelled.',
+    },
     suggestions: {
       summary: 'How many albums and tracks are in this collection?',
       artistAlbums: 'Find up to five albums by The Cure.',
       topPlayed: 'What are my five most-played albums?',
       unplayed: 'Show me five albums I have never played.',
+      similar: 'Play five tracks similar to Pictures of You by The Cure.',
     },
     errors: {
       assistant_disabled: 'The Collection Assistant is disabled. Enable it in Settings first.',

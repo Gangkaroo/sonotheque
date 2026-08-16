@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-16
+
+- Add explicit Collection Assistant playback previews for similar-track
+  requests, with verified catalog tracks and confirmation before replacing or
+  extending the browser queue.
+- Add a comprehensive project README covering Sonotheque's features,
+  technology stack, setup paths, security scope, and AI-assisted development.
+- Refresh supported backend and frontend dependencies, including Laravel, API
+  Platform, Vue, Vuetify, Vue Router, Vite, Vitest, Tiptap, and development
+  tooling, with clean npm and Composer security audits.
+- Raise the frontend development requirement to Node.js 22.18 to match the
+  updated toolchain while keeping packaged builds on the rolling Node 22 image.
+- Document the development-to-master release workflow and require release
+  notes for each published version.
+
 ## 0.2.0 - 2026-08-16
 
 - Add optional per-root filesystem monitoring with consolidated activity logs,

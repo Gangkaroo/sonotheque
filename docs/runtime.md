@@ -31,7 +31,7 @@ background.
 - FFmpeg/FFprobe for recovering metadata and stream details when getID3 cannot
   parse an otherwise playable file.
 - Composer.
-- Node.js 22.12 or newer.
+- Node.js 22.18 or newer.
 - npm 10 or newer.
 
 On this machine, an older XAMPP PHP can appear first on `PATH`. Use the PHP 8.5

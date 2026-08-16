@@ -8,12 +8,15 @@ import { useCollectionAssistantStore } from '@/stores/collectionAssistant'
 import { useCollectionAssistantSettingsStore } from '@/stores/collectionAssistantSettings'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
+import { usePlayerStore } from '@/stores/player'
+import type { CollectionAssistantMessage } from '@/stores/collectionAssistant'
 
 const { locale, t } = useI18n()
 const assistant = useCollectionAssistantStore()
 const assistantSettings = useCollectionAssistantSettingsStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
+const player = usePlayerStore()
 const question = ref('')
 const clearDialog = ref(false)
 const settingsReady = ref(false)
@@ -35,6 +38,7 @@ const suggestedQuestions = computed(() => [
   t('collectionAssistant.suggestions.artistAlbums'),
   t('collectionAssistant.suggestions.topPlayed'),
   t('collectionAssistant.suggestions.unplayed'),
+  t('collectionAssistant.suggestions.similar'),
 ])
 const errorMessage = computed(() => {
   if (!requestError.value) return null
@@ -81,6 +85,24 @@ function askSuggested(value: string) {
 function clearConversation() {
   assistant.clear(scopeKey.value)
   clearDialog.value = false
+}
+
+function confirmAction(message: CollectionAssistantMessage) {
+  const action = message.action
+  const firstTrack = action?.tracks[0]
+  if (!action || !firstTrack || action.state) return
+
+  if (action.mode === 'play') {
+    player.playTrack(firstTrack, action.tracks, 'track-list')
+  } else {
+    player.queueTracks(action.tracks, 'track-list')
+  }
+  assistant.setActionState(scopeKey.value, message.id, 'confirmed')
+}
+
+function dismissAction(message: CollectionAssistantMessage) {
+  if (!message.action || message.action.state) return
+  assistant.setActionState(scopeKey.value, message.id, 'dismissed')
 }
 </script>
 
@@ -189,6 +211,69 @@ function clearConversation() {
               <v-icon end icon="mdi-arrow-right" />
             </v-btn>
           </div>
+          <v-card
+            v-if="message.role === 'assistant' && message.action"
+            class="assistant-action mt-3"
+            color="surface"
+            variant="outlined"
+          >
+            <v-card-title class="d-flex align-center ga-2 text-subtitle-1 pb-1">
+              <v-icon color="primary" icon="mdi-playlist-play" />
+              {{ t('collectionAssistant.action.title') }}
+            </v-card-title>
+            <v-card-subtitle class="text-wrap">
+              {{ t(`collectionAssistant.action.${message.action.mode}Description`) }}
+            </v-card-subtitle>
+            <v-card-text class="pt-3 pb-2">
+              <div class="d-flex flex-wrap ga-2 mb-3">
+                <v-chip prepend-icon="mdi-music-note" size="small" variant="tonal">
+                  {{ t('collectionAssistant.action.trackCount', { count: message.action.tracks.length }) }}
+                </v-chip>
+                <v-chip prepend-icon="mdi-harddisk" size="small" variant="tonal">
+                  {{ message.action.scope.id === null
+                    ? t('libraryScope.allRoots')
+                    : message.action.scope.name }}
+                </v-chip>
+              </div>
+              <v-list class="assistant-action-list" density="compact" lines="two">
+                <v-list-item
+                  v-for="(track, index) in message.action.tracks"
+                  :key="track.id"
+                  :subtitle="[track.artists.map((artist) => artist.name).join(', '), track.album?.title].filter(Boolean).join(' · ')"
+                  :title="track.title"
+                >
+                  <template #prepend>
+                    <span class="assistant-action-position text-caption text-medium-emphasis">
+                      {{ index + 1 }}
+                    </span>
+                  </template>
+                </v-list-item>
+              </v-list>
+              <v-alert
+                v-if="message.action.state"
+                class="mt-3"
+                density="compact"
+                :type="message.action.state === 'confirmed' ? 'success' : 'info'"
+                variant="tonal"
+              >
+                {{ t(`collectionAssistant.action.${message.action.state}`) }}
+              </v-alert>
+            </v-card-text>
+            <v-card-actions v-if="!message.action.state" class="pt-0">
+              <v-spacer />
+              <v-btn variant="text" @click="dismissAction(message)">
+                {{ t('collectionAssistant.action.dismiss') }}
+              </v-btn>
+              <v-btn
+                color="primary"
+                :prepend-icon="message.action.mode === 'play' ? 'mdi-play' : 'mdi-playlist-plus'"
+                variant="tonal"
+                @click="confirmAction(message)"
+              >
+                {{ t(`collectionAssistant.action.${message.action.mode}Confirm`) }}
+              </v-btn>
+            </v-card-actions>
+          </v-card>
         </div>
       </div>
 
@@ -310,6 +395,22 @@ function clearConversation() {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.assistant-action {
+  max-width: 620px;
+}
+
+.assistant-action-list {
+  max-height: 300px;
+  overflow-y: auto;
+  background: transparent;
+}
+
+.assistant-action-position {
+  width: 28px;
+  text-align: end;
+  margin-inline-end: 14px;
 }
 
 .assistant-thinking {
