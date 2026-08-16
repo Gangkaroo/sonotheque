@@ -24,6 +24,7 @@ class CollectionAssistantToolRegistry
         private readonly LibraryRootScope $libraryRootScope,
         private readonly MusicianCatalog $musicians,
         private readonly CollectionAssistantListeningTools $listeningTools,
+        private readonly CollectionAssistantSimilarityTools $similarityTools,
     ) {
     }
 
@@ -107,6 +108,7 @@ class CollectionAssistantToolRegistry
                 ['artist_name'],
             ),
             ...$this->listeningTools->definitions(),
+            ...$this->similarityTools->definitions(),
         ];
     }
 
@@ -117,10 +119,25 @@ class CollectionAssistantToolRegistry
             'collection_summary' => $this->summary($arguments, $libraryRootId),
             'search_catalog' => $this->search($arguments, $libraryRootId),
             'search_albums_by_artist' => $this->artistAlbums($arguments, $libraryRootId),
-            default => $this->listeningTools->supports($name)
-                ? $this->listeningTools->execute($name, $arguments, $libraryRootId)
-                : throw new CollectionAssistantToolException('unknown_tool'),
+            default => $this->executeExtension($name, $arguments, $libraryRootId),
         };
+    }
+
+    /** @param array<string, mixed> $arguments */
+    private function executeExtension(
+        string $name,
+        array $arguments,
+        ?int $libraryRootId,
+    ): array {
+        if ($this->listeningTools->supports($name)) {
+            return $this->listeningTools->execute($name, $arguments, $libraryRootId);
+        }
+
+        if ($this->similarityTools->supports($name)) {
+            return $this->similarityTools->execute($arguments, $libraryRootId);
+        }
+
+        throw new CollectionAssistantToolException('unknown_tool');
     }
 
     /** @param array<string, mixed> $arguments */

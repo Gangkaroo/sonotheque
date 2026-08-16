@@ -98,8 +98,8 @@ The implemented release baseline and active roadmap include:
 - Independently disabled-by-default local collection assistant with a
   root-aware conversational view, local history, linked catalog references,
   safe Markdown rendering, and validated read-only Sonotheque tools for
-  collection totals, catalog search, listening history, rankings, and
-  unplayed albums
+  collection totals, catalog search, listening history, rankings, unplayed
+  albums, and root-scoped audio-similarity recommendations
 - English and German translations
 - Localhost access by default and optional LAN access
 
@@ -753,6 +753,9 @@ Completed:
   references, safe Markdown display, direct low-latency collection totals, and
   configurable model residency and output limits. Track, album, artist, and
   genre rankings support aggregate all-time statistics and timestamped periods.
+  A guarded similarity tool resolves one named reference track, reports
+  ambiguity and analysis coverage, and returns existing pgvector results with
+  embedding and refined scores without mutating playback state.
 
 Open roadmap work:
 
@@ -766,8 +769,8 @@ Open roadmap work:
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional alternate configured destination for album playlist exports
-- Collection Assistant similarity search over the existing pgvector index,
-  followed by previewed queue/playback actions with explicit confirmation
+- Collection Assistant previewed queue/playback actions with explicit
+  confirmation, building on the completed read-only pgvector similarity tool
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
@@ -1468,16 +1471,18 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
   aggregates, listening history, similar tracks, and queue previews. Never expose
   raw SQL, filesystem paths, provider secrets, or unrestricted APIs. (Initial
   collection-summary, bounded catalog search, listening totals, track/album/
-  artist/genre rankings, recent history, and unplayed-album tools are complete.
-  Unambiguous collection totals bypass the model while retaining the same
-  validated tool boundary. Similarity and queue previews remain pending.)
+  artist/genre rankings, recent history, unplayed-album, and root-scoped
+  similar-track tools are complete. Unambiguous collection totals bypass the
+  model while retaining the same validated tool boundary. Queue previews remain
+  pending.)
 - Validate tool schemas, result limits, library-root scope, timeouts, and the
   maximum number of tool iterations server-side. (Complete for the initial
   tool registry and Ollama conversation loop.)
 - Require linked catalog evidence for factual collection answers and distinguish
   database facts, model interpretations, and uncertain audio-analysis labels.
-  (Linked references from trusted catalog tools are complete; explicit labels
-  for interpretations and uncertain audio-analysis data remain pending.)
+  (Linked references from trusted catalog tools are complete. Similarity results
+  identify their analyzed coverage, ranking method, raw and refined scores, and
+  explicitly state that scores are rankings rather than probabilities.)
 - Add a dedicated Collection Assistant view with conversational history kept
   locally and explicit confirmation for any generated queue, playlist, or
   playback action. (The root-aware view, bounded local history, safe Markdown
@@ -1575,7 +1580,8 @@ centralized, root-scoped ambiguous/failure review workflow are complete.
 Packaged delivery of the optional analyzer is the remaining distribution task
 for Audio Intelligence.
 
-The Collection Assistant foundation is complete. Ollama remains independently
+The Collection Assistant foundation and read-only similarity integration are
+complete. Ollama remains independently
 optional and disabled by default; installed models are discovered and verified
 explicitly, with `qwen3:4b` recommended as the responsive tool-capable starting
 point. Conversations are separated by library-root scope and retain bounded
@@ -1583,10 +1589,12 @@ browser-local context. Guarded tools cover collection totals, catalog search,
 all-time and period listening statistics, recent history, unplayed albums, and
 track/album/artist/genre rankings. Common total-count questions avoid an LLM
 round trip, while arbitrary questions use a bounded tool-selection and concise
-result-synthesis flow. The next Assistant milestone is a read-only,
-root-scoped similarity tool backed by the existing pgvector service. Results
-must identify the reference track, analysis coverage, vector and refined
-scores, and uncertainty before any later queue or playback action is offered.
+result-synthesis flow. Named reference tracks can now be resolved safely for
+root-scoped pgvector similarity search; ambiguous, disabled, and unanalyzed
+states remain explicit, and results include coverage, ranking method, raw and
+refined scores, uncertainty, and verified track links. The next Assistant
+milestone is a previewed queue/playback action that requires explicit user
+confirmation and does not grant the model direct mutation access.
 
 The expanded similarity review produced predominantly useful matches and is
 accepted as the go decision for the unweighted embedding baseline. Sonotheque

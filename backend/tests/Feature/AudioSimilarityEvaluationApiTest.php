@@ -15,6 +15,7 @@ use App\Models\Track;
 use App\Music\Intelligence\AnalyzerProfile;
 use App\Music\Intelligence\AudioAnalysisProfileSelector;
 use App\Music\Intelligence\AudioAnalysisProfileRegistry;
+use App\Music\Intelligence\AudioSimilarityEvaluator;
 use App\Music\Intelligence\AudioVectorIndex;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -136,6 +137,16 @@ class AudioSimilarityEvaluationApiTest extends TestCase
             $response->json('matches.1.similarity'),
             $response->json('matches.0.similarity'),
         );
+
+        $rootScoped = app(AudioSimilarityEvaluator::class)->evaluate(
+            $source->id,
+            2,
+            false,
+            false,
+            personalizationEnabled: false,
+            libraryRootId: $root->id,
+        );
+        $this->assertSame([$near->id, $far->id], array_column($rootScoped['matches'], 'id'));
 
         $this->getJson(
             "/api/settings/audio-intelligence/evaluation/{$source->id}"

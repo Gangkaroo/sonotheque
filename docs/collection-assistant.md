@@ -14,7 +14,8 @@ The implemented backend provides:
 - explicit discovery of models already installed in Ollama;
 - an explicit model check that requires a structured tool call; and
 - a protected Settings tab showing the server-configured Ollama address;
-- read-only collection-summary, catalog-search, and listening-statistics tools;
+- read-only collection-summary, catalog-search, listening-statistics, and
+  analyzed-audio similarity tools;
 - fixed library-root scope and bounded result sizes; and
 - a protected query endpoint with a maximum of four model rounds and six tool
   calls per question;
@@ -93,6 +94,20 @@ After starting Ollama, open **Settings > Assistant**:
 5. Open **Assistant** in the main navigation and ask a question. Catalog results
    returned by the guarded tools appear as links below the answer.
 
+To ask for similar music, Audio Intelligence must also be enabled and the
+reference track must already have a compatible analysis result. Name the track
+and, where useful, its artist, for example: “Find five tracks similar to
+Pictures of You by The Cure.” The search stays inside the active library-root
+scope and excludes the same album and artist by default. If several tracks have
+the same title, the assistant returns the matching references instead of
+guessing; add the artist name to disambiguate them.
+
+Similarity answers include the analyzed coverage of the selected scope and the
+ranking method used. Raw embedding similarity and an optional refined score may
+both be present. These values order candidates; they are not probabilities or
+claims that two tracks are objectively alike. The feature only returns linked
+results. It does not change the queue or start playback.
+
 ## Safety Boundary
 
 The model can call only named, read-only tools with strict input schemas,
@@ -102,6 +117,9 @@ albums, tracks, genres, and musicians, and precise album searches by artist.
 Listening tools provide aggregate all-time track, album, artist, and genre
 rankings, recent timestamped play
 history, bounded period totals and rankings, and albums with no recorded plays.
+The similarity tool resolves one exact reference track, delegates ranking to
+the existing pgvector index and configured refinement/personalization settings,
+and returns no more than ten matches.
 Date-limited answers use counted Sonotheque play events. All-time aggregate
 answers can additionally include statistics imported from file tags because
 those historical imports do not contain one timestamp for every individual

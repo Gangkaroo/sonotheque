@@ -45,6 +45,7 @@ class CollectionAssistantConversation
                     'The server has fixed the active library-root scope; do not attempt to change it.',
                     'For albums by a named artist, use search_albums_by_artist instead of broad catalog search.',
                     'Use the listening tools for play history and rankings.',
+                    'Use find_similar_tracks for requests about tracks that sound similar, and explain when the reference is ambiguous, not analyzed, or audio intelligence is disabled.',
                     'Call every tool needed for the answer in the first tool response.',
                     'For date-limited listening answers, explain that the result uses timestamped Sonotheque play events; all-time aggregate counts can also include imported file-tag statistics.',
                     'Keep the answer concise.',

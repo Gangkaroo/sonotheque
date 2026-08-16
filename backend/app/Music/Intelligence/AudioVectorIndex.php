@@ -2,6 +2,7 @@
 
 namespace App\Music\Intelligence;
 
+use App\Enums\MediaFileStatus;
 use App\Models\AudioAnalysisArtifact;
 use App\Models\AudioAnalysisProfile;
 use Illuminate\Support\Facades\DB;
@@ -116,6 +117,7 @@ class AudioVectorIndex
         int $limit,
         bool $excludeSameAlbum,
         bool $excludeSameArtist,
+        ?int $libraryRootId = null,
     ): ?array {
         if (! $this->supports($profile)) {
             return null;
@@ -137,6 +139,7 @@ class AudioVectorIndex
             $sourceArtistIds,
             $excludeSameAlbum,
             $excludeSameArtist,
+            $libraryRootId,
         );
         $latestItems = <<<'SQL'
             SELECT DISTINCT ON (items.track_id)
@@ -156,6 +159,8 @@ class AudioVectorIndex
                 ON vectors.audio_analysis_artifact_id = latest.audio_analysis_artifact_id
                 AND vectors.audio_analysis_profile_id = ?
             INNER JOIN tracks ON tracks.id = latest.track_id
+            INNER JOIN media_files ON media_files.id = tracks.media_file_id
+            INNER JOIN library_roots ON library_roots.id = media_files.library_root_id
             LEFT JOIN albums ON albums.id = tracks.album_id
             WHERE {$filters}
             SQL;
@@ -164,6 +169,8 @@ class AudioVectorIndex
             INNER JOIN latest_items AS latest
                 ON latest.audio_analysis_artifact_id = nearest_vectors.audio_analysis_artifact_id
             INNER JOIN tracks ON tracks.id = latest.track_id
+            INNER JOIN media_files ON media_files.id = tracks.media_file_id
+            INNER JOIN library_roots ON library_roots.id = media_files.library_root_id
             LEFT JOIN albums ON albums.id = tracks.album_id
             WHERE {$filters}
             SQL;
@@ -230,9 +237,19 @@ class AudioVectorIndex
         array $sourceArtistIds,
         bool $excludeSameAlbum,
         bool $excludeSameArtist,
+        ?int $libraryRootId,
     ): array {
-        $filters = ['latest.track_id <> ?'];
-        $bindings = [$sourceTrackId];
+        $filters = [
+            'latest.track_id <> ?',
+            'media_files.status = ?',
+            'library_roots.enabled = true',
+        ];
+        $bindings = [$sourceTrackId, MediaFileStatus::Available->value];
+
+        if ($libraryRootId !== null) {
+            $filters[] = 'library_roots.id = ?';
+            $bindings[] = $libraryRootId;
+        }
 
         if ($excludeSameAlbum && $sourceAlbumId !== null) {
             $filters[] = 'tracks.album_id IS DISTINCT FROM ?';

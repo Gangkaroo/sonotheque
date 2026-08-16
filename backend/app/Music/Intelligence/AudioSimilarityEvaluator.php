@@ -2,6 +2,7 @@
 
 namespace App\Music\Intelligence;
 
+use App\Enums\MediaFileStatus;
 use App\Models\AudioAnalysisProfile;
 use App\Models\AudioAnalysisRunItem;
 use App\Models\AudioSimilarityFeedback;
@@ -121,13 +122,14 @@ class AudioSimilarityEvaluator
             'intensityInfluence' => 4,
         ],
         bool $personalizationEnabled = false,
+        ?int $libraryRootId = null,
     ): ?array {
         $profile = $this->latestProfile();
         if ($profile === null) {
             return null;
         }
 
-        $source = $this->itemsForTrackIds($profile, [$trackId])->first();
+        $source = $this->itemsForTrackIds($profile, [$trackId], $libraryRootId)->first();
         if ($source === null || $source->audio_analysis_artifact_id === null) {
             return null;
         }
@@ -151,6 +153,7 @@ class AudioSimilarityEvaluator
             $candidateLimit,
             $excludeSameAlbum,
             $excludeSameArtist,
+            $libraryRootId,
         );
         if ($search === null) {
             return null;
@@ -318,6 +321,7 @@ class AudioSimilarityEvaluator
     private function itemsForTrackIds(
         AudioAnalysisProfile $profile,
         array $trackIds,
+        ?int $libraryRootId = null,
     ): Collection {
         if ($trackIds === []) {
             return collect();
@@ -325,6 +329,14 @@ class AudioSimilarityEvaluator
 
         return $this->itemQueryForProfile($profile)
             ->whereIn('track_id', $trackIds)
+            ->whereHas('track.mediaFile', fn (Builder $mediaFiles) => $mediaFiles
+                ->where('status', MediaFileStatus::Available->value)
+                ->whereHas('libraryRoot', fn (Builder $libraryRoots) => $libraryRoots
+                    ->where('enabled', true)
+                    ->when(
+                        $libraryRootId,
+                        fn (Builder $query, int $id) => $query->whereKey($id),
+                    )))
             ->with([
                 'artifact:id,audio_analysis_profile_id,features',
                 'libraryRoot:id,name',

@@ -12,8 +12,10 @@ use App\Models\TrackPlayEvent;
 use App\Models\TrackPlayStatistic;
 use App\Music\Assistant\CollectionAssistantToolException;
 use App\Music\Assistant\CollectionAssistantToolRegistry;
+use App\Music\Intelligence\AudioSimilarityEvaluator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Mockery;
 use Tests\TestCase;
 
 class CollectionAssistantToolRegistryTest extends TestCase
@@ -79,6 +81,126 @@ class CollectionAssistantToolRegistryTest extends TestCase
         } catch (CollectionAssistantToolException $exception) {
             $this->assertSame('invalid_arguments', $exception->errorCode);
         }
+    }
+
+    public function test_similarity_tool_uses_the_active_root_and_returns_explainable_matches(): void
+    {
+        [$root, $source] = $this->createTrack(
+            'Similarity root',
+            'D:/Similarity',
+            'Source Artist',
+            'Source Album',
+            'Source Track',
+        );
+        [, $match] = $this->createTrack(
+            'Similarity root',
+            'D:/Similarity',
+            'Match Artist',
+            'Match Album',
+            'Match Track',
+            $root,
+        );
+        \App\Models\ApplicationSetting::current()->update([
+            'audio_intelligence_enabled' => true,
+        ]);
+        $evaluator = Mockery::mock(AudioSimilarityEvaluator::class);
+        $evaluator->shouldReceive('evaluate')
+            ->once()
+            ->withArgs(fn (...$arguments): bool => $arguments[0] === $source->id
+                && $arguments[1] === 3
+                && $arguments[2] === true
+                && $arguments[3] === true
+                && $arguments[6] === $root->id)
+            ->andReturn([
+                'source' => [
+                    'id' => $source->id,
+                    'title' => $source->title,
+                    'artistName' => 'Source Artist',
+                    'albumId' => $source->album_id,
+                    'albumTitle' => 'Source Album',
+                    'libraryRootName' => $root->name,
+                    'features' => ['bpm' => 120, 'key' => 'C'],
+                ],
+                'candidateCount' => 20,
+                'calculationMs' => 2.5,
+                'ranking' => ['method' => 'feature_reranking'],
+                'matches' => [[
+                    'id' => $match->id,
+                    'title' => $match->title,
+                    'artistName' => 'Match Artist',
+                    'albumId' => $match->album_id,
+                    'albumTitle' => 'Match Album',
+                    'libraryRootName' => $root->name,
+                    'similarity' => 0.91,
+                    'rankingScore' => 0.87,
+                    'featureCompatibility' => ['tempo' => 0.95],
+                    'features' => ['bpm' => 122, 'key' => 'C'],
+                ]],
+            ]);
+        $this->app->instance(AudioSimilarityEvaluator::class, $evaluator);
+
+        $result = app(CollectionAssistantToolRegistry::class)->execute(
+            'find_similar_tracks',
+            [
+                'title' => 'Source Track',
+                'artist_name' => 'Source Artist',
+                'limit' => 3,
+            ],
+            $root->id,
+        );
+
+        $this->assertSame('ok', $result['status']);
+        $this->assertSame('Similarity root', $result['scope']['name']);
+        $this->assertSame('feature_reranking', $result['basis']['rankingMethod']);
+        $this->assertSame(2, $result['coverage']['totalTrackCount']);
+        $this->assertSame(0, $result['coverage']['analyzedTrackCount']);
+        $this->assertSame('/tracks/'.$source->id, $result['reference']['path']);
+        $this->assertSame('/tracks/'.$match->id, $result['results'][0]['path']);
+        $this->assertSame(0.87, $result['results'][0]['rankingScore']);
+    }
+
+    public function test_similarity_tool_reports_ambiguous_disabled_and_unanalyzed_references(): void
+    {
+        [$root, $first] = $this->createTrack(
+            'Ambiguous root',
+            'D:/Ambiguous',
+            'First Artist',
+            'First Album',
+            'Shared Title',
+        );
+        [, $second] = $this->createTrack(
+            'Ambiguous root',
+            'D:/Ambiguous',
+            'Second Artist',
+            'Second Album',
+            'Shared Title',
+            $root,
+        );
+        $tools = app(CollectionAssistantToolRegistry::class);
+
+        $ambiguous = $tools->execute('find_similar_tracks', [
+            'title' => 'Shared Title',
+        ], $root->id);
+        $disabled = $tools->execute('find_similar_tracks', [
+            'title' => 'Shared Title',
+            'artist_name' => 'First Artist',
+        ], $root->id);
+        \App\Models\ApplicationSetting::current()->update([
+            'audio_intelligence_enabled' => true,
+        ]);
+        $notAnalyzed = $tools->execute('find_similar_tracks', [
+            'title' => 'Shared Title',
+            'artist_name' => 'First Artist',
+        ], $root->id);
+
+        $this->assertSame('ambiguous_reference', $ambiguous['status']);
+        $this->assertSame(
+            [$first->id, $second->id],
+            array_column($ambiguous['candidates'], 'id'),
+        );
+        $this->assertSame('audio_intelligence_disabled', $disabled['status']);
+        $this->assertSame('reference_not_analyzed', $notAnalyzed['status']);
+        $this->assertSame($first->id, $notAnalyzed['reference']['id']);
     }
 
     public function test_listening_tools_use_aggregate_counts_and_timestamped_events_with_root_scope(): void
