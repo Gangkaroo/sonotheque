@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -91,6 +91,10 @@ const itemIds = computed(() => playlist.value?.items.map((item) => item.id) ?? [
 const selectedCount = computed(() => selectedItemIds.value.length)
 const allSelected = computed(() => itemIds.value.length > 0 && selectedCount.value === itemIds.value.length)
 const canReorder = computed(() => libraryRootScope.selectedRootId === null)
+const AUTO_SCROLL_EDGE_SIZE = 96
+const AUTO_SCROLL_MAX_SPEED = 22
+let autoScrollFrame: number | null = null
+let autoScrollSpeed = 0
 
 function formatDate(value?: string | null) {
   return formatDateTime(value, locale.value)
@@ -198,11 +202,58 @@ function startDragging(itemId: number, event: DragEvent) {
   draggedItemId.value = itemId
   event.dataTransfer?.setData('text/plain', String(itemId))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  document.addEventListener('dragover', updateDragAutoScroll)
 }
 
 function stopDragging() {
+  stopDragAutoScroll()
   draggedItemId.value = null
   dropTargetIndex.value = null
+}
+
+function updateDragAutoScroll(event: DragEvent) {
+  if (draggedItemId.value === null) return
+
+  const appBarBottom = document.querySelector<HTMLElement>('.v-app-bar')
+    ?.getBoundingClientRect().bottom ?? 0
+  const playerTop = document.querySelector<HTMLElement>('.player-footer')
+    ?.getBoundingClientRect().top ?? window.innerHeight
+  const distanceFromTop = Math.max(0, event.clientY - appBarBottom)
+  const distanceFromBottom = Math.max(0, playerTop - event.clientY)
+  if (distanceFromTop < AUTO_SCROLL_EDGE_SIZE) {
+    autoScrollSpeed = -scrollSpeedForEdgeDistance(distanceFromTop)
+  } else if (distanceFromBottom < AUTO_SCROLL_EDGE_SIZE) {
+    autoScrollSpeed = scrollSpeedForEdgeDistance(distanceFromBottom)
+  } else {
+    autoScrollSpeed = 0
+  }
+
+  if (autoScrollSpeed !== 0 && autoScrollFrame === null) {
+    autoScrollFrame = window.requestAnimationFrame(runDragAutoScroll)
+  }
+}
+
+function scrollSpeedForEdgeDistance(distance: number) {
+  const proximity = 1 - Math.min(AUTO_SCROLL_EDGE_SIZE, distance) / AUTO_SCROLL_EDGE_SIZE
+
+  return Math.max(1, Math.round(AUTO_SCROLL_MAX_SPEED * proximity))
+}
+
+function runDragAutoScroll() {
+  autoScrollFrame = null
+  if (draggedItemId.value === null || autoScrollSpeed === 0) return
+
+  window.scrollBy({ top: autoScrollSpeed, behavior: 'auto' })
+  autoScrollFrame = window.requestAnimationFrame(runDragAutoScroll)
+}
+
+function stopDragAutoScroll() {
+  document.removeEventListener('dragover', updateDragAutoScroll)
+  autoScrollSpeed = 0
+  if (autoScrollFrame !== null) {
+    window.cancelAnimationFrame(autoScrollFrame)
+    autoScrollFrame = null
+  }
 }
 
 function markDropTarget(index: number, event: DragEvent) {
@@ -233,6 +284,7 @@ function isNoopDropIndex(targetIndex: number) {
 async function dropItem() {
   if (!canReorder.value || selectionMode.value) return
 
+  stopDragAutoScroll()
   const sourceItemId = draggedItemId.value
   const targetIndex = dropTargetIndex.value
   draggedItemId.value = null
@@ -280,8 +332,8 @@ watch(
   { immediate: true },
 )
 
-watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
-  if (itemId === null) return
+watch([() => playlist.value?.id, targetPlaylistItemId, itemIds], async ([loadedPlaylistId, itemId, ids]) => {
+  if (loadedPlaylistId !== playlistId.value || itemId === null || !ids.includes(itemId)) return
 
   await nextTick()
   document.getElementById(`playlist-item-${itemId}`)?.scrollIntoView({
@@ -289,6 +341,8 @@ watch([() => playlist.value?.id, targetPlaylistItemId], async ([, itemId]) => {
     block: 'center',
   })
 }, { immediate: true })
+
+onBeforeUnmount(stopDragAutoScroll)
 </script>
 
 <template>

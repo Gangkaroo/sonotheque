@@ -90,6 +90,15 @@ class SonothequeSchemaTest extends TestCase
             ->where('indexname', 'audio_analysis_vectors_embedding_hnsw_index')
             ->where('indexdef', 'like', '%USING hnsw%')
             ->exists());
+        foreach ([
+            'media_files_available_catalog_index',
+            'musicians_name_trgm_index',
+        ] as $index) {
+            $this->assertTrue(
+                DB::table('pg_indexes')->where('indexname', $index)->exists(),
+                "Expected index [{$index}] to exist.",
+            );
+        }
         $this->assertFalse(Schema::hasTable('audio_analysis_results'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_type'));
         $this->assertTrue(Schema::hasColumn('albums', 'artwork_source_relative_path'));

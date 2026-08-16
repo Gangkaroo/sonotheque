@@ -285,13 +285,13 @@ class CatalogBrowseController extends Controller
         ]);
 
         $genres = Genre::query()
-            ->join('genre_track as catalog_genre_tracks', 'catalog_genre_tracks.genre_id', '=', 'genres.id')
-            ->join('tracks as catalog_tracks', 'catalog_tracks.id', '=', 'catalog_genre_tracks.track_id')
-            ->join('media_files as catalog_media_files', 'catalog_media_files.id', '=', 'catalog_tracks.media_file_id')
-            ->join('library_roots as catalog_library_roots', 'catalog_library_roots.id', '=', 'catalog_media_files.library_root_id')
-            ->where('catalog_media_files.status', MediaFileStatus::Available->value)
-            ->where('catalog_library_roots.enabled', true)
-            ->when($libraryRootId, fn (Builder $query, int $id) => $query->where('catalog_media_files.library_root_id', $id))
+            ->whereHas(
+                'tracks',
+                fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+            )
+            ->withCount([
+                'tracks' => fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+            ])
             ->when(
                 $filters['search'] ?? null,
                 fn (Builder $query, string $search) => $query->where(
@@ -300,9 +300,6 @@ class CatalogBrowseController extends Controller
                     '%'.$this->escapeLike($search).'%',
                 ),
             )
-            ->select(['genres.id', 'genres.name'])
-            ->selectRaw('count(*) as tracks_count')
-            ->groupBy(['genres.id', 'genres.name'])
             ->orderBy('genres.name');
         $genres = $genres->paginate(50);
 
@@ -336,12 +333,8 @@ class CatalogBrowseController extends Controller
         $lastPlayedAt = (clone $statistics)
             ->selectRaw('max(track_play_statistics.last_played_at)');
 
-        return Artist::query()
+        return $this->artistCatalogBaseQuery($libraryRootId)
             ->select(['id', 'name', 'sort_name', 'browse_initial'])
-            ->where(function (Builder $query) use ($libraryRootId): void {
-                $query->whereHas('albums', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
-                    ->orWhereHas('tracks', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId));
-            })
             ->addSelect([
                 'play_count' => $playCount,
                 'played_track_count' => $playedTrackCount,
@@ -394,6 +387,30 @@ class CatalogBrowseController extends Controller
     /** @param array<string, mixed> $filters */
     private function artistCatalogTotal(?int $libraryRootId, array $filters): int
     {
+        if (blank($filters['search'] ?? null) && blank($filters['initial'] ?? null)) {
+            return DB::query()
+                ->fromSub($this->artistCatalogIds($libraryRootId), 'catalog_artist_ids')
+                ->count();
+        }
+
+        return $this->artistCatalogBaseQuery($libraryRootId)
+            ->when(
+                $filters['search'] ?? null,
+                fn (Builder $query, string $search) => $query->where(
+                    'artists.name',
+                    'ilike',
+                    '%'.$this->escapeLike($search).'%',
+                ),
+            )
+            ->when(
+                $filters['initial'] ?? null,
+                fn (Builder $query, string $initial) => $query->where('artists.browse_initial', $initial),
+            )
+            ->count('artists.id');
+    }
+
+    private function artistCatalogIds(?int $libraryRootId): QueryBuilder
+    {
         $albumArtists = DB::table('albums as total_albums')
             ->join('media_files as total_album_files', 'total_album_files.album_id', '=', 'total_albums.id')
             ->join('library_roots as total_album_roots', 'total_album_roots.id', '=', 'total_albums.library_root_id')
@@ -402,7 +419,7 @@ class CatalogBrowseController extends Controller
             ->where('total_album_roots.enabled', true)
             ->when(
                 $libraryRootId,
-                fn ($query, int $id) => $query->where('total_albums.library_root_id', $id),
+                fn (QueryBuilder $query, int $id) => $query->where('total_albums.library_root_id', $id),
             )
             ->selectRaw('total_albums.primary_artist_id as artist_id');
         $trackArtists = DB::table('artist_track as total_artist_tracks')
@@ -413,26 +430,25 @@ class CatalogBrowseController extends Controller
             ->where('total_track_roots.enabled', true)
             ->when(
                 $libraryRootId,
-                fn ($query, int $id) => $query->where('total_track_files.library_root_id', $id),
+                fn (QueryBuilder $query, int $id) => $query->where('total_track_files.library_root_id', $id),
             )
             ->select('total_artist_tracks.artist_id');
 
-        return DB::query()
-            ->fromSub($albumArtists->union($trackArtists), 'catalog_artist_ids')
-            ->join('artists', 'artists.id', '=', 'catalog_artist_ids.artist_id')
-            ->when(
-                $filters['search'] ?? null,
-                fn ($query, string $search) => $query->where(
-                    'artists.name',
-                    'ilike',
-                    '%'.$this->escapeLike($search).'%',
-                ),
-            )
-            ->when(
-                $filters['initial'] ?? null,
-                fn ($query, string $initial) => $query->where('artists.browse_initial', $initial),
-            )
-            ->count('artists.id');
+        return $albumArtists->union($trackArtists);
+    }
+
+    private function artistCatalogBaseQuery(?int $libraryRootId): Builder
+    {
+        return Artist::query()
+            ->where(function (Builder $query) use ($libraryRootId): void {
+                $query->whereHas(
+                    'albums',
+                    fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId),
+                )->orWhereHas(
+                    'tracks',
+                    fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId),
+                );
+            });
     }
 
     /** @return array<string, mixed> */
@@ -502,11 +518,7 @@ class CatalogBrowseController extends Controller
                 ->whereDoesntHave('ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 foreach ($this->searchTerms($search) as $term) {
-                    $pattern = '%'.$this->escapeLike($term).'%';
-                    $query->where(function (Builder $query) use ($pattern): void {
-                        $query->where('albums.title', 'ilike', $pattern)
-                            ->orWhereHas('primaryArtist', fn (Builder $artistQuery) => $artistQuery->where('name', 'ilike', $pattern));
-                    });
+                    $query->whereIn('albums.id', $this->albumSearchIds($term));
                 }
             })
             ->when(
@@ -516,6 +528,25 @@ class CatalogBrowseController extends Controller
                     fn (Builder $artistQuery) => $artistQuery->where('browse_initial', $initial),
                 ),
             );
+    }
+
+    private function albumSearchIds(string $term): QueryBuilder
+    {
+        $pattern = '%'.$this->escapeLike($term).'%';
+        $titleMatches = DB::table('albums as searchable_albums')
+            ->select('searchable_albums.id')
+            ->where('searchable_albums.title', 'ilike', $pattern);
+        $artistMatches = DB::table('albums as searchable_artist_albums')
+            ->join(
+                'artists as searchable_album_artists',
+                'searchable_album_artists.id',
+                '=',
+                'searchable_artist_albums.primary_artist_id',
+            )
+            ->select('searchable_artist_albums.id')
+            ->where('searchable_album_artists.name', 'ilike', $pattern);
+
+        return $titleMatches->unionAll($artistMatches);
     }
 
     private function albumCatalogTotal(?int $libraryRootId): int

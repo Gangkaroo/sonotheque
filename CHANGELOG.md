@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-16
+
 - Add optional per-root filesystem monitoring with consolidated activity logs,
   targeted reconciliation scans, serialized dispatch, and durable watcher
   state transitions.
@@ -18,6 +20,12 @@
 - Complete Audio Intelligence with pgvector similarity search, transparent
   refinement and personalization, reversible playlist ordering, safe model
   profile cutover, and collection analysis independent from validation tools.
+- Add an optional Ollama-powered collection assistant with fast catalog and
+  listening-statistics tools, conversation context, and audio-similarity
+  recommendations.
+- Add musician credits sourced from MusicBrainz and Discogs, including a
+  musician catalog, album associations, resumable backfill, ambiguity review,
+  manual corrections, and coverage reporting.
 - Add a root-scoped folder view with lazy directory navigation, virtualized
   large-folder rendering, file/folder playback and playlist actions, and safe
   subtree rescans.
@@ -25,10 +33,14 @@
   references during metadata editing and scans, with parser-version invalidation
   so the next scan refreshes affected unchanged files once.
 - Show track playlist memberships and navigate directly to the matching playlist item.
+- Improve playlist workflows with drag-edge scrolling, reliable navigation to
+  newly added tracks, searchable add dialogs, and playlist playback insights.
 - Normalize non-standard little-endian ID3 play counters during statistics import.
 - Exclude global popularity fields that are ambiguously tagged as personal play counts.
 - Clarify LAN admin-token verification and the server-token recovery workflow.
 - Add persisted sorting controls for album, track, and grouped playlist views.
+- Improve large-catalog search responsiveness with indexed prefix/trigram
+  lookups, optimized pagination totals, and cancellable debounced searches.
 - Rename internal runtime, database, and interface identifiers from the generic
   music-library name to Sonotheque.
 - Preserve expected authorization status codes during Windows LAN startup

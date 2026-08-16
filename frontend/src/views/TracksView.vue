@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -60,6 +60,7 @@ const resultsTop = ref<HTMLElement | null>(null)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 let applyingRouteFilters = false
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 const routeQuerySyncGuard = createRouteQuerySyncGuard()
 const physicalCopyOptions = computed(() => [
   { title: t('albums.physicalCopyAll'), value: 'all' },
@@ -301,6 +302,10 @@ function load() {
 }
 
 function applySearch() {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
   const nextSearch = searchInput.value.trim()
 
   page.value = 1
@@ -382,6 +387,12 @@ watch([genre, genreName, musician, musicianName, playStatus, physicalCopy, sort]
   saveFilters()
   syncFiltersToRoute()
 })
+watch(searchInput, () => {
+  if (applyingRouteFilters) return
+  if (searchTimer) clearTimeout(searchTimer)
+
+  searchTimer = setTimeout(applySearch, 300)
+}, { flush: 'sync' })
 watch([page, search, genre, musician, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch([
   () => catalog.tracks.items.map((track) => track.id),
@@ -389,6 +400,9 @@ watch([
 ], ([trackIds]) => {
   if (trackIds.length) void playlists.loadMemberships(trackIds)
 }, { immediate: true })
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
 </script>
 
 <template>
