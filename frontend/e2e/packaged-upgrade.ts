@@ -70,11 +70,15 @@ export async function prepareUpgradeFixture() {
 }
 
 export function startBaselineStack() {
-  startStack(baselineDirectory)
+  startStack(baselineDirectory, ['queue'])
 }
 
 export function startCurrentStack() {
-  startStack(repositoryDirectory)
+  startStack(repositoryDirectory, [
+    'queue-default',
+    'queue-scans',
+    'queue-analysis',
+  ])
 }
 
 export function stopUpgradeStack(removeVolumes: boolean, ignoreErrors = false) {
@@ -128,7 +132,7 @@ export function currentSourceDirectory() {
   return repositoryDirectory
 }
 
-function startStack(sourceDirectory: string) {
+function startStack(sourceDirectory: string, workerServices: string[]) {
   compose(sourceDirectory, ['build'])
   compose(sourceDirectory, ['up', '-d', 'postgres'])
   compose(sourceDirectory, [
@@ -143,9 +147,7 @@ function startStack(sourceDirectory: string) {
   compose(sourceDirectory, [
     'up',
     '-d',
-    'queue-default',
-    'queue-scans',
-    'queue-analysis',
+    ...workerServices,
     'scheduler',
     'web',
   ])
