@@ -61,6 +61,79 @@ class EssentiaDockerAudioAnalyzerTest extends TestCase
         }
     }
 
+    public function test_it_translates_packaged_container_paths_to_docker_mount_sources(): void
+    {
+        $directory = storage_path('framework/testing/packaged-audio-intelligence');
+        $audioPath = $directory.'/track.mp3';
+        $modelPath = $directory.'/model.pb';
+        File::ensureDirectoryExists($directory);
+        File::put($audioPath, 'audio');
+        File::put($modelPath, 'model');
+        $containerDirectory = '/'.trim(str_replace('\\', '/', $directory), '/');
+        Process::fake(function (PendingProcess $process) use ($containerDirectory) {
+            $command = $process->command;
+            if (is_array($command) && $command === ['docker', 'inspect', 'packaged-worker']) {
+                return Process::result(output: json_encode([[
+                    'Mounts' => [[
+                        'Source' => '/run/desktop/mnt/host/c/sonotheque-model-and-music',
+                        'Destination' => $containerDirectory,
+                    ], [
+                        'Source' => '/var/run/docker.sock',
+                        'Destination' => '/var/run/docker.sock',
+                    ]],
+                ]], JSON_THROW_ON_ERROR));
+            }
+
+            return Process::result(output: json_encode([
+                'protocolVersion' => 1,
+                'results' => [[
+                    'itemId' => 10,
+                    'status' => 'completed',
+                    'embedding' => [0.1, 0.2],
+                ]],
+            ], JSON_THROW_ON_ERROR));
+        });
+
+        try {
+            $analyzer = new EssentiaDockerAudioAnalyzer(
+                image: 'sonotheque-audio-intelligence:test',
+                modelPath: $modelPath,
+                timeoutSeconds: 60,
+                cpuLimit: 2,
+                memoryLimit: '4g',
+                mountSourceContainer: 'packaged-worker',
+            );
+
+            $analyzer->analyzeBatch([[
+                'itemId' => 10,
+                'path' => $audioPath,
+                'durationSeconds' => 120.0,
+            ]]);
+
+            Process::assertRan(function (PendingProcess $process): bool {
+                $command = $process->command;
+
+                return is_array($command)
+                    && array_slice($command, 0, 2) === ['docker', 'run']
+                    && in_array(
+                        '/run/desktop/mnt/host/c/sonotheque-model-and-music/track.mp3:/audio/1.mp3:ro',
+                        $command,
+                        true,
+                    )
+                    && in_array(
+                        '/run/desktop/mnt/host/c/sonotheque-model-and-music/model.pb:/model/model.pb:ro',
+                        $command,
+                        true,
+                    )
+                    && ! collect($command)->contains(
+                        fn (string $argument): bool => str_contains($argument, 'docker.sock'),
+                    );
+            });
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
     public function test_it_exposes_all_gpus_only_for_the_cuda_accelerator(): void
     {
         $directory = storage_path('framework/testing/audio-intelligence-cuda');

@@ -8,6 +8,7 @@ use App\Models\Artist;
 use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
+use App\Models\PlaylistExportLocation;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -107,6 +108,39 @@ class AlbumPlaylistExportApiTest extends TestCase
         $playlist = $this->musicPath.DIRECTORY_SEPARATOR.'Artist'.DIRECTORY_SEPARATOR.'Album'
             .DIRECTORY_SEPARATOR.'Album Artist - Album Title.m3u';
         $this->assertStringStartsWith("\xEF\xBB\xBF01.mp3\r\n", (string) file_get_contents($playlist));
+    }
+
+    public function test_it_can_save_the_album_playlist_to_a_configured_export_folder(): void
+    {
+        $exportPath = $this->musicPath.DIRECTORY_SEPARATOR.'Playlists';
+        File::ensureDirectoryExists($exportPath);
+        $location = PlaylistExportLocation::create([
+            'name' => 'Portable playlists',
+            'path' => $exportPath,
+            'path_hash' => hash('sha256', mb_strtolower(str_replace('\\', '/', $exportPath))),
+            'is_default' => true,
+        ]);
+
+        $this->getJson("/api/albums/{$this->album->id}/playlist-export")
+            ->assertOk()
+            ->assertJsonPath('locations.0.id', $location->id)
+            ->assertJsonPath('locations.0.name', 'Portable playlists');
+
+        $this->postJson("/api/albums/{$this->album->id}/playlist-export", [
+            'locationId' => $location->id,
+            'format' => 'm3u8',
+            'filename' => 'Album Artist - Album Title.m3u8',
+        ])->assertOk()
+            ->assertJsonPath('trackCount', 2)
+            ->assertJsonPath('directory.type', 'configured')
+            ->assertJsonPath('directory.locationId', $location->id)
+            ->assertJsonPath('relativePath', null);
+
+        $this->assertSame(
+            "../Artist/Album/01.mp3\r\n"
+            ."../Artist/Album/Disc 2/02.mp3\r\n",
+            file_get_contents($exportPath.DIRECTORY_SEPARATOR.'Album Artist - Album Title.m3u8'),
+        );
     }
 
     public function test_it_rejects_unsafe_or_mismatched_playlist_filenames(): void

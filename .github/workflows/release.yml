@@ -85,6 +85,9 @@ jobs:
         working-directory: backend
         run: php artisan test
 
+      - name: Validate POSIX packaged commands
+        run: sh scripts/test-packaged-posix.sh
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -115,9 +118,40 @@ jobs:
         working-directory: frontend
         run: npm run test:e2e:upgrade
 
-  publish:
-    name: Build and publish portable package
+  package-unix:
+    name: Build Linux/macOS portable package
     needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/assert-release-version.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Build and verify portable archive
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sh scripts/build-portable-release.sh "$RELEASE_VERSION"
+          sh scripts/verify-portable-release.sh "$RELEASE_VERSION"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonotheque-${{ steps.version.outputs.version }}-linux-macos-portable
+          path: |
+            dist/releases/sonotheque-${{ steps.version.outputs.version }}-linux-macos-portable.tar.gz
+            dist/releases/sonotheque-${{ steps.version.outputs.version }}-linux-macos-portable.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Build and publish portable packages
+    needs: [verify, package-unix]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -159,6 +193,12 @@ jobs:
             dist/releases/sonotheque-${{ steps.version.outputs.version }}-windows-portable.zip.sha256
           if-no-files-found: error
 
+      - name: Download Linux/macOS package
+        uses: actions/download-artifact@v4
+        with:
+          name: sonotheque-${{ steps.version.outputs.version }}-linux-macos-portable
+          path: dist/releases
+
       - name: Publish GitHub release
         shell: pwsh
         env:
@@ -168,9 +208,11 @@ jobs:
         run: |
           $archive = "dist/releases/sonotheque-$env:RELEASE_VERSION-windows-portable.zip"
           $checksum = "$archive.sha256"
+          $unixArchive = "dist/releases/sonotheque-$env:RELEASE_VERSION-linux-macos-portable.tar.gz"
+          $unixChecksum = "$unixArchive.sha256"
           $arguments = @(
             'release', 'create', $env:RELEASE_TAG,
-            $archive, $checksum,
+            $archive, $checksum, $unixArchive, $unixChecksum,
             '--title', "Sonotheque $env:RELEASE_VERSION",
             '--notes-file', 'dist/release-notes.md',
             '--verify-tag'

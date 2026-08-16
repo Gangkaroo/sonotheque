@@ -62,13 +62,66 @@ The model and analyzer have their own licenses. Review them for the intended
 use before enabling analysis. Sonotheque never downloads the model
 automatically.
 
-The current analyzer workflow is supported by the development runtime. The
-portable packaged release starts the analysis queue but does not yet provision
-the optional analyzer image, model, or Docker access from its backend
-container. Packaged Audio Intelligence delivery remains a separate roadmap
-item.
+Both the development runtime and portable package support the analyzer. The
+portable package keeps it disabled by default and uses a dedicated analysis
+worker when enabled. Only that worker receives Docker control access. The web
+backend and ordinary queue workers do not receive the Docker socket, and every
+analyzer container remains networkless with read-only model and music mounts.
 
-## Provision The Analyzer
+## Packaged Setup
+
+1. Obtain and review the Discogs EffNet TensorFlow `.pb` model separately.
+   Sonotheque does not download or redistribute it.
+2. Double-click `Configure Sonotheque Audio Intelligence.cmd` in the extracted
+   portable package.
+3. Select the model file. The default setup builds and selects the CPU image,
+   which works without CUDA.
+4. To select CUDA explicitly, run this from PowerShell instead:
+
+   ```powershell
+   .\scripts\configure-packaged-audio-intelligence.ps1 -Accelerator Cuda
+   ```
+
+5. Open **Settings > Audio Intelligence**, enable the workspace, and run the
+   analyzer check before preparing a collection.
+
+Linux and macOS use the shared launcher. Omit `--model` to select the file with
+`osascript`, `zenity`, or `kdialog` where available; otherwise the launcher
+prompts for a path:
+
+```sh
+./sonotheque intelligence --model "/path/to/discogs-effnet.pb" --accelerator cpu
+```
+
+Compatible Linux NVIDIA hosts can choose `--accelerator cuda`. The setup builds
+the CUDA image and verifies that Docker exposes a GPU before saving that choice.
+macOS rejects CUDA explicitly. CPU analyzer availability on ARM64 currently
+depends on whether the pinned Essentia/TensorFlow package builds natively; see
+[`platform-support.md`](platform-support.md).
+
+The configuration command stores only the model directory and filename in
+`.env.packaged`; the model remains in its original host folder and is mounted
+read-only. CPU and CUDA analyzer images are local Docker images. Selecting CUDA
+does not silently fall back to CPU if GPU access fails, so configuration errors
+remain visible and do not create analysis results under the wrong profile.
+
+To disable packaged analysis while retaining all completed results:
+
+```powershell
+.\scripts\configure-packaged-audio-intelligence.ps1 -Disable
+```
+
+On Linux or macOS, use `./sonotheque intelligence --disable`.
+
+Pause or cancel any active collection analysis before disabling the packaged
+analyzer.
+
+The normal packaged start and restore scripts automatically select either the
+ordinary analysis worker or the isolated Audio Intelligence worker. They never
+run both against the same queue. Stopping Sonotheque also removes any analyzer
+containers, while images, model files, and database results remain intact.
+
+## Development Setup
 
 These steps are for a development installation on Windows.
 

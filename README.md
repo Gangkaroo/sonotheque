@@ -88,22 +88,31 @@ default, and never download models or analyze music implicitly.
 - Docker Compose for PostgreSQL during development
 - A portable Docker Compose stack with nginx, Laravel, workers, scheduler,
   PostgreSQL, and the built Vue application
-- Manual Windows startup, shutdown, status, backup, restore, and migration
-  scripts
+- Windows launchers plus a shared Linux/macOS `sonotheque` command for packaged
+  startup, shutdown, status, browser launch, and music-folder configuration
 
 ## Getting started
 
-The simplest supported user setup is the portable Windows package:
+The simplest supported user setup is a portable Docker package:
 
-1. Install Docker Desktop with Linux containers enabled.
+1. Install Docker Desktop or Docker Engine with Compose v2.
 2. Download and extract a Sonotheque release into a permanent folder.
-3. Run `Start Sonotheque.cmd`.
+3. On Windows, run `Start Sonotheque.cmd`. On Linux or macOS, run
+   `./sonotheque start`.
 4. Select the host folders containing the music library.
 5. Complete the setup wizard and start the first scan.
 
 Music folders are mounted into the containers; the music itself is not copied
 into the Sonotheque package. See [INSTALL.md](INSTALL.md) for the complete user
 installation and upgrade workflow.
+
+The Linux/macOS packaged path now shares environment, secret, and mount
+generation with Windows, preserves Linux host ownership, and is published as a
+portable TAR archive. It includes optional native folder/model pickers,
+checksummed backup and guarded restore commands, guided Audio Intelligence
+provisioning, and POSIX release smoke coverage. See
+[the platform support matrix](docs/platform-support.md) for tested and preview
+host/architecture combinations.
 
 For development, PostgreSQL runs in Docker while Laravel, its queue workers,
 and Vite run on the Windows host. See [docs/runtime.md](docs/runtime.md) for the

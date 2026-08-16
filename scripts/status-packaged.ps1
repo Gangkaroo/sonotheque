@@ -6,7 +6,13 @@ $ErrorActionPreference = 'Stop'
 
 try {
     Assert-PackagedDockerAvailable
-    Invoke-PackagedCompose -Arguments @('ps') -AllowExampleEnvironment
+    $arguments = if (Test-PackagedAudioIntelligenceEnabled) {
+        @('--profile', 'audio-intelligence', 'ps')
+    }
+    else {
+        @('ps')
+    }
+    Invoke-PackagedCompose -Arguments $arguments -AllowExampleEnvironment
 
     if (Test-Path -LiteralPath $script:PackagedEnvironmentPath) {
         $appUrl = Get-PackagedEnvValue -Name 'APP_URL'

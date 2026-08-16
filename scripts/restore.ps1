@@ -145,6 +145,7 @@ try {
             'queue-default',
             'queue-scans',
             'queue-analysis',
+            'queue-analysis-ai',
             'scheduler'
         )
     }
@@ -190,13 +191,15 @@ try {
             & (Join-Path $PSScriptRoot 'start.ps1') @arguments
         }
         elseif ($Mode -eq 'Packaged' -and $packagedWasRunning) {
+            Assert-PackagedAudioIntelligenceConfiguration
+            $analysisWorker = Get-PackagedAnalysisWorkerService
             Invoke-PackagedCompose -Arguments @(
                 'up',
                 '-d',
                 'backend',
                 'queue-default',
                 'queue-scans',
-                'queue-analysis',
+                $analysisWorker,
                 'scheduler',
                 'web'
             )

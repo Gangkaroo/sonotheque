@@ -35,12 +35,26 @@ x-backend-environment: &backend-environment
   LRCLIB_API_URL: ${LRCLIB_API_URL:-https://lrclib.net/api}
   MUSICBRAINZ_API_URL: ${MUSICBRAINZ_API_URL:-https://musicbrainz.org/ws/2}
   MUSICBRAINZ_WEB_URL: ${MUSICBRAINZ_WEB_URL:-https://musicbrainz.org}
+  AUDIO_INTELLIGENCE_DRIVER: ${AUDIO_INTELLIGENCE_DRIVER:-none}
+  AUDIO_INTELLIGENCE_MODEL_PATH: /audio-intelligence-model/${AUDIO_INTELLIGENCE_MODEL_FILENAME:-model.pb}
+  AUDIO_INTELLIGENCE_DOCKER_IMAGE: ${AUDIO_INTELLIGENCE_DOCKER_IMAGE:-sonotheque-audio-intelligence:analysis}
+  AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE: ${AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE:-sonotheque-audio-intelligence:analysis}
+  AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE: ${AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE:-sonotheque-audio-intelligence:cuda}
+  AUDIO_INTELLIGENCE_ACCELERATOR: ${AUDIO_INTELLIGENCE_ACCELERATOR:-cpu}
+  AUDIO_INTELLIGENCE_PERSISTENT: ${AUDIO_INTELLIGENCE_PERSISTENT:-true}
+  AUDIO_INTELLIGENCE_MOUNT_SOURCE_CONTAINER: ${AUDIO_INTELLIGENCE_MOUNT_SOURCE_CONTAINER:-self}
+  AUDIO_INTELLIGENCE_HEALTH_VIA_QUEUE: ${AUDIO_INTELLIGENCE_HEALTH_VIA_QUEUE:-true}
+  AUDIO_INTELLIGENCE_CONTAINER_NAME: sonotheque-packaged-audio-analyzer
+  SONOTHEQUE_HOST_UID: ${SONOTHEQUE_HOST_UID:-}
+  SONOTHEQUE_HOST_GID: ${SONOTHEQUE_HOST_GID:-}
 
 x-backend-image: &backend-image
   build:
     context: .
     dockerfile: backend/Dockerfile.packaged
   environment: *backend-environment
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - backend-storage:/app/storage
     - type: bind
@@ -111,6 +125,32 @@ services:
     <<: *backend-image
     command: ["php", "artisan", "queue:work", "--queue=analysis", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  queue-analysis-ai:
+    <<: *backend-image
+    profiles: ["audio-intelligence"]
+    command: ["php", "artisan", "queue:work", "--queue=analysis-control,analysis", "--tries=1", "--timeout=0", "--memory=512", "--sleep=1"]
+    restart: unless-stopped
+    group_add:
+      - "${SONOTHEQUE_DOCKER_GID:-0}"
+    volumes:
+      - backend-storage:/app/storage
+      - type: bind
+        source: ${SONOTHEQUE_ROOT_1:-./packaged/music-root-1}
+        target: /music/root-1
+        read_only: true
+      - type: bind
+        source: ${AUDIO_INTELLIGENCE_MODEL_DIRECTORY:-./packaged/audio-intelligence}
+        target: /audio-intelligence-model
+        read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

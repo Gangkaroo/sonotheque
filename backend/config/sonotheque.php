@@ -65,6 +65,12 @@ return [
             'AUDIO_INTELLIGENCE_STARTUP_TIMEOUT_SECONDS',
             90,
         ),
+        'mount_source_container' => env('AUDIO_INTELLIGENCE_MOUNT_SOURCE_CONTAINER') ?: null,
+        'health_via_queue' => (bool) env('AUDIO_INTELLIGENCE_HEALTH_VIA_QUEUE', false),
+        'health_queue_timeout_seconds' => (int) env(
+            'AUDIO_INTELLIGENCE_HEALTH_QUEUE_TIMEOUT_SECONDS',
+            120,
+        ),
         'cpu_limit' => (float) env('AUDIO_INTELLIGENCE_CPU_LIMIT', 2),
         'memory_limit' => env('AUDIO_INTELLIGENCE_MEMORY_LIMIT', '4g'),
         'preparation_workers' => (int) env('AUDIO_INTELLIGENCE_PREPARATION_WORKERS', 2),

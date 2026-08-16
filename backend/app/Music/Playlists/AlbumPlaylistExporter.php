@@ -5,6 +5,7 @@ namespace App\Music\Playlists;
 use App\Enums\MediaFileStatus;
 use App\Models\Album;
 use App\Models\ApplicationSetting;
+use App\Models\PlaylistExportLocation;
 use App\Models\Track;
 use App\Music\Scanning\InvalidLibraryPath;
 use App\Music\Scanning\LibraryPathGuard;
@@ -15,6 +16,7 @@ class AlbumPlaylistExporter
     public function __construct(
         private readonly LibraryPathGuard $pathGuard,
         private readonly PlaylistFileWriter $fileWriter,
+        private readonly PlaylistTrackPathResolver $trackPathResolver,
     ) {
     }
 
@@ -24,6 +26,11 @@ class AlbumPlaylistExporter
         $album->loadMissing(['libraryRoot:id,name,path', 'primaryArtist:id,name']);
 
         $defaultFormat = ApplicationSetting::current()->playlist_export_format ?: 'm3u8';
+        $locations = PlaylistExportLocation::query()
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
 
         return [
             'defaultFormat' => $defaultFormat,
@@ -33,6 +40,12 @@ class AlbumPlaylistExporter
                 'libraryRoot' => $album->libraryRoot?->name,
                 'relativePath' => $album->relative_path,
             ],
+            'locations' => $locations->map(fn (PlaylistExportLocation $location): array => [
+                'id' => $location->id,
+                'name' => $location->name,
+                'path' => $location->path,
+                'isDefault' => $location->is_default,
+            ])->values(),
         ];
     }
 
@@ -42,6 +55,7 @@ class AlbumPlaylistExporter
         string $format,
         string $filename,
         bool $overwrite,
+        ?PlaylistExportLocation $location = null,
     ): array {
         $album->loadMissing(['libraryRoot:id,name,path', 'primaryArtist:id,name']);
         $root = $album->libraryRoot;
@@ -49,24 +63,14 @@ class AlbumPlaylistExporter
             throw new PlaylistExportException('The album is not associated with a library root.');
         }
 
-        try {
-            $directory = $this->pathGuard->resolveExistingDirectoryWithin(
-                $root->path,
-                $album->relative_path,
-            );
-        } catch (InvalidLibraryPath $exception) {
-            throw new PlaylistExportException(
-                'The album folder could not be opened: '.$exception->getMessage(),
-                previous: $exception,
-            );
-        }
+        $directory = $this->destinationDirectory($album, $location);
 
         $tracks = $this->tracks($album);
         $writeResult = $this->fileWriter->write(
             $directory,
             $format,
             $filename,
-            $this->paths($album, $tracks),
+            $this->paths($tracks, $directory),
             $overwrite,
         );
 
@@ -74,10 +78,15 @@ class AlbumPlaylistExporter
             ...$writeResult,
             'trackCount' => $tracks->count(),
             'directory' => [
-                'libraryRoot' => $root->name,
-                'relativePath' => $album->relative_path,
+                'type' => $location === null ? 'album' : 'configured',
+                'libraryRoot' => $location === null ? $root->name : null,
+                'relativePath' => $location === null ? $album->relative_path : null,
+                'locationId' => $location?->id,
+                'name' => $location?->name,
             ],
-            'relativePath' => $album->relative_path.'/'.$writeResult['filename'],
+            'relativePath' => $location === null
+                ? $album->relative_path.'/'.$writeResult['filename']
+                : null,
         ];
     }
 
@@ -93,6 +102,7 @@ class AlbumPlaylistExporter
         $tracks = $album->tracks()
             ->with([
                 'mediaFile:id,library_root_id,relative_path,status',
+                'mediaFile.libraryRoot:id,name,path,enabled',
             ])
             ->orderBy('disc_number')
             ->orderBy('track_number')
@@ -116,50 +126,38 @@ class AlbumPlaylistExporter
         return $tracks;
     }
 
-    /** @param Collection<int, Track> $tracks */
-    /** @return list<string> */
-    private function paths(Album $album, Collection $tracks): array
-    {
-        $lines = [];
-
-        foreach ($tracks as $track) {
-            $mediaFile = $track->mediaFile;
-            if ($mediaFile === null) {
-                continue;
+    private function destinationDirectory(
+        Album $album,
+        ?PlaylistExportLocation $location,
+    ): string {
+        try {
+            if ($location !== null) {
+                return $this->pathGuard->canonicalizeDirectory($location->path);
             }
 
-            $lines[] = $this->relativePath(
+            return $this->pathGuard->resolveExistingDirectoryWithin(
+                $album->libraryRoot->path,
                 $album->relative_path,
-                $mediaFile->relative_path,
+            );
+        } catch (InvalidLibraryPath $exception) {
+            $message = $location === null
+                ? 'The album folder could not be opened: '
+                : 'The configured playlist export folder could not be opened: ';
+
+            throw new PlaylistExportException(
+                $message.$exception->getMessage(),
+                previous: $exception,
             );
         }
-
-        return $lines;
     }
 
-    private function relativePath(string $directory, string $file): string
+    /** @param Collection<int, Track> $tracks */
+    /** @return list<string> */
+    private function paths(Collection $tracks, string $directory): array
     {
-        $directorySegments = explode('/', $this->pathGuard->normalizeRelativePath($directory));
-        $fileSegments = explode('/', $this->pathGuard->normalizeRelativePath($file));
-        $common = 0;
-        $maximumCommon = min(count($directorySegments), count($fileSegments));
-
-        while ($common < $maximumCommon
-            && $this->segmentsMatch($directorySegments[$common], $fileSegments[$common])) {
-            $common++;
-        }
-
-        return implode('/', [
-            ...array_fill(0, count($directorySegments) - $common, '..'),
-            ...array_slice($fileSegments, $common),
-        ]);
+        return $tracks
+            ->map(fn (Track $track): string => $this->trackPathResolver
+                ->pathForTrack($track, $directory))
+            ->all();
     }
-
-    private function segmentsMatch(string $left, string $right): bool
-    {
-        return PHP_OS_FAMILY === 'Windows'
-            ? mb_strtolower($left) === mb_strtolower($right)
-            : $left === $right;
-    }
-
 }

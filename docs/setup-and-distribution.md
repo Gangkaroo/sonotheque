@@ -9,17 +9,25 @@ below defines the more user-friendly packaging path that should sit beside it.
 
 ## Target User Experience
 
-The preferred setup should feel like a small local appliance:
+The preferred setup should feel like a small local appliance on Windows,
+Linux, and macOS:
 
-1. Install Docker Desktop.
+1. Install Docker Desktop or a compatible Docker Engine with Compose.
 2. Download and extract the portable release archive.
-3. Double-click `Start Sonotheque.cmd` and select the music folder.
+3. Start Sonotheque with the platform launcher and select or enter the music
+   folders.
 4. Open one URL.
 5. Complete a first-run setup screen.
 6. Start the first scan.
 
 Users should not need to know that the app contains Laravel, Vue, PostgreSQL, a
 queue worker, or separate development ports.
+
+Windows, Linux, and macOS share the same configuration generator. The POSIX
+launcher covers first start, lifecycle, browser launch, LAN mode, root
+configuration, checksummed backup/restore, and optional Audio Intelligence
+provisioning. Host-native folder/model pickers are used where available, with a
+terminal fallback. Broader real-hardware validation remains ongoing.
 
 ## Runtime Modes
 
@@ -53,12 +61,13 @@ Packaged local mode is the default for non-developer users:
   local packaged mode. LAN mode disables that local-proxy shortcut and uses the
   admin-token boundary instead.
 
-The packaged `analysis` queue worker is shared application infrastructure and
-remains idle when Audio Intelligence is disabled. The current portable package
-does not yet provision the optional analyzer images, model mount, or restricted
-Docker access required to execute analysis. That delivery work is tracked
-separately; the completed development-runtime feature must not be presented as
-available in a portable release until this boundary is implemented and tested.
+The ordinary packaged `analysis` queue worker remains idle when Audio
+Intelligence is disabled. Explicit optional setup builds the selected analyzer
+image, records a separately reviewed model mount, stops the ordinary worker,
+and starts a profiled `queue-analysis-ai` worker. Only that worker receives the
+Docker socket and read-only model/music mounts. Analyzer health checks are sent
+through its queue, so the web backend does not need Docker control access.
+CPU is the portable default; CUDA is built and selected only on request.
 
 The runtime for this mode is defined in:
 
@@ -67,6 +76,8 @@ The runtime for this mode is defined in:
 - `backend/Dockerfile.packaged`
 - `frontend/Dockerfile.packaged`
 - `docker/packaged/nginx.conf`
+- `scripts/configure-packaged-audio-intelligence.ps1`
+- `sonotheque`
 
 It is intentionally separate from the current development `compose.yaml`.
 
@@ -292,6 +303,13 @@ and restore commands are available for both runtime modes:
 .\scripts\restore.ps1 -BackupPath ".\backups\sonotheque-packaged-..." -Mode Packaged -Force
 ```
 
+The Linux/macOS packaged equivalents use the same bundle format:
+
+```sh
+./sonotheque backup
+./sonotheque restore "backups/sonotheque-packaged-..." --force
+```
+
 Each bundle contains a PostgreSQL custom-format dump, an uncompressed storage
 archive for fast handling of already-compressed artwork, the Laravel `APP_KEY`,
 and a manifest with SHA-256 hashes. Restore validates the
@@ -374,6 +392,45 @@ remain the explicit default.
   (Complete; version `v0.1.0` published)
 - Later, consider a Windows installer that can create shortcuts and optionally
   register a manual Start Menu entry.
+
+### Phase 8: Cross-Platform Packaged Distribution
+
+- Extract secret generation, environment updates, root validation, stable
+  `/music/root-N` mapping, Compose override generation, and worker selection
+  from PowerShell into one platform-neutral setup core. Keep the existing
+  Windows wrappers as thin adapters. (Configuration generation complete;
+  worker selection remains in the launch adapters)
+- Add a POSIX `sonotheque` command for start, stop, status, root configuration,
+  Audio Intelligence configuration, backup, restore, and explicit LAN mode.
+  (Complete)
+- Accept terminal-entered or drag-and-dropped paths everywhere. Add optional
+  native pickers with graceful fallback: WinForms on Windows, `osascript` on
+  macOS, and `zenity` or `kdialog` on Linux when available. (Complete for
+  packaged root and Audio Intelligence model selection)
+- Add configurable Linux UID/GID handling so playlist exports, metadata backup,
+  and other writes do not create unexpectedly root-owned host files. Keep
+  Docker socket access restricted to the dedicated analysis worker. (Complete)
+- Add `host.docker.internal:host-gateway` support for Linux and document the
+  corresponding Ollama listen-address requirement. (Compose support complete;
+  setup guidance complete)
+- Add platform-specific browser launch and LAN/firewall guidance without
+  automatically modifying host firewall rules.
+- Validate external and removable-drive mounts on Linux and macOS, including
+  Docker Desktop file-sharing requirements on macOS.
+- Publish Windows ZIP and Linux/macOS TAR archives with checksums and matching
+  installation guides. Keep the Compose application payload shared. (Archive,
+  checksum, release workflow, and initial installation guide complete)
+- Add Ubuntu CI coverage for POSIX scripts, Compose generation, first-run setup,
+  upgrade preservation, scanning, and playback. Add manual or self-hosted macOS
+  smoke coverage because hosted macOS CI does not represent Docker Desktop.
+  (POSIX configuration, backup validation, launcher/Compose checks, and shared
+  packaged browser/upgrade workflows complete on Ubuntu; macOS remains manual)
+- Define and test the support matrix: base Sonotheque on x86-64 and ARM64 where
+  its images permit; CPU Audio Intelligence where Essentia/TensorFlow images
+  build natively; NVIDIA CUDA only on supported Windows/Linux hosts; no CUDA on
+  macOS. Unsupported analysis hardware must leave the rest of Sonotheque fully
+  usable with the feature disabled. (Initial explicit matrix published in
+  `docs/platform-support.md`; ARM64 and macOS analysis remain experimental)
 
 ## Packaged Browser Verification
 

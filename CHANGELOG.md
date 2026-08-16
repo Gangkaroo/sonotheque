@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Allow album playlist exports to use either the album folder or any configured
+  playlist export folder, with shared portable path handling.
+- Add disabled-by-default packaged Audio Intelligence setup with CPU and
+  explicit CUDA analyzer builds, a reviewed read-only model mount, queued
+  health checks, and Docker access isolated to the dedicated analysis worker.
+- Begin Linux and macOS packaged support with a shared tested configuration
+  core, a POSIX lifecycle and folder launcher, Linux-safe host ownership,
+  native-Linux Ollama routing, compatible checksummed backup/restore, guided
+  Audio Intelligence setup, native picker fallbacks, POSIX smoke coverage, an
+  explicit support matrix, and verified TAR release artifacts alongside the
+  Windows ZIP.
+
 ## 0.3.0 - 2026-08-16
 
 - Add explicit Collection Assistant playback previews for similar-track

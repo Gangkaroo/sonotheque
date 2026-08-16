@@ -1,0 +1,617 @@
+#!/bin/sh
+
+set -eu
+
+REPOSITORY_ROOT=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+ENVIRONMENT_PATH="$REPOSITORY_ROOT/.env.packaged"
+ENVIRONMENT_EXAMPLE_PATH="$REPOSITORY_ROOT/.env.packaged.example"
+COMPOSE_FILE="$REPOSITORY_ROOT/compose.packaged.yaml"
+COMPOSE_OVERRIDE_FILE="$REPOSITORY_ROOT/compose.packaged.override.yaml"
+ROOTS_PATH="$REPOSITORY_ROOT/packaged-roots.json"
+CONFIGURATION_IMAGE=php:8.5-cli-alpine
+ROOTS_TEMPORARY_PATH="${TMPDIR:-/tmp}/sonotheque-roots-$$"
+INCOMPLETE_BACKUP_PATH=
+
+cleanup() {
+    rm -f "$ROOTS_TEMPORARY_PATH"
+    if [ -n "$INCOMPLETE_BACKUP_PATH" ] && [ -d "$INCOMPLETE_BACKUP_PATH" ]; then
+        rm -rf "$INCOMPLETE_BACKUP_PATH"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./sonotheque start [--music-root PATH]... [--lan ADDRESS] [--no-build] [--no-browser]
+  ./sonotheque stop
+  ./sonotheque status
+  ./sonotheque open
+  ./sonotheque folders [PATH...]
+  ./sonotheque backup [DESTINATION]
+  ./sonotheque restore PATH --force [--use-backup-app-key] [--skip-safety-backup] [--no-restart]
+  ./sonotheque intelligence [--model PATH] [--accelerator cpu|cuda] [--disable]
+
+The launcher requires Docker Engine with Docker Compose v2. Folder paths may
+contain spaces. Without paths, the folders and intelligence commands use a
+native picker when one is available and otherwise prompt in the terminal.
+EOF
+}
+
+fail() {
+    printf 'Sonotheque: %s\n' "$1" >&2
+    exit 1
+}
+
+assert_docker() {
+    command -v docker >/dev/null 2>&1 || fail 'Docker was not found. Install and start Docker, then try again.'
+    docker version >/dev/null 2>&1 || fail 'Docker is not reachable. Start Docker and try again.'
+    docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is required.'
+}
+
+configuration() {
+    docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        --volume "$REPOSITORY_ROOT:/package" \
+        --workdir /package \
+        "$CONFIGURATION_IMAGE" \
+        php scripts/packaged-config.php "$@"
+}
+
+environment_value() {
+    path=$ENVIRONMENT_PATH
+    if [ ! -f "$path" ]; then
+        path=$ENVIRONMENT_EXAMPLE_PATH
+    fi
+
+    awk -v key="$1" '
+        index($0, key "=") == 1 {
+            sub("^[^=]*=", "")
+            gsub(/^['"'"']|['"'"']$/, "")
+            print
+            exit
+        }
+    ' "$path"
+}
+
+compose() {
+    environment=$ENVIRONMENT_PATH
+    if [ ! -f "$environment" ]; then
+        environment=$ENVIRONMENT_EXAMPLE_PATH
+    fi
+
+    if [ -f "$COMPOSE_OVERRIDE_FILE" ]; then
+        docker compose --env-file "$environment" \
+            -f "$COMPOSE_FILE" -f "$COMPOSE_OVERRIDE_FILE" "$@"
+    else
+        docker compose --env-file "$environment" -f "$COMPOSE_FILE" "$@"
+    fi
+}
+
+absolute_directory() {
+    [ -d "$1" ] || fail "Music root does not exist or is not a folder: $1"
+    (CDPATH='' cd "$1" && pwd -P)
+}
+
+absolute_file() {
+    [ -f "$1" ] || fail "File does not exist: $1"
+    directory=$(dirname "$1")
+    filename=$(basename "$1")
+    printf '%s/%s\n' "$(CDPATH='' cd "$directory" && pwd -P)" "$filename"
+}
+
+select_directory() {
+    title=${1:-Select a folder}
+    if [ "$(uname -s)" = Darwin ] && command -v osascript >/dev/null 2>&1; then
+        osascript -e "POSIX path of (choose folder with prompt \"$title\")" 2>/dev/null || return 1
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --file-selection --directory --title="$title" 2>/dev/null || return 1
+    elif command -v kdialog >/dev/null 2>&1; then
+        kdialog --getexistingdirectory "${HOME:-/}" --title "$title" 2>/dev/null || return 1
+    else
+        printf '%s: ' "$title" >&2
+        IFS= read -r selected
+        [ -n "$selected" ] || return 1
+        printf '%s\n' "$selected"
+    fi
+}
+
+select_file() {
+    title=${1:-Select a file}
+    if [ "$(uname -s)" = Darwin ] && command -v osascript >/dev/null 2>&1; then
+        osascript -e "POSIX path of (choose file with prompt \"$title\")" 2>/dev/null || return 1
+    elif command -v zenity >/dev/null 2>&1; then
+        zenity --file-selection --title="$title" --file-filter='TensorFlow model (*.pb) | *.pb' 2>/dev/null || return 1
+    elif command -v kdialog >/dev/null 2>&1; then
+        kdialog --getopenfilename "${HOME:-/}" '*.pb|TensorFlow model' --title "$title" 2>/dev/null || return 1
+    else
+        printf '%s: ' "$title" >&2
+        IFS= read -r selected
+        [ -n "$selected" ] || return 1
+        printf '%s\n' "$selected"
+    fi
+}
+
+add_root() {
+    root=$(absolute_directory "$1")
+    case "$root" in
+        *'
+'*) fail 'Music root paths must not contain line breaks.' ;;
+    esac
+    printf '%s\n' "$root" >> "$ROOTS_TEMPORARY_PATH"
+}
+
+configure_roots() {
+    [ -s "$ROOTS_TEMPORARY_PATH" ] || fail 'At least one music folder must be configured.'
+
+    set -- roots
+    if [ "$(uname -s)" = Darwin ]; then
+        set -- "$@" --case-insensitive true
+    fi
+    while IFS= read -r root; do
+        set -- "$@" --root "$root"
+    done < "$ROOTS_TEMPORARY_PATH"
+
+    configuration "$@"
+}
+
+open_url() {
+    url=$1
+    if command -v open >/dev/null 2>&1; then
+        open "$url" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" >/dev/null 2>&1 || true
+    else
+        printf 'Open %s in your browser.\n' "$url"
+    fi
+}
+
+web_is_running() {
+    [ -n "$(compose ps --status running -q web 2>/dev/null | head -n 1)" ]
+}
+
+postgres_container() {
+    container=$(compose ps -q postgres | head -n 1)
+    [ -n "$container" ] || fail 'Packaged PostgreSQL container was not found.'
+    printf '%s\n' "$container"
+}
+
+backup_bundle_manifest() {
+    action=$1
+    bundle=$2
+    shift 2
+    bundle_mount="$bundle:/backup"
+    if [ "$action" = validate ]; then
+        bundle_mount="$bundle:/backup:ro"
+    fi
+    docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        --volume "$REPOSITORY_ROOT:/package:ro" \
+        --volume "$bundle_mount" \
+        --workdir /package \
+        "$CONFIGURATION_IMAGE" \
+        php scripts/system-backup-bundle.php "$action" --path=/backup "$@"
+}
+
+write_backup_marker() {
+    operation=$1
+    bundle_name=$2
+    bytes=${3:-}
+    web_is_running || return 0
+    # The PHP program is intentionally quoted literally for the container.
+    # shellcheck disable=SC2016
+    compose exec -T \
+        -e "SONOTHEQUE_BACKUP_OPERATION=$operation" \
+        -e "SONOTHEQUE_BACKUP_BUNDLE=$bundle_name" \
+        -e "SONOTHEQUE_BACKUP_BYTES=$bytes" \
+        backend php -r '
+            $path = "/app/storage/app/system-backups/latest.json";
+            @mkdir(dirname($path), 0777, true);
+            $payload = [
+                "operation" => getenv("SONOTHEQUE_BACKUP_OPERATION"),
+                "status" => "completed",
+                "mode" => "Packaged",
+                "completedAt" => gmdate("c"),
+                "bundleName" => getenv("SONOTHEQUE_BACKUP_BUNDLE"),
+            ];
+            if (getenv("SONOTHEQUE_BACKUP_BYTES") !== "") {
+                $payload["bytes"] = (int) getenv("SONOTHEQUE_BACKUP_BYTES");
+            }
+            file_put_contents($path, json_encode($payload, JSON_PRETTY_PRINT));
+        ' >/dev/null 2>&1 || printf 'Warning: backup status could not be written.\n' >&2
+}
+
+backup_sonotheque() {
+    [ -f "$ENVIRONMENT_PATH" ] || fail 'Start packaged Sonotheque once before creating a backup.'
+    assert_docker
+
+    destination=${1:-"$REPOSITORY_ROOT/backups"}
+    mkdir -p "$destination"
+    destination=$(absolute_directory "$destination")
+    timestamp=$(date -u '+%Y%m%d-%H%M%S')
+    bundle_name="sonotheque-packaged-$timestamp"
+    bundle="$destination/$bundle_name"
+    [ ! -e "$bundle" ] || fail "Backup destination already exists: $bundle"
+    INCOMPLETE_BACKUP_PATH=$bundle
+    mkdir "$bundle"
+
+    app_key=$(environment_value APP_KEY)
+    [ -n "$app_key" ] || fail 'Packaged APP_KEY is missing. Encrypted settings could not be restored without it.'
+    database=$(environment_value POSTGRES_DB)
+    user=$(environment_value POSTGRES_USER)
+    password=$(environment_value POSTGRES_PASSWORD)
+    [ -n "$database" ] || database=sonotheque
+    [ -n "$user" ] || user=sonotheque
+
+    printf 'Creating Packaged backup...\n'
+    compose up -d postgres
+    container=$(postgres_container)
+    container_dump=/tmp/sonotheque-system-backup.dump
+    docker exec -e "PGPASSWORD=$password" "$container" \
+        pg_dump -U "$user" -d "$database" --format=custom --file "$container_dump"
+    docker cp "$container:$container_dump" "$bundle/database.dump"
+    docker exec "$container" pg_restore --list "$container_dump" >/dev/null
+    docker exec "$container" rm -f "$container_dump"
+
+    printf 'Archiving application storage...\n'
+    compose run --rm --no-deps --volume "$bundle:/backup" backend \
+        sh -c 'tar -cf /backup/storage.tar -C /app/storage .'
+    printf '%s' "$app_key" > "$bundle/app-key.txt"
+    backup_bundle_manifest create "$bundle" --mode=Packaged "--database=$database"
+    INCOMPLETE_BACKUP_PATH=
+    total_bytes=$(($(wc -c < "$bundle/database.dump") + $(wc -c < "$bundle/storage.tar") + $(wc -c < "$bundle/app-key.txt")))
+    write_backup_marker backup "$bundle_name" "$total_bytes"
+
+    printf '\nBackup complete: %s\n' "$bundle"
+    printf 'Warning: this bundle contains the application encryption key; store it securely.\n' >&2
+}
+
+restore_sonotheque() {
+    [ "$#" -gt 0 ] || fail 'Pass the backup bundle path to restore.'
+    backup_path=$1
+    shift
+    force=false
+    use_backup_app_key=false
+    skip_safety_backup=false
+    no_restart=false
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --force) force=true ;;
+            --use-backup-app-key) use_backup_app_key=true ;;
+            --skip-safety-backup) skip_safety_backup=true ;;
+            --no-restart) no_restart=true ;;
+            *) fail "Unknown restore option: $1" ;;
+        esac
+        shift
+    done
+    [ "$force" = true ] || fail 'Restore replaces the current database and application storage. Re-run with --force after verifying the backup path.'
+    [ -f "$ENVIRONMENT_PATH" ] || fail 'Start packaged Sonotheque once before restoring a backup.'
+    assert_docker
+    bundle=$(absolute_directory "$backup_path")
+    backup_bundle_manifest validate "$bundle" --mode=Packaged
+
+    current_app_key=$(environment_value APP_KEY)
+    backup_app_key=$(cat "$bundle/app-key.txt")
+    if [ "$current_app_key" != "$backup_app_key" ] && [ "$use_backup_app_key" != true ]; then
+        fail 'The backup APP_KEY differs from this installation. Re-run with --use-backup-app-key to restore encrypted settings.'
+    fi
+
+    was_running=false
+    if web_is_running; then
+        was_running=true
+    fi
+    if [ "$skip_safety_backup" != true ]; then
+        printf 'Creating a safety backup of the current installation...\n'
+        backup_sonotheque "$REPOSITORY_ROOT/backups/pre-restore"
+    fi
+
+    compose up -d postgres
+    printf 'Stopping application services before restore...\n'
+    compose --profile audio-intelligence stop \
+        web backend queue-default queue-scans queue-analysis queue-analysis-ai scheduler
+
+    if [ "$current_app_key" != "$backup_app_key" ]; then
+        configuration set --name APP_KEY --value "$backup_app_key"
+    fi
+
+    database=$(environment_value POSTGRES_DB)
+    user=$(environment_value POSTGRES_USER)
+    password=$(environment_value POSTGRES_PASSWORD)
+    [ -n "$database" ] || database=sonotheque
+    [ -n "$user" ] || user=sonotheque
+    container=$(postgres_container)
+    container_dump=/tmp/sonotheque-system-restore.dump
+
+    printf 'Restoring PostgreSQL database...\n'
+    docker cp "$bundle/database.dump" "$container:$container_dump"
+    docker exec "$container" pg_restore --list "$container_dump" >/dev/null
+    docker exec -e "PGPASSWORD=$password" "$container" \
+        pg_restore --clean --if-exists --no-owner --no-privileges \
+        -U "$user" -d "$database" "$container_dump"
+    docker exec "$container" rm -f "$container_dump"
+
+    printf 'Restoring application storage...\n'
+    # The awk program must remain literal inside the container shell command.
+    # shellcheck disable=SC2016
+    compose run --rm --no-deps --volume "$bundle:/backup:ro" backend \
+        sh -c 'tar -tf /backup/storage.tar | awk '\''BEGIN { bad = 0 } /^\// { bad = 1 } { count = split($0, parts, "/"); for (i = 1; i <= count; i++) if (parts[i] == "..") bad = 1 } END { exit bad }'\'' && rm -rf /app/storage/* /app/storage/.[!.]* /app/storage/..?* && tar -xf /backup/storage.tar -C /app/storage'
+    printf 'Running database migrations...\n'
+    compose run --rm --no-deps backend php artisan migrate --force
+
+    if [ "$no_restart" != true ] && [ "$was_running" = true ]; then
+        if [ "$(environment_value AUDIO_INTELLIGENCE_DRIVER)" = essentia_docker ]; then
+            analysis_worker=queue-analysis-ai
+        else
+            analysis_worker=queue-analysis
+        fi
+        compose up -d backend queue-default queue-scans "$analysis_worker" scheduler web
+    fi
+    write_backup_marker restore "$(basename "$bundle")"
+    printf '\nRestore complete: %s\n' "$bundle"
+}
+
+configure_audio_intelligence() {
+    model_path=
+    accelerator=cpu
+    disable=false
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --model)
+                [ "$#" -ge 2 ] || fail '--model requires a file path.'
+                model_path=$2
+                shift 2
+                continue
+                ;;
+            --accelerator)
+                [ "$#" -ge 2 ] || fail '--accelerator requires cpu or cuda.'
+                accelerator=$2
+                shift 2
+                continue
+                ;;
+            --disable) disable=true ;;
+            *) fail "Unknown intelligence option: $1" ;;
+        esac
+        shift
+    done
+
+    assert_docker
+    configuration init
+    if [ "$disable" = true ]; then
+        configuration audio-intelligence --disable true
+        compose --profile audio-intelligence stop queue-analysis-ai >/dev/null 2>&1 || true
+        for container in $(docker ps -aq --filter 'label=sonotheque.audio-analyzer=true'); do
+            docker rm --force "$container" >/dev/null
+        done
+        if web_is_running; then
+            compose up -d --build --force-recreate backend queue-default queue-scans queue-analysis scheduler web
+        fi
+        printf 'Packaged Audio Intelligence is disabled. Existing analysis results were retained.\n'
+        return
+    fi
+
+    case "$accelerator" in
+        cpu|cuda) ;;
+        *) fail 'Audio Intelligence accelerator must be cpu or cuda.' ;;
+    esac
+    if [ "$accelerator" = cuda ] && [ "$(uname -s)" = Darwin ]; then
+        fail 'CUDA is not available through Docker Desktop on macOS. Choose --accelerator cpu.'
+    fi
+    if [ -z "$model_path" ]; then
+        model_path=$(select_file 'Select the reviewed Discogs EffNet .pb model') \
+            || fail 'Audio Intelligence configuration was cancelled.'
+    fi
+    model_path=$(absolute_file "$model_path")
+    case "$(printf '%s' "$model_path" | tr '[:upper:]' '[:lower:]')" in
+        *.pb) ;;
+        *) fail 'Select a reviewed TensorFlow .pb model file.' ;;
+    esac
+
+    cpu_image=sonotheque-audio-intelligence:analysis
+    cuda_image=sonotheque-audio-intelligence:cuda
+    printf 'Building the CPU analyzer image...\n'
+    docker build --tag "$cpu_image" "$REPOSITORY_ROOT/audio-intelligence"
+    if [ "$accelerator" = cuda ]; then
+        printf 'Building and checking the CUDA analyzer image...\n'
+        docker build --file "$REPOSITORY_ROOT/audio-intelligence/Dockerfile.cuda" \
+            --tag "$cuda_image" "$REPOSITORY_ROOT/audio-intelligence"
+        docker run --rm --gpus all --entrypoint python "$cuda_image" -c \
+            'import sys, tensorflow as tf; sys.exit(0 if tf.config.list_physical_devices("GPU") else 1)' \
+            || fail 'The CUDA image was built, but Docker could not expose a compatible GPU. CPU mode remains available.'
+    fi
+
+    configuration audio-intelligence --model "$model_path" --accelerator "$accelerator"
+    compose stop queue-analysis >/dev/null 2>&1 || true
+    if web_is_running; then
+        compose --profile audio-intelligence up -d --build --force-recreate \
+            backend queue-default queue-scans queue-analysis-ai scheduler web
+    fi
+    printf '\nPackaged Audio Intelligence is configured for %s.\n' "$accelerator"
+    printf 'Model: %s\n' "$model_path"
+    printf 'Open Settings > Audio Intelligence and run the analyzer check before analysis.\n'
+}
+
+assert_audio_intelligence_configuration() {
+    [ "$(environment_value AUDIO_INTELLIGENCE_DRIVER)" = essentia_docker ] || return 0
+
+    model_directory=$(environment_value AUDIO_INTELLIGENCE_MODEL_DIRECTORY)
+    model_filename=$(environment_value AUDIO_INTELLIGENCE_MODEL_FILENAME)
+    if [ -z "$model_directory" ] || [ -z "$model_filename" ]; then
+        fail 'Audio Intelligence is enabled, but its model path is incomplete.'
+    fi
+    case "$model_directory" in
+        /*) model_path="$model_directory/$model_filename" ;;
+        *) model_path="$REPOSITORY_ROOT/$model_directory/$model_filename" ;;
+    esac
+    [ -f "$model_path" ] || fail "The configured Audio Intelligence model does not exist: $model_path"
+
+    if [ "$(environment_value AUDIO_INTELLIGENCE_ACCELERATOR)" = cuda ]; then
+        image=$(environment_value AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE)
+    else
+        image=$(environment_value AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE)
+    fi
+    docker image inspect "$image" >/dev/null 2>&1 \
+        || fail "The configured Audio Intelligence image is missing: $image"
+}
+
+start_sonotheque() {
+    lan=false
+    address=127.0.0.1
+    build=--build
+    browser=true
+
+    : > "$ROOTS_TEMPORARY_PATH"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --music-root)
+                [ "$#" -ge 2 ] || fail '--music-root requires a folder path.'
+                add_root "$2"
+                shift 2
+                ;;
+            --lan)
+                [ "$#" -ge 2 ] || fail '--lan requires this computer private IPv4 address.'
+                lan=true
+                address=$2
+                shift 2
+                ;;
+            --no-build)
+                build=
+                shift
+                ;;
+            --no-browser)
+                browser=false
+                shift
+                ;;
+            *) fail "Unknown start option: $1" ;;
+        esac
+    done
+
+    assert_docker
+    configuration init
+    docker_group_id=$(docker run --rm \
+        --volume /var/run/docker.sock:/socket:ro \
+        "$CONFIGURATION_IMAGE" \
+        php -r 'echo filegroup("/socket");')
+    configuration host-identity \
+        --uid "$(id -u)" \
+        --gid "$(id -g)" \
+        --docker-gid "$docker_group_id"
+
+    first_start=false
+    if [ -s "$ROOTS_TEMPORARY_PATH" ]; then
+        configure_roots
+    elif [ ! -f "$ROOTS_PATH" ]; then
+        first_start=true
+        selected_root=$(select_directory 'Select your first Sonotheque music folder') \
+            || fail 'No music folder was selected.'
+        add_root "$selected_root"
+        configure_roots
+    fi
+
+    port=$(environment_value APP_HTTP_PORT)
+    [ -n "$port" ] || port=8080
+    token=$(configuration network --address "$address" --port "$port" --lan "$lan" --hostname "$(hostname)")
+
+    assert_audio_intelligence_configuration
+    if [ "$(environment_value AUDIO_INTELLIGENCE_DRIVER)" = essentia_docker ]; then
+        analysis_worker=queue-analysis-ai
+        compose stop queue-analysis >/dev/null 2>&1 || true
+    else
+        analysis_worker=queue-analysis
+        compose --profile audio-intelligence stop queue-analysis-ai >/dev/null 2>&1 || true
+    fi
+
+    printf 'Starting packaged PostgreSQL...\n'
+    if [ -n "$build" ]; then
+        compose up -d --build postgres
+    else
+        compose up -d postgres
+    fi
+
+    printf 'Running database migrations...\n'
+    if [ -n "$build" ]; then
+        compose up --build --force-recreate --abort-on-container-exit --exit-code-from migrate migrate
+    else
+        compose up --force-recreate --abort-on-container-exit --exit-code-from migrate migrate
+    fi
+
+    printf 'Starting Sonotheque services...\n'
+    if [ -n "$build" ]; then
+        compose up -d --build backend queue-default queue-scans "$analysis_worker" scheduler web
+    else
+        compose up -d backend queue-default queue-scans "$analysis_worker" scheduler web
+    fi
+
+    app_url="http://$address:$port"
+    printf '\nSonotheque is available at %s/\n' "$app_url"
+    if [ "$lan" = true ]; then
+        printf '\nEnter this admin token in Settings > Security on trusted LAN devices:\n%s\n' "$token"
+        printf 'Your operating system firewall must allow TCP port %s on the private network.\n' "$port"
+    fi
+
+    if [ "$browser" = true ]; then
+        if [ "$first_start" = true ]; then
+            open_url "$app_url/setup"
+        else
+            open_url "$app_url/"
+        fi
+    fi
+}
+
+command=${1:-help}
+if [ "$#" -gt 0 ]; then
+    shift
+fi
+
+case "$command" in
+    start) start_sonotheque "$@" ;;
+    stop)
+        assert_docker
+        compose --profile audio-intelligence down
+        for container in $(docker ps -aq --filter 'label=sonotheque.audio-analyzer=true'); do
+            docker rm --force "$container" >/dev/null
+        done
+        ;;
+    status)
+        assert_docker
+        if [ "$(environment_value AUDIO_INTELLIGENCE_DRIVER)" = essentia_docker ]; then
+            compose --profile audio-intelligence ps
+        else
+            compose ps
+        fi
+        ;;
+    open)
+        port=$(environment_value APP_HTTP_PORT)
+        [ -n "$port" ] || port=8080
+        app_url=$(environment_value APP_URL)
+        [ -n "$app_url" ] || app_url="http://127.0.0.1:$port"
+        open_url "$app_url/"
+        ;;
+    folders)
+        assert_docker
+        : > "$ROOTS_TEMPORARY_PATH"
+        if [ "$#" -gt 0 ]; then
+            for root in "$@"; do
+                add_root "$root"
+            done
+        else
+            while :; do
+                selected_root=$(select_directory 'Select a Sonotheque music folder') \
+                    || { [ -s "$ROOTS_TEMPORARY_PATH" ] && break; fail 'No music folder was selected.'; }
+                add_root "$selected_root"
+                printf 'Add another music folder? [y/N] '
+                IFS= read -r answer
+                case "$answer" in y|Y|yes|YES) ;; *) break ;; esac
+            done
+        fi
+        configure_roots
+        printf 'Music folders updated. Run ./sonotheque start to recreate the mounts.\n'
+        ;;
+    backup)
+        [ "$#" -le 1 ] || fail 'Usage: ./sonotheque backup [DESTINATION]'
+        backup_sonotheque "${1:-$REPOSITORY_ROOT/backups}"
+        ;;
+    restore) restore_sonotheque "$@" ;;
+    intelligence) configure_audio_intelligence "$@" ;;
+    help|-h|--help) usage ;;
+    *) usage; fail "Unknown command: $command" ;;
+esac

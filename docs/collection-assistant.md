@@ -59,6 +59,12 @@ For the packaged backend running in Docker, use:
 COLLECTION_ASSISTANT_OLLAMA_URL=http://host.docker.internal:11434
 ```
 
+Docker Desktop provides that host name automatically. Native Linux Compose now
+maps it to the host gateway, but Ollama must also listen beyond loopback, for
+example with `OLLAMA_HOST=0.0.0.0:11434`. Restrict port `11434` to the local
+machine or trusted private network with the host firewall; do not expose the
+Ollama API to the Internet.
+
 Sonotheque keeps a model used by the assistant loaded for 15 minutes by
 default, uses a 4,096-token context window, and limits concise answers to 256
 generated tokens. These values can be adjusted for the host machine:

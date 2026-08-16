@@ -59,6 +59,12 @@ describe('AlbumPlaylistExportDialog', () => {
           libraryRoot: 'Music Archive',
           relativePath: 'Artist/Album',
         },
+        locations: [{
+          id: 7,
+          name: 'Portable playlists',
+          path: 'P:/Playlists',
+          isDefault: true,
+        }],
       })
       .mockResolvedValueOnce({
         format: 'm3u8',
@@ -98,10 +104,70 @@ describe('AlbumPlaylistExportDialog', () => {
         format: 'm3u8',
         filename: 'Album Artist - Album Title.m3u8',
         overwrite: false,
+        locationId: null,
       }),
     })
     expect(wrapper.emitted('saved')?.[0]?.[0]).toMatchObject({
       filename: 'Album Artist - Album Title.m3u8',
+    })
+  })
+
+  it('saves to a configured playlist folder when selected', async () => {
+    apiRequestMock
+      .mockResolvedValueOnce({
+        defaultFormat: 'm3u8',
+        defaultFilename: 'Album Artist - Album Title.m3u8',
+        formats: ['m3u8', 'm3u'],
+        directory: {
+          libraryRoot: 'Music Archive',
+          relativePath: 'Artist/Album',
+        },
+        locations: [{
+          id: 7,
+          name: 'Portable playlists',
+          path: 'P:/Playlists',
+          isDefault: true,
+        }],
+      })
+      .mockResolvedValueOnce({
+        format: 'm3u8',
+        filename: 'Album Artist - Album Title.m3u8',
+        trackCount: 10,
+        sizeBytes: 400,
+        relativePath: null,
+      })
+    i18n.global.locale.value = 'en'
+    const wrapper = mount(AlbumPlaylistExportDialog, {
+      attachTo: document.body,
+      props: {
+        albumId: 42,
+        modelValue: true,
+      },
+      global: {
+        plugins: [createPinia(), i18n, vuetify],
+      },
+    })
+
+    await flushPromises()
+
+    const destinationSelect = wrapper.findAllComponents({ name: 'VSelect' })[0]
+    await destinationSelect.setValue('location:7')
+    await flushPromises()
+    expect(document.body.textContent).toContain('P:/Playlists')
+
+    const saveButton = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Save')
+    saveButton?.click()
+    await flushPromises()
+
+    expect(apiRequestMock).toHaveBeenLastCalledWith('/albums/42/playlist-export', {
+      method: 'POST',
+      body: JSON.stringify({
+        format: 'm3u8',
+        filename: 'Album Artist - Album Title.m3u8',
+        overwrite: false,
+        locationId: 7,
+      }),
     })
   })
 })

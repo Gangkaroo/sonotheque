@@ -10,8 +10,8 @@ use App\Models\AudioAnalysisRun;
 use App\Models\AudioAnalyzerBenchmark;
 use App\Models\LibraryRoot;
 use App\Music\Intelligence\AudioAnalysisProfileRegistry;
-use App\Music\Intelligence\AudioAnalyzer;
 use App\Music\Intelligence\AudioAnalyzerHealth;
+use App\Music\Intelligence\AudioAnalyzerHealthProbe;
 use App\Music\Intelligence\AudioAnalysisRunPlanner;
 use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Intelligence\AudioSimilarityPersonalizer;
@@ -26,7 +26,7 @@ class AudioIntelligenceSettingsController extends Controller
 
     public function __construct(
         private readonly AudioAnalysisRunPlanner $runPlanner,
-        private readonly AudioAnalyzer $analyzer,
+        private readonly AudioAnalyzerHealthProbe $analyzerHealthProbe,
         private readonly AudioAnalysisProfileRegistry $profileRegistry,
         private readonly AudioVectorIndex $vectorIndex,
         private readonly AudioSimilarityPersonalizer $personalizer,
@@ -153,7 +153,7 @@ class AudioIntelligenceSettingsController extends Controller
         );
         $this->abortIfRunActive();
 
-        $health = $this->analyzer->health();
+        $health = $this->analyzerHealthProbe->check();
         $this->cacheAnalyzerHealth($health);
         abort_unless(
             $health->ready(),
@@ -195,7 +195,7 @@ class AudioIntelligenceSettingsController extends Controller
         );
         $this->abortIfRunActive();
 
-        $health = $this->analyzer->health();
+        $health = $this->analyzerHealthProbe->check();
         $this->cacheAnalyzerHealth($health);
         abort_unless(
             $health->ready(),
@@ -226,7 +226,7 @@ class AudioIntelligenceSettingsController extends Controller
             409,
             'Enable audio intelligence before checking the analyzer.',
         );
-        $health = $this->analyzer->health();
+        $health = $this->analyzerHealthProbe->check();
         $this->cacheAnalyzerHealth($health);
 
         return response()->json($this->payload(ApplicationSetting::current(), health: $health));
@@ -331,7 +331,7 @@ class AudioIntelligenceSettingsController extends Controller
         );
         $this->abortIfBenchmarkActive();
 
-        $health = $this->analyzer->health();
+        $health = $this->analyzerHealthProbe->check();
         $this->cacheAnalyzerHealth($health);
         abort_unless(
             $health->ready(),

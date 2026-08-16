@@ -11,6 +11,9 @@ use Throwable;
 
 class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
 {
+    /** @var list<array{source: string, destination: string}>|null */
+    private ?array $sourceContainerMounts = null;
+
     public function __construct(
         private readonly string $image,
         private readonly string $modelPath,
@@ -22,6 +25,7 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
         private readonly bool $persistent = false,
         private readonly string $persistentContainerName = 'sonotheque-audio-analyzer',
         private readonly int $persistentStartupTimeoutSeconds = 90,
+        private readonly ?string $mountSourceContainer = null,
     ) {
         if (! in_array($this->accelerator, ['cpu', 'cuda'], true)) {
             throw new InvalidArgumentException('The audio analyzer accelerator is invalid.');
@@ -33,6 +37,11 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
         }
         if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $this->persistentContainerName) !== 1) {
             throw new InvalidArgumentException('The persistent analyzer container name is invalid.');
+        }
+        if ($this->mountSourceContainer !== null
+            && $this->mountSourceContainer !== 'self'
+            && preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $this->mountSourceContainer) !== 1) {
+            throw new InvalidArgumentException('The analyzer mount source container is invalid.');
         }
     }
 
@@ -254,10 +263,14 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
                 throw new RuntimeException('The sampled audio file has an unsafe relative path.');
             }
 
-            $rootPaths[$this->normalizedRootKey($rootPath)] = $rootPath;
+            if ($this->mountSourceContainer === null) {
+                $rootPaths[$this->normalizedRootKey($rootPath)] = $rootPath;
+            }
             $containerRequests[] = [
                 'itemId' => $request['itemId'],
-                'path' => $this->rootMountTarget($rootPath).'/'.$normalizedRelativePath,
+                'path' => $this->mountSourceContainer === null
+                    ? $this->rootMountTarget($rootPath).'/'.$normalizedRelativePath
+                    : rtrim(str_replace('\\', '/', $rootPath), '/').'/'.$normalizedRelativePath,
                 'durationSeconds' => $request['durationSeconds'] ?? null,
             ];
         }
@@ -275,6 +288,10 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
 
         if ($state !== null
             && ($state['Config']['Labels']['sonotheque.audio-analyzer.signature'] ?? null) === $signature) {
+            if ($this->mountSourceContainer !== null
+                && ($state['State']['Running'] ?? false) === true) {
+                return;
+            }
             $rootPaths = array_values(array_reduce(
                 array_merge($this->mountedRootPaths($state), $requestedRootPaths),
                 function (array $roots, string $rootPath): array {
@@ -322,6 +339,14 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
                 ...$command,
                 ...$this->bindMount($rootPath, $this->rootMountTarget($rootPath)),
             ];
+        }
+        if ($this->mountSourceContainer !== null) {
+            foreach ($this->sourceContainerLibraryMounts() as $mount) {
+                $command = [
+                    ...$command,
+                    ...$this->daemonBindMount($mount['source'], $mount['destination']),
+                ];
+            }
         }
         $command = [
             ...$command,
@@ -500,6 +525,10 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
                 'cpuLimit' => $this->cpuLimit,
                 'memoryLimit' => $this->memoryLimit,
                 'preparationWorkers' => $this->preparationWorkers,
+                'mountSourceContainer' => $this->resolvedMountSourceContainer(),
+                'sourceContainerLibraryMounts' => $this->mountSourceContainer === null
+                    ? []
+                    : $this->sourceContainerLibraryMounts(),
             ], JSON_THROW_ON_ERROR));
         } catch (JsonException $exception) {
             throw new RuntimeException(
@@ -556,7 +585,110 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
     /** @return list<string> */
     private function bindMount(string $source, string $target): array
     {
+        return $this->daemonBindMount($this->daemonSourcePath($source), $target);
+    }
+
+    /** @return list<string> */
+    private function daemonBindMount(string $source, string $target): array
+    {
         return ['--volume', "{$source}:{$target}:ro"];
+    }
+
+    private function daemonSourcePath(string $containerPath): string
+    {
+        if ($this->mountSourceContainer === null) {
+            return $containerPath;
+        }
+
+        $normalizedPath = $this->normalizedContainerPath($containerPath);
+        foreach ($this->sourceContainerMounts() as $mount) {
+            $destination = $mount['destination'];
+            if ($normalizedPath !== $destination
+                && ! str_starts_with($normalizedPath, $destination.'/')) {
+                continue;
+            }
+
+            $suffix = ltrim(substr($normalizedPath, strlen($destination)), '/');
+            $source = rtrim(str_replace('\\', '/', $mount['source']), '/');
+
+            return $suffix === '' ? $source : $source.'/'.$suffix;
+        }
+
+        throw new RuntimeException(
+            "The analyzer path [{$containerPath}] is not inside a mounted package path.",
+        );
+    }
+
+    /** @return list<array{source: string, destination: string}> */
+    private function sourceContainerLibraryMounts(): array
+    {
+        return array_values(array_filter(
+            $this->sourceContainerMounts(),
+            static fn (array $mount): bool => preg_match(
+                '#^/music/root-[1-9][0-9]*$#',
+                $mount['destination'],
+            ) === 1,
+        ));
+    }
+
+    /** @return list<array{source: string, destination: string}> */
+    private function sourceContainerMounts(): array
+    {
+        if ($this->sourceContainerMounts !== null) {
+            return $this->sourceContainerMounts;
+        }
+
+        $container = $this->resolvedMountSourceContainer();
+        if ($container === null) {
+            return $this->sourceContainerMounts = [];
+        }
+
+        $result = Process::timeout(15)->run(['docker', 'inspect', $container]);
+        if (! $result->successful()) {
+            throw new RuntimeException(
+                'Docker could not inspect the packaged analysis worker: '
+                .$this->processError($result->errorOutput()),
+            );
+        }
+
+        try {
+            $containers = json_decode($result->output(), true, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException(
+                'Docker returned invalid packaged analysis worker state.',
+                previous: $exception,
+            );
+        }
+
+        $mounts = collect($containers[0]['Mounts'] ?? [])
+            ->filter(static fn (mixed $mount): bool => is_array($mount)
+                && is_string($mount['Source'] ?? null)
+                && is_string($mount['Destination'] ?? null))
+            ->map(fn (array $mount): array => [
+                'source' => $mount['Source'],
+                'destination' => $this->normalizedContainerPath($mount['Destination']),
+            ])
+            ->sortByDesc(static fn (array $mount): int => strlen($mount['destination']))
+            ->values()
+            ->all();
+
+        return $this->sourceContainerMounts = $mounts;
+    }
+
+    private function resolvedMountSourceContainer(): ?string
+    {
+        if ($this->mountSourceContainer === null) {
+            return null;
+        }
+
+        return $this->mountSourceContainer === 'self'
+            ? gethostname()
+            : $this->mountSourceContainer;
+    }
+
+    private function normalizedContainerPath(string $path): string
+    {
+        return '/'.trim(str_replace('\\', '/', $path), '/');
     }
 
     /** @return list<AudioAnalyzerResult> */

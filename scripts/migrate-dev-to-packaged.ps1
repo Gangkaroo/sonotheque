@@ -209,6 +209,7 @@ try {
         'queue-default',
         'queue-scans',
         'queue-analysis',
+        'queue-analysis-ai',
         'scheduler'
     ) -AllowExampleEnvironment
 
@@ -311,13 +312,15 @@ try {
 
     if (-not $NoRestart) {
         Write-Host 'Starting packaged app services...'
+        Assert-PackagedAudioIntelligenceConfiguration
+        $analysisWorker = Get-PackagedAnalysisWorkerService
         Invoke-PackagedCompose -Arguments @(
             'up',
             '-d',
             'backend',
             'queue-default',
             'queue-scans',
-            'queue-analysis',
+            $analysisWorker,
             'scheduler',
             'web'
         )

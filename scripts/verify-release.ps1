@@ -38,12 +38,19 @@ try {
         "${prefix}Stop Sonotheque.cmd",
         "${prefix}Sonotheque Status.cmd",
         "${prefix}Configure Sonotheque Folders.cmd",
+        "${prefix}Configure Sonotheque Audio Intelligence.cmd",
+        "${prefix}sonotheque",
         "${prefix}INSTALL.md",
         "${prefix}docs/audio-intelligence.md",
+        "${prefix}docs/platform-support.md",
         "${prefix}compose.packaged.yaml",
         "${prefix}backend/Dockerfile.packaged",
         "${prefix}frontend/Dockerfile.packaged",
-        "${prefix}scripts/verify-lan.ps1"
+        "${prefix}scripts/verify-lan.ps1",
+        "${prefix}scripts/packaged-config.php",
+        "${prefix}scripts/lib/PackagedConfiguration.php",
+        "${prefix}scripts/system-backup-bundle.php",
+        "${prefix}scripts/lib/SystemBackupBundle.php"
     )
     $missing = @($required | Where-Object { $_ -notin $entries })
     $outsidePrefix = @($entries | Where-Object { -not $_.StartsWith($prefix) })

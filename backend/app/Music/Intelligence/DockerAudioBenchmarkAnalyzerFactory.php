@@ -33,6 +33,9 @@ class DockerAudioBenchmarkAnalyzerFactory implements AudioBenchmarkAnalyzerFacto
             persistentStartupTimeoutSeconds: (int) config(
                 'sonotheque.audio_intelligence.persistent_startup_timeout_seconds',
             ),
+            mountSourceContainer: config(
+                'sonotheque.audio_intelligence.mount_source_container',
+            ),
         );
     }
 }

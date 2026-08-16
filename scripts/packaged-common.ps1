@@ -6,6 +6,7 @@ $script:PackagedComposeOverrideFile = Join-Path $script:RepositoryRoot 'compose.
 $script:PackagedEnvironmentPath = Join-Path $script:RepositoryRoot '.env.packaged'
 $script:PackagedEnvironmentExamplePath = Join-Path $script:RepositoryRoot '.env.packaged.example'
 $script:PackagedRootsPath = Join-Path $script:RepositoryRoot 'packaged-roots.json'
+$script:PackagedConfigurationImage = 'php:8.5-cli-alpine'
 
 function Assert-PackagedDockerAvailable {
     if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -18,30 +19,23 @@ function Assert-PackagedDockerAvailable {
     }
 }
 
-function New-PackagedBase64Key {
-    $bytes = New-Object byte[] 32
-    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    try {
-        $generator.GetBytes($bytes)
-    }
-    finally {
-        $generator.Dispose()
-    }
+function Invoke-PackagedConfiguration {
+    param([Parameter(Mandatory)][string[]]$Arguments)
 
-    return 'base64:' + [Convert]::ToBase64String($bytes)
-}
+    $dockerArguments = @(
+        'run',
+        '--rm',
+        '--volume', "${script:RepositoryRoot}:/package",
+        '--workdir', '/package',
+        $script:PackagedConfigurationImage,
+        'php',
+        'scripts/packaged-config.php'
+    ) + $Arguments
 
-function New-PackagedHexSecret {
-    $bytes = New-Object byte[] 24
-    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    try {
-        $generator.GetBytes($bytes)
+    & docker @dockerArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged configuration exited with code $LASTEXITCODE."
     }
-    finally {
-        $generator.Dispose()
-    }
-
-    return [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
 }
 
 function Get-PackagedEnvironmentFile {
@@ -124,36 +118,25 @@ function Set-PackagedEnvValue {
 function Initialize-PackagedEnvironment {
     param([string]$MusicRoot)
 
-    if (-not (Test-Path -LiteralPath $script:PackagedEnvironmentPath)) {
-        Copy-Item -LiteralPath $script:PackagedEnvironmentExamplePath -Destination $script:PackagedEnvironmentPath
-        Write-Host 'Created .env.packaged from .env.packaged.example.'
-    }
-
-    $appKey = Get-PackagedEnvValue -Name 'APP_KEY'
-    if ([string]::IsNullOrWhiteSpace($appKey)) {
-        Set-PackagedEnvValue -Name 'APP_KEY' -Value (New-PackagedBase64Key)
-        Write-Host 'Generated APP_KEY for packaged mode.'
-    }
-
-    $password = Get-PackagedEnvValue -Name 'POSTGRES_PASSWORD'
-    if ([string]::IsNullOrWhiteSpace($password) -or $password -eq 'change-this-local-password') {
-        Set-PackagedEnvValue -Name 'POSTGRES_PASSWORD' -Value ('ml_' + (New-PackagedHexSecret))
-        Write-Host 'Generated PostgreSQL password for packaged mode.'
-    }
-
+    $arguments = @('init')
     if (-not [string]::IsNullOrWhiteSpace($MusicRoot)) {
-        if (-not (Test-Path -LiteralPath $MusicRoot)) {
+        if (-not (Test-Path -LiteralPath $MusicRoot -PathType Container)) {
             throw "Music root does not exist: $MusicRoot"
         }
 
-        Set-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1' -Value (Resolve-Path -LiteralPath $MusicRoot).Path
+        $arguments += @('--music-root', ((Resolve-Path -LiteralPath $MusicRoot).Path))
     }
-    else {
+
+    Invoke-PackagedConfiguration -Arguments $arguments
+
+    if ([string]::IsNullOrWhiteSpace($MusicRoot)) {
         $configuredRoot = Get-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1'
         if ([string]::IsNullOrWhiteSpace($configuredRoot) -or $configuredRoot -eq './packaged/music-root-1') {
             $placeholderRoot = Join-Path $script:RepositoryRoot 'packaged\music-root-1'
             New-Item -ItemType Directory -Path $placeholderRoot -Force | Out-Null
-            Set-PackagedEnvValue -Name 'SONOTHEQUE_ROOT_1' -Value $placeholderRoot
+            Invoke-PackagedConfiguration -Arguments @(
+                'set', '--name', 'SONOTHEQUE_ROOT_1', '--value', $placeholderRoot
+            )
             Write-Host "Using placeholder music mount: $placeholderRoot"
             Write-Host 'Pass -MusicRoot "G:\Music" to mount a real music folder.'
         }
@@ -241,6 +224,51 @@ function Get-PackagedAppPort {
     return $port
 }
 
+function Test-PackagedAudioIntelligenceEnabled {
+    return (Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_DRIVER') -eq 'essentia_docker'
+}
+
+function Get-PackagedAnalysisWorkerService {
+    if (Test-PackagedAudioIntelligenceEnabled) {
+        return 'queue-analysis-ai'
+    }
+
+    return 'queue-analysis'
+}
+
+function Assert-PackagedAudioIntelligenceConfiguration {
+    if (-not (Test-PackagedAudioIntelligenceEnabled)) {
+        return
+    }
+
+    $modelDirectory = Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_MODEL_DIRECTORY'
+    $modelFilename = Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_MODEL_FILENAME'
+    if ([string]::IsNullOrWhiteSpace($modelDirectory) -or
+        [string]::IsNullOrWhiteSpace($modelFilename)) {
+        throw 'Packaged Audio Intelligence is enabled, but its model path is incomplete. Run Configure Sonotheque Audio Intelligence.cmd.'
+    }
+
+    $modelPath = Join-Path $modelDirectory $modelFilename
+    if (-not [System.IO.Path]::IsPathRooted($modelPath)) {
+        $modelPath = Join-Path $script:RepositoryRoot $modelPath
+    }
+    if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
+        throw "The configured Audio Intelligence model does not exist: $modelPath"
+    }
+
+    $accelerator = Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_ACCELERATOR'
+    $imageName = if ($accelerator -eq 'cuda') {
+        Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_BENCHMARK_CUDA_IMAGE'
+    }
+    else {
+        Get-PackagedEnvValue -Name 'AUDIO_INTELLIGENCE_BENCHMARK_CPU_IMAGE'
+    }
+    & docker image inspect $imageName *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "The configured Audio Intelligence image is missing: $imageName. Run Configure Sonotheque Audio Intelligence.cmd."
+    }
+}
+
 function Get-PackagedMusicRoots {
     if (Test-Path -LiteralPath $script:PackagedRootsPath) {
         $configuration = Get-Content -LiteralPath $script:PackagedRootsPath -Raw | ConvertFrom-Json
@@ -287,7 +315,11 @@ function Set-PackagedMusicRoots {
         throw 'At least one music folder must be configured.'
     }
 
-    Initialize-PackagedEnvironment -MusicRoot $resolvedRoots[0]
+    $arguments = @('roots', '--case-insensitive', 'true')
+    foreach ($resolvedRoot in $resolvedRoots) {
+        $arguments += @('--root', $resolvedRoot)
+    }
+    Invoke-PackagedConfiguration -Arguments $arguments
 
     $rootEntries = for ($index = 0; $index -lt $resolvedRoots.Count; $index++) {
         [ordered]@{
@@ -295,35 +327,16 @@ function Set-PackagedMusicRoots {
             containerPath = "/music/root-$($index + 1)"
         }
     }
-    $configuration = [ordered]@{
-        version = 1
-        roots = @($rootEntries)
-    }
-    $configuration | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:PackagedRootsPath -Encoding utf8
-
-    $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add('# Generated by scripts/configure-packaged-roots.ps1. Do not edit while Sonotheque is running.')
-    $lines.Add('services:')
-    foreach ($service in @(
-        'migrate',
-        'backend',
-        'queue-default',
-        'queue-scans',
-        'queue-analysis',
-        'scheduler'
-    )) {
-        $lines.Add("  ${service}:")
-        $lines.Add('    volumes:')
-        for ($index = 0; $index -lt $resolvedRoots.Count; $index++) {
-            $escapedSource = $resolvedRoots[$index].Replace("'", "''")
-            $lines.Add('      - type: bind')
-            $lines.Add("        source: '${escapedSource}'")
-            $lines.Add("        target: /music/root-$($index + 1)")
-        }
-    }
-    Set-Content -LiteralPath $script:PackagedComposeOverrideFile -Value $lines -Encoding utf8
 
     return @($rootEntries)
+}
+
+function Sync-PackagedMusicRootOverride {
+    if (-not (Test-Path -LiteralPath $script:PackagedRootsPath)) {
+        return
+    }
+
+    Set-PackagedMusicRoots -MusicRoots @(Get-PackagedMusicRoots) | Out-Null
 }
 
 function Invoke-PackagedCompose {

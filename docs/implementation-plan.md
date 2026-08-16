@@ -761,23 +761,25 @@ Completed:
 
 Open roadmap work:
 
-- Packaged Audio Intelligence delivery that provisions the optional analyzer
-  images, reviewed model mount, and narrowly scoped Docker access without
-  weakening the packaged backend boundary
+- Cross-platform packaged distribution for Linux and macOS. The shared
+  configuration core, POSIX lifecycle/root launcher, Linux host ownership and
+  Ollama routing, TAR release artifact, compatible checksummed backup/restore,
+  Audio Intelligence provisioning, native picker fallbacks, Ubuntu smoke
+  checks, and an explicit support matrix are implemented. Practical macOS
+  Docker Desktop and broader ARM64 validation remain release-hardening work.
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
   guidance
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
-- Optional alternate configured destination for album playlist exports
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
   HTTPS gateway and remains disabled by default. This is the final deferred
   feature and starts only after all other roadmap work is complete
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` portable release are repeatable. No active release-hardening gap remains; the browsable metadata-backup audit is intentionally deferred.
+The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` Windows portable release are repeatable. Cross-platform command and release foundations are complete; practical macOS/ARM64 validation remains release hardening, while the browsable metadata-backup audit remains intentionally deferred.
 
 ### 1. Project Foundation
 
@@ -1074,7 +1076,7 @@ This phase was pulled forward after the queue model became stable. It builds on 
   root. Expose queued, successful, and failed counts with a progress bar that
   polls only while synchronization work remains. (Complete)
 - Let album exports optionally use a configured playlist destination instead
-  of the album folder. (Next)
+  of the album folder. (Complete)
 - Import external M3U/M3U8 playlists from a server-visible file picker. Resolve
   relative and absolute entries across enabled roots, preserve order and
   duplicates, allow folder assignment, and report every unmatched entry.
@@ -1299,8 +1301,8 @@ Last.fm integration.
 - Add an optional Python analysis worker that shares read-only access to mounted
   library roots and receives versioned jobs from Laravel. Keep the service
   stopped and unprovisioned until the user opts in. (The development Docker
-  analyzer, isolated persistent service, and CPU/CUDA variants are complete;
-  packaged analyzer provisioning remains pending.)
+  analyzer, isolated persistent service, CPU/CUDA variants, and optional
+  packaged analyzer provisioning are complete.)
 - Add an optional pgvector extension and separate model, feature, embedding,
   status, confidence, and error records keyed by track and audio-content
   fingerprint. (Versioned model and reusable content-addressed feature and
@@ -1567,6 +1569,15 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
 
 ## Recommended Next Step
 
+Finish cross-platform release hardening with practical macOS Docker Desktop and
+removable-drive verification, then fold confirmed hardware results back into
+`docs/platform-support.md`. The shared POSIX lifecycle, roots, backup/restore,
+Audio Intelligence provisioning, native picker fallbacks, Linux ownership,
+Ollama routing, TAR release, Ubuntu smoke checks, and explicit CPU/CUDA and
+architecture support policy are now in place. Optional analysis stays disabled
+when the host cannot build or run its native analyzer; Sonotheque never silently
+uses emulation or a different accelerator.
+
 The filesystem-monitoring milestone is complete: watcher events now create
 durable multi-path delta runs, missing files retain their catalog and playlist
 identity as unavailable entries, and unambiguous audio fingerprints reconnect
@@ -1579,8 +1590,9 @@ runtime. Normal collection analysis no longer depends on the earlier validation
 stage; validation, bounded pool expansion, benchmarking, and structured review
 remain optional Advanced diagnostics. The musician-credit backfill and its
 centralized, root-scoped ambiguous/failure review workflow are complete.
-Packaged delivery of the optional analyzer is the remaining distribution task
-for Audio Intelligence.
+Packaged delivery of the optional analyzer is complete. It is disabled by
+default, uses CPU unless CUDA is explicitly selected, keeps the reviewed model
+outside the package, and limits Docker access to the dedicated analysis worker.
 
 The Collection Assistant foundation and read-only similarity integration are
 complete. Ollama remains independently
@@ -1664,9 +1676,9 @@ not force completed audio to be analyzed again.
 
 Playlist file import, export, and custom-playlist synchronization are complete.
 Imports accept simple and extended M3U/M3U8 files, resolve paths relative to the
-source playlist, preserve matched order, and report every unmatched entry. The
-next optional playlist-file refinement is allowing album exports to target one
-of the configured export folders instead of only the album directory.
+source playlist, preserve matched order, and report every unmatched entry.
+Album exports can target either the album directory or one of the configured
+export folders while retaining portable relative paths whenever possible.
 
 The owned-copy and read-only Discogs matching workflow is complete. Albums may
 contain multiple independently editable physical or digital copies, and every

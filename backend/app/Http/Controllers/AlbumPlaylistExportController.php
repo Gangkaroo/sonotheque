@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Album;
+use App\Models\PlaylistExportLocation;
 use App\Music\Playlists\AlbumPlaylistExporter;
 use App\Music\Playlists\PlaylistExportException;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +27,12 @@ class AlbumPlaylistExportController extends Controller
             'format' => ['required', 'string', 'in:m3u,m3u8'],
             'filename' => ['required', 'string', 'max:255'],
             'overwrite' => ['sometimes', 'boolean'],
+            'locationId' => ['nullable', 'integer', 'exists:playlist_export_locations,id'],
         ]);
+
+        $location = isset($validated['locationId'])
+            ? PlaylistExportLocation::query()->findOrFail($validated['locationId'])
+            : null;
 
         try {
             return response()->json($exporter->export(
@@ -34,6 +40,7 @@ class AlbumPlaylistExportController extends Controller
                 $validated['format'],
                 $validated['filename'],
                 (bool) ($validated['overwrite'] ?? false),
+                $location,
             ));
         } catch (PlaylistExportException $exception) {
             return response()->json(
