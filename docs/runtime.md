@@ -38,8 +38,11 @@ On this machine, an older XAMPP PHP can appear first on `PATH`. Use the PHP 8.5
 binary explicitly when needed:
 
 ```powershell
-$php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
-$composerPhar = "C:\ProgramData\ComposerSetup\bin\composer.phar"
+$php85 = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\PHP.PHP.8.5_*\php.exe" -File |
+  Sort-Object FullName -Descending |
+  Select-Object -First 1 -ExpandProperty FullName
+if (-not $php85) { throw 'PHP 8.5 installed through WinGet was not found.' }
+$composerPhar = Join-Path $env:ProgramData 'ComposerSetup\bin\composer.phar'
 & $php85 --version
 ```
 

@@ -21,11 +21,15 @@
 
 - On this Windows workspace, never assume that `php` or `composer` from
   `PATH` uses the required runtime. `composer.bat` currently resolves PHP
-  8.2, while Sonotheque requires PHP 8.5. Use these explicit commands:
+  8.2, while Sonotheque requires PHP 8.5. Resolve the WinGet installation
+  without hardcoding a Windows user profile:
 
   ```powershell
-  $php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
-  $composerPhar = "C:\ProgramData\ComposerSetup\bin\composer.phar"
+  $php85 = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\PHP.PHP.8.5_*\php.exe" -File |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+  if (-not $php85) { throw 'PHP 8.5 installed through WinGet was not found.' }
+  $composerPhar = Join-Path $env:ProgramData 'ComposerSetup\bin\composer.phar'
   & $php85 artisan test
   & $php85 vendor\bin\pint --test
   ```

@@ -317,7 +317,7 @@ class CatalogPayloads
             return null;
         }
 
-        if (preg_match('/^--preset\s+(?:fast\s+)?extreme(?:\s+-b\s*\d+)?$/i', $settings) === 1) {
+        if (preg_match('/(?:^|\s)--preset\s+(?:fast\s+)?extreme(?:\s|$)/i', $settings) === 1) {
             return 'V0';
         }
 

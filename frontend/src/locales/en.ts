@@ -783,6 +783,7 @@ export default {
     addedToPlaylist: 'Added to {name}.',
     selectedPlaylist: 'selected playlist',
     selectPlaylist: 'Select playlist',
+    recentPlaylists: 'Recently used',
     noMatchingPlaylists: 'No matching playlists',
     removeTrackFromPlaylist: 'Remove from {name}',
     removeTrackFromPlaylistFailed: 'The track could not be removed from the playlist.',

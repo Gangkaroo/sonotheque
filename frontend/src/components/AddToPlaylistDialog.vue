@@ -4,7 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import type { Track } from '@/stores/catalog'
-import { usePlaylistsStore } from '@/stores/playlists'
+import { usePlaylistsStore, type PlaylistSummary } from '@/stores/playlists'
+
+const RECENT_PLAYLISTS_STORAGE_KEY = 'sonotheque.recent-playlists'
+const RECENT_PLAYLIST_LIMIT = 5
 
 const props = defineProps<{
   modelValue: boolean
@@ -27,14 +30,18 @@ const submitAction = ref<'add' | 'open' | null>(null)
 const submitError = ref('')
 const successMessage = ref('')
 const successVisible = ref(false)
+const recentPlaylistIds = ref(readRecentPlaylistIds())
 const dialogOpen = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
 })
 const playlistOptions = computed(() => playlists.playlists.map((playlist) => ({
-  title: playlist.folder ? `${playlist.folder.name} / ${playlist.name}` : playlist.name,
+  title: playlistDisplayName(playlist),
   value: playlist.id,
 })))
+const recentPlaylists = computed(() => recentPlaylistIds.value
+  .map((playlistId) => playlists.playlists.find((playlist) => playlist.id === playlistId))
+  .filter((playlist): playlist is PlaylistSummary => playlist !== undefined))
 const folderOptions = computed(() => [
   { title: t('playlists.noFolder'), value: null },
   ...playlists.folders.map((folder) => ({ title: folder.name, value: folder.id })),
@@ -82,6 +89,7 @@ async function submit(openAfterAdding = false) {
       const items = await playlists.addTracks(playlist.id, trackIds)
       firstAddedItemId = items[0]?.id ?? null
     }
+    rememberPlaylist(playlist.id)
 
     successMessage.value = t('playlists.addedToPlaylist', { name: playlist.name })
     successVisible.value = true
@@ -110,6 +118,35 @@ function showCreatePlaylist() {
 function showExistingPlaylists() {
   creatingPlaylist.value = false
   submitError.value = ''
+}
+
+function selectRecentPlaylist(playlistId: number) {
+  selectedPlaylistId.value = playlistId
+}
+
+function playlistDisplayName(playlist: PlaylistSummary) {
+  return playlist.folder ? `${playlist.folder.name} / ${playlist.name}` : playlist.name
+}
+
+function rememberPlaylist(playlistId: number) {
+  recentPlaylistIds.value = [
+    playlistId,
+    ...recentPlaylistIds.value.filter((id) => id !== playlistId),
+  ].slice(0, RECENT_PLAYLIST_LIMIT)
+  localStorage.setItem(RECENT_PLAYLISTS_STORAGE_KEY, JSON.stringify(recentPlaylistIds.value))
+}
+
+function readRecentPlaylistIds(): number[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(RECENT_PLAYLISTS_STORAGE_KEY) ?? '[]')
+    if (!Array.isArray(stored)) return []
+
+    return [...new Set(stored)]
+      .filter((value): value is number => Number.isInteger(value) && value > 0)
+      .slice(0, RECENT_PLAYLIST_LIMIT)
+  } catch {
+    return []
+  }
 }
 
 watch(dialogOpen, async (open) => {
@@ -182,6 +219,25 @@ watch(dialogOpen, async (open) => {
             :no-data-text="t('playlists.noMatchingPlaylists')"
             variant="outlined"
           />
+          <div v-if="recentPlaylists.length" class="mb-4">
+            <div class="mb-2 text-caption text-medium-emphasis">
+              {{ t('playlists.recentPlaylists') }}
+            </div>
+            <div class="d-flex flex-wrap ga-2">
+              <v-chip
+                v-for="playlist in recentPlaylists"
+                :key="playlist.id"
+                :aria-pressed="selectedPlaylistId === playlist.id"
+                :color="selectedPlaylistId === playlist.id ? 'primary' : undefined"
+                :data-testid="`recent-playlist-${playlist.id}`"
+                prepend-icon="mdi-history"
+                :variant="selectedPlaylistId === playlist.id ? 'flat' : 'tonal'"
+                @click="selectRecentPlaylist(playlist.id)"
+              >
+                {{ playlistDisplayName(playlist) }}
+              </v-chip>
+            </div>
+          </div>
           <v-btn prepend-icon="mdi-plus" variant="tonal" @click="showCreatePlaylist">
             {{ t('playlists.createNewPlaylist') }}
           </v-btn>

@@ -447,7 +447,7 @@ class CatalogBrowseApiTest extends TestCase
             'raw_metadata' => [
                 'audio' => [
                     'bitrate_mode' => 'vbr',
-                    'encoder_options' => '--preset fast extreme -b32',
+                    'encoder_options' => '--preset fast extreme -b32 --resample 48000',
                 ],
             ],
         ]);

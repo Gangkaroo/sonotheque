@@ -39,7 +39,10 @@ For manual diagnostics, run the API and queue listener in separate terminals.
 Prefer the PHP 8.5 binary if an older PHP appears first on `PATH`:
 
 ```powershell
-$php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
+$php85 = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\PHP.PHP.8.5_*\php.exe" -File |
+  Sort-Object FullName -Descending |
+  Select-Object -First 1 -ExpandProperty FullName
+if (-not $php85) { throw 'PHP 8.5 installed through WinGet was not found.' }
 & $php85 artisan serve --host=127.0.0.1 --port=8000
 & $php85 artisan queue:work --tries=1 --timeout=0 --memory=512 --sleep=1
 ```
@@ -67,8 +70,11 @@ troubleshooting, and backup guide.
 ## Verification
 
 ```powershell
-$php85 = "C:\Users\Tom\AppData\Local\Microsoft\WinGet\Packages\PHP.PHP.8.5_Microsoft.Winget.Source_8wekyb3d8bbwe\php.exe"
-$composerPhar = "C:\ProgramData\ComposerSetup\bin\composer.phar"
+$php85 = Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\PHP.PHP.8.5_*\php.exe" -File |
+  Sort-Object FullName -Descending |
+  Select-Object -First 1 -ExpandProperty FullName
+if (-not $php85) { throw 'PHP 8.5 installed through WinGet was not found.' }
+$composerPhar = Join-Path $env:ProgramData 'ComposerSetup\bin\composer.phar'
 & $php85 vendor\bin\pint --test
 & $php85 $composerPhar dump-autoload --optimize --strict-psr --no-scripts
 & $php85 artisan test

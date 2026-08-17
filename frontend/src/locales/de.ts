@@ -783,6 +783,7 @@ export default {
     addedToPlaylist: 'Zu {name} hinzugefügt.',
     selectedPlaylist: 'ausgewählte Playlist',
     selectPlaylist: 'Playlist auswählen',
+    recentPlaylists: 'Zuletzt verwendet',
     noMatchingPlaylists: 'Keine passenden Playlists',
     removeTrackFromPlaylist: 'Aus {name} entfernen',
     removeTrackFromPlaylistFailed: 'Der Titel konnte nicht aus der Playlist entfernt werden.',

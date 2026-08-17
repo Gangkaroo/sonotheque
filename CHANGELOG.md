@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-17
+
 - Allow album playlist exports to use either the album folder or any configured
   playlist export folder, with shared portable path handling.
 - Add disabled-by-default packaged Audio Intelligence setup with CPU and
@@ -13,6 +15,15 @@
   Audio Intelligence setup, native picker fallbacks, POSIX smoke coverage, an
   explicit support matrix, and verified TAR release artifacts alongside the
   Windows ZIP.
+- Restore the saved playback position reliably after a browser refresh and
+  prevent repeated player collapse and expansion from stacking Web Audio output
+  routes and increasing the audible volume.
+- Show the five most recently used playlist destinations as browser-local quick
+  choices in the add-to-playlist dialog.
+- Normalize historical LAME extreme-preset strings with additional encoder
+  options to the familiar `V0` quality label.
+- Replace user-specific PHP executable paths in repository instructions with a
+  portable WinGet lookup based on Windows environment variables.
 
 ## 0.3.0 - 2026-08-16
 

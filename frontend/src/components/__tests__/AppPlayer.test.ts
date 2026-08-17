@@ -136,13 +136,52 @@ describe('AppPlayer playback reporting', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/tracks/2/plays')
     wrapper.unmount()
   })
+
+  it('preserves and restores the playback position while media reloads after a refresh', async () => {
+    localStorage.setItem('sonotheque.player', JSON.stringify({
+      queue: tracks,
+      currentIndex: 0,
+      isPlaying: true,
+      playbackPosition: 73,
+      playbackSessionKey: 'restored-session',
+      playbackStartedAt: new Date().toISOString(),
+      visualizerEnabled: false,
+    }))
+    const { player, wrapper } = await mountPlayer(false)
+    const media = currentMedia(wrapper)
+
+    setMediaState(media, 0, 120)
+    await media.trigger('loadstart')
+    expect(player.playbackPosition).toBe(73)
+
+    window.dispatchEvent(new Event('beforeunload'))
+    expect(player.playbackPosition).toBe(73)
+
+    await media.trigger('loadedmetadata')
+    expect(media.element.currentTime).toBe(73)
+    expect(player.playbackPosition).toBe(73)
+    wrapper.unmount()
+  })
+
+  it('keeps one visualizer instance while the player is collapsed and expanded', async () => {
+    const { wrapper } = await mountPlayer()
+    const visualizer = wrapper.get('music-visualizer-stub').element
+
+    await wrapper.get('[aria-label="Collapse player"]').trigger('click')
+    expect(wrapper.get('music-visualizer-stub').element).toBe(visualizer)
+
+    await wrapper.get('[aria-label="Expand player"]').trigger('click')
+    expect(wrapper.get('music-visualizer-stub').element).toBe(visualizer)
+
+    wrapper.unmount()
+  })
 })
 
-async function mountPlayer() {
+async function mountPlayer(startPlayback = true) {
   const pinia = createPinia()
   const player = usePlayerStore(pinia)
   player.setVisualizerEnabled(false)
-  player.playTrack(tracks[0]!, tracks, 'album')
+  if (startPlayback) player.playTrack(tracks[0]!, tracks, 'album')
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -181,7 +220,7 @@ function currentMedia(wrapper: VueWrapper) {
 
 function setMediaState(media: ReturnType<typeof currentMedia>, currentTime: number, duration: number) {
   Object.defineProperties(media.element, {
-    currentTime: { configurable: true, value: currentTime },
+    currentTime: { configurable: true, value: currentTime, writable: true },
     duration: { configurable: true, value: duration },
     paused: { configurable: true, value: false },
     seeking: { configurable: true, value: false },

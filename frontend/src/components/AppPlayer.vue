@@ -619,7 +619,7 @@ function onLoading(event: Event) {
     reloadOnNextResume = true
   }
   if (player.isPlaying) {
-    if (audio.value) player.setPlaybackPosition(audio.value.currentTime)
+    persistMediaPosition()
     player.setPlaybackState('loading')
     if (
       (event.type === 'waiting' || event.type === 'stalled')
@@ -677,7 +677,16 @@ function persistCurrentPlaybackState() {
   if (!audio.value || !player.currentTrack) return
 
   suspendListenedPlayback(audio.value.currentTime)
-  player.setPlaybackPosition(audio.value.currentTime)
+  persistMediaPosition()
+}
+
+function persistMediaPosition() {
+  if (!audio.value) return
+
+  const position = audio.value.currentTime
+  if (position > 0 || player.playbackPosition === 0) {
+    player.setPlaybackPosition(position)
+  }
 }
 
 function observeListenedPlayback() {
@@ -1107,7 +1116,7 @@ onMounted(() => {
       @waiting="onLoading"
     />
 
-    <div v-if="playerCollapsed" class="player-collapsed-content">
+    <div v-show="playerCollapsed" class="player-collapsed-content">
       <div class="player-collapsed-progress" aria-hidden="true">
         <div class="player-collapsed-progress-fill" :style="{ width: `${progressPercent}%` }" />
       </div>
@@ -1164,10 +1173,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else class="player-expanded-content">
+    <div v-show="!playerCollapsed" class="player-expanded-content">
       <MusicVisualizer
         class="player-visualizer"
-        :active="player.playbackState === 'playing'"
+        :active="!playerCollapsed && player.playbackState === 'playing'"
         :audio-element="audio"
         :enabled="player.visualizerEnabled"
       />
