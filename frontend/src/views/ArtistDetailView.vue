@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
+import CatalogDates from '@/components/CatalogDates.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -320,6 +321,11 @@ function syncDetailStateToRoute() {
             </div>
           </div>
         </div>
+        <CatalogDates
+          class="mt-4"
+          :created-at="artist.createdAt"
+          :updated-at="artist.updatedAt"
+        />
       </v-card-text>
       <v-card-actions class="artist-actions px-4 pb-4 pt-0">
         <v-btn

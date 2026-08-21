@@ -438,8 +438,7 @@ async function playAudio(showError = true) {
     player.setPlaybackState('loading')
     await element.play()
     if (isCurrentPlaybackAttempt(playKey, element, attemptId) && !element.paused) {
-      clearPlaybackHandoffTimers()
-      player.setPlaybackState('playing')
+      activatePlayback(element)
     }
   } catch {
     if (!isCurrentPlaybackAttempt(playKey, element, attemptId)) return
@@ -647,11 +646,15 @@ function onPause(event?: Event) {
 function onPlaying(event?: Event) {
   if (!isCurrentMediaEvent(event)) return
 
+  activatePlayback(audio.value)
+}
+
+function activatePlayback(element: HTMLAudioElement | null) {
   clearPlaybackHandoffTimers()
   endSeekFeedback()
   player.setPlaybackState('playing')
   lastPlaybackProgressAt = Date.now()
-  listenedPlayback.resume(audio.value?.currentTime ?? currentTime.value)
+  listenedPlayback.resume(element?.currentTime ?? currentTime.value)
   maybeRecordCountedPlay()
 }
 
@@ -908,8 +911,7 @@ function recoverPlaybackHandoff(playKey: string) {
 
   const action = playbackHandoffAction(element)
   if (action === 'playing') {
-    clearPlaybackHandoffTimers()
-    player.setPlaybackState('playing')
+    activatePlayback(element)
   } else if (action === 'play') {
     void playAudio()
   } else if (action === 'reload') {
@@ -929,7 +931,7 @@ function failStalledPlaybackHandoff(playKey: string) {
 
   clearPlaybackHandoffTimers()
   if (playbackHandoffAction(element) === 'playing') {
-    player.setPlaybackState('playing')
+    activatePlayback(element)
     return
   }
 

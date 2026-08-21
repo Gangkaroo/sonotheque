@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTagRemovalList.vue'
+import CatalogDates from '@/components/CatalogDates.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -742,6 +744,11 @@ onUnmounted(() => {
                 </div>
               </v-col>
             </v-row>
+            <CatalogDates
+              class="mt-4"
+              :created-at="track.createdAt"
+              :updated-at="track.updatedAt"
+            />
           </v-card-text>
           <v-divider />
           <v-card-title class="text-subtitle-1">{{ t('tracks.recentPlays') }}</v-card-title>
@@ -873,26 +880,12 @@ onUnmounted(() => {
           </v-row>
           <template v-if="additionalMetadataTags.length">
             <v-divider class="mb-4" />
-            <div class="text-subtitle-2">{{ t('tracks.removeAdditionalTags') }}</div>
-            <div class="text-caption text-medium-emphasis mb-2">{{ t('tracks.removeAdditionalTagsHint') }}</div>
-            <v-checkbox
-              v-for="tag in additionalMetadataTags"
-              :key="tag.key"
+            <AdditionalMetadataTagRemovalList
               v-model="metadataRemovedTagKeys"
-              color="primary"
-              density="compact"
-              hide-details
-              :value="tag.key"
-            >
-              <template #label>
-                <span>
-                  {{ tag.name }}
-                  <span class="text-caption text-medium-emphasis ml-1">
-                    {{ tag.frameId }} · {{ additionalTagValue(tag) }}
-                  </span>
-                </span>
-              </template>
-            </v-checkbox>
+              :hint="t('tracks.removeAdditionalTagsHint')"
+              :tags="additionalMetadataTags"
+              :title="t('tracks.removeAdditionalTags')"
+            />
           </template>
           <div class="text-caption text-medium-emphasis">{{ t('tracks.metadataPreviewHint') }}</div>
         </template>

@@ -8,6 +8,8 @@ export interface Artist {
   id: number
   name: string
   browseInitial: string
+  createdAt?: string | null
+  updatedAt?: string | null
   albumCount: number
   trackCount: number
   playStatistics: {
@@ -132,6 +134,8 @@ export interface Album {
 }
 
 export interface AlbumDetail extends Album {
+  createdAt?: string | null
+  updatedAt?: string | null
   libraryRoot: NamedCatalogItem | null
   genres: NamedCatalogItem[]
   technical: {
@@ -141,6 +145,7 @@ export interface AlbumDetail extends Album {
     bitrateModes: string[]
     encoderSettings: string[]
   }
+  additionalTags: AlbumAdditionalMetadataTag[]
   tracks: Track[]
 }
 
@@ -178,9 +183,17 @@ export interface AdditionalMetadataTag {
   name: string
   values: string[]
   sizeBytes?: number | null
+  playbackStatistic: boolean
+  protectedFromRemoval: boolean
+}
+
+export interface AlbumAdditionalMetadataTag extends AdditionalMetadataTag {
+  trackCount: number
 }
 
 export interface TrackDetail extends Track {
+  createdAt?: string | null
+  updatedAt?: string | null
   composers: string[]
   performers: string[]
   genres: NamedCatalogItem[]

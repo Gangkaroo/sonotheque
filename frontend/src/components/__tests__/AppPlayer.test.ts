@@ -94,6 +94,31 @@ describe('AppPlayer playback reporting', () => {
     wrapper.unmount()
   })
 
+  it('tracks listened progress when play succeeds without a playing event', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      counted: true,
+      statistics: { playCount: 1 },
+    }, 201))
+    vi.stubGlobal('fetch', fetchMock)
+    const { wrapper } = await mountPlayer()
+    const media = currentMedia(wrapper)
+
+    setMediaState(media, 0, 120)
+    await media.trigger('loadedmetadata')
+    await flushPromises()
+
+    setMediaState(media, 61, 120)
+    await media.trigger('timeupdate')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/tracks/1/plays', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"listenedMs":61000'),
+    }))
+    wrapper.unmount()
+  })
+
   it('does not apply a late retry threshold to the next track', async () => {
     let resolveFirstRequest!: (response: Response) => void
     const firstRequest = new Promise<Response>((resolve) => {

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\ApplyTrackMetadataEdit;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
@@ -210,6 +211,48 @@ class TrackMetadataApiTest extends TestCase
             'track_id' => $track->id,
         ]);
         Queue::assertPushed(ApplyTrackMetadataEdit::class);
+    }
+
+    public function test_it_protects_synchronized_playback_statistics_tags_from_track_removal(): void
+    {
+        Queue::fake();
+        $track = $this->createTrack('track.mp3');
+        $track->mediaFile->update([
+            'raw_metadata' => [
+                'id3v2' => [
+                    'comments' => ['play_count' => ['12']],
+                    'TXXX' => [[
+                        'description' => 'PLAY_COUNT',
+                        'data' => '12',
+                    ]],
+                ],
+            ],
+        ]);
+        ApplicationSetting::current()->update([
+            'import_play_statistics_from_tags' => true,
+            'export_play_statistics_to_tags' => true,
+        ]);
+        $values = [
+            'title' => 'Track',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'genres' => [],
+            'comment' => null,
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2000,
+            'removedTagKeys' => ['TXXX:PLAY_COUNT'],
+        ];
+
+        $this->getJson("/api/catalog/tracks/{$track->id}")
+            ->assertOk()
+            ->assertJsonPath('mediaFile.additionalTags.0.protectedFromRemoval', true);
+
+        $this->postJson("/api/tracks/{$track->id}/metadata/preview", $values)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('removedTagKeys');
+        Queue::assertNothingPushed();
     }
 
     private function createTrack(string $filename): Track

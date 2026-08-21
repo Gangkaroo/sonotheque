@@ -3,6 +3,7 @@
 namespace App\Music\Metadata;
 
 use App\Jobs\ApplyTrackMetadataEdit;
+use App\Models\ApplicationSetting;
 use App\Models\MetadataEditJob;
 use App\Models\Track;
 use Illuminate\Validation\ValidationException;
@@ -33,6 +34,15 @@ class TrackMetadataEditing
         if ($unknownTagKeys !== []) {
             throw ValidationException::withMessages([
                 'removedTagKeys' => 'One or more additional tags are no longer present in this file.',
+            ]);
+        }
+        if (ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags()
+            && array_intersect(
+                $values['removedTagKeys'],
+                $this->additionalTags->playbackStatisticKeys($mediaFile->raw_metadata ?? []),
+            ) !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'Playback-statistics tags cannot be removed while file-tag synchronization is enabled.',
             ]);
         }
 

@@ -261,6 +261,30 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         );
     }
 
+    public function test_a_terminal_queue_failure_does_not_leave_the_edit_running(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum();
+        $editing = $this->app->make(AlbumMetadataEditing::class);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'updateTrackArtists' => false,
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => ['New genre'],
+        ];
+        $preview = $editing->preview($album, $values);
+        $edit = $editing->queue($album, $values, $preview['fingerprint']);
+        $edit->update(['status' => 'running', 'started_at' => now()]);
+
+        (new ApplyAlbumMetadataEdit($edit->id))->failed(new \RuntimeException('Catalog update failed.'));
+
+        $this->assertSame('failed', $edit->fresh()->status);
+        $this->assertSame('Catalog update failed.', $edit->fresh()->error);
+        $this->assertNotNull($edit->fresh()->finished_at);
+    }
+
     private function createAlbum(): Album
     {
         $artist = Artist::create([

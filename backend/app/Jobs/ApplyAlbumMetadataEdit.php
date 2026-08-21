@@ -6,6 +6,7 @@ use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\MetadataEditItem;
 use App\Models\MetadataEditJob;
+use App\Music\Catalog\GenreResolver;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\MetadataBackupManager;
 use App\Music\Metadata\MetadataEditProgress;
@@ -23,9 +24,12 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     public int $timeout = 1800;
+
+    /** @var list<int> */
+    public array $backoff = [1, 5];
 
     public function __construct(public readonly int $metadataEditJobId)
     {
@@ -39,6 +43,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         ArtistName $artistName,
         MetadataBackupManager $backups,
         MetadataEditProgress $progress,
+        GenreResolver $genreResolver,
     ): void {
         $edit = MetadataEditJob::with(['album.tracks', 'items.track.mediaFile.libraryRoot'])
             ->findOrFail($this->metadataEditJobId);
@@ -65,7 +70,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
 
         $edit->refresh();
         if ($edit->failed_items === 0) {
-            $this->applyCatalogChanges($edit, $artistName);
+            $this->applyCatalogChanges($edit, $artistName, $genreResolver);
             $edit->update(['status' => 'completed', 'finished_at' => now()]);
         } else {
             $edit->update([
@@ -74,6 +79,22 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 'finished_at' => now(),
             ]);
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        MetadataEditJob::query()
+            ->whereKey($this->metadataEditJobId)
+            ->whereNotIn('status', ['completed', 'partial', 'failed'])
+            ->update([
+                'status' => 'failed',
+                'error' => mb_substr(
+                    $exception?->getMessage() ?? 'The album metadata edit failed.',
+                    0,
+                    4000,
+                ),
+                'finished_at' => now(),
+            ]);
     }
 
     private function processItem(
@@ -133,8 +154,11 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         }
     }
 
-    private function applyCatalogChanges(MetadataEditJob $edit, ArtistName $artistName): void
-    {
+    private function applyCatalogChanges(
+        MetadataEditJob $edit,
+        ArtistName $artistName,
+        GenreResolver $genreResolver,
+    ): void {
         $values = $edit->requested_changes;
         $changedFields = array_fill_keys(array_column($edit->preview['changes'], 'field'), true);
         $attributes = [];
@@ -191,10 +215,9 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
             $previousGenreIds = Genre::query()
                 ->whereHas('tracks', fn ($query) => $query->where('album_id', $edit->album->id))
                 ->pluck('id');
-            $genreIds = collect($values['genres'])->map(function (string $name): int {
-                return Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()?->id
-                    ?? Genre::create(['name' => $name])->id;
-            })->all();
+            $genreIds = collect($values['genres'])
+                ->map(fn (string $name): int => $genreResolver->resolve($name)->id)
+                ->all();
             foreach ($edit->album->tracks as $track) {
                 $track->genres()->sync($genreIds);
             }

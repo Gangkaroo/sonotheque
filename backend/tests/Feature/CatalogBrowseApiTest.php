@@ -58,6 +58,7 @@ class CatalogBrowseApiTest extends TestCase
 
         $this->getJson("/api/catalog/artists/{$artist->id}")
             ->assertOk()
+            ->assertJsonStructure(['createdAt', 'updatedAt'])
             ->assertJsonPath('id', $artist->id)
             ->assertJsonPath('name', 'Artist')
             ->assertJsonPath('albumCount', 2)
@@ -168,6 +169,7 @@ class CatalogBrowseApiTest extends TestCase
 
         $this->getJson("/api/catalog/albums/{$album->id}")
             ->assertOk()
+            ->assertJsonStructure(['createdAt', 'updatedAt'])
             ->assertJsonPath('id', $album->id)
             ->assertJsonPath('title', 'Album')
             ->assertJsonPath('primaryArtist.id', $artist->id)
@@ -418,6 +420,7 @@ class CatalogBrowseApiTest extends TestCase
 
         $this->getJson("/api/catalog/tracks/{$track->id}")
             ->assertOk()
+            ->assertJsonStructure(['createdAt', 'updatedAt'])
             ->assertJsonPath('id', $track->id)
             ->assertJsonPath('title', 'Track')
             ->assertJsonPath('streamUrl', "/api/tracks/{$track->id}/stream")

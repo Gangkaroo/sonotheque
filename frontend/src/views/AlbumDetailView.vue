@@ -4,8 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTagRemovalList.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import AlbumPlaylistExportDialog from '@/components/AlbumPlaylistExportDialog.vue'
+import CatalogDates from '@/components/CatalogDates.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import OwnedAlbumCopies from '@/components/OwnedAlbumCopies.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
@@ -56,6 +58,7 @@ const metadataForm = reactive({
 const metadataCommentEnabled = ref(false)
 const metadataCommentsMixed = ref(false)
 const metadataUpdateTrackArtists = ref(true)
+const metadataRemovedTagKeys = ref<string[]>([])
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectionMode = ref(false)
 const selectedTrackIds = ref<number[]>([])
@@ -79,10 +82,11 @@ interface AlbumMetadataValues {
   totalDiscs: number | null
   genres: string[]
   comment?: string | null
+  removedTagKeys: string[]
 }
 
 interface AlbumMetadataChange {
-  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'comment'
+  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'comment' | 'removedTagKeys'
   current: string | number | string[] | null
   proposed: string | number | string[] | null
   fileValuesDiffer?: boolean
@@ -209,6 +213,7 @@ function positiveQueryPage(value: unknown, key: 'albumPage' | 'trackPage') {
 }
 const allTracksSelected = computed(() => tracks.value.length > 0 && selectedTrackIds.value.length === tracks.value.length)
 const albumGenres = computed(() => album.value?.genres ?? [])
+const albumAdditionalTags = computed(() => album.value?.additionalTags ?? [])
 const albumTechnicalChips = computed(() => {
   const technical = album.value?.technical
   if (!technical) return []
@@ -500,6 +505,7 @@ function openMetadataEditor() {
   metadataCommentEnabled.value = false
   metadataCommentsMixed.value = comments.length > 1
   metadataUpdateTrackArtists.value = true
+  metadataRemovedTagKeys.value = []
   metadataStep.value = 'form'
   metadataPreview.value = null
   metadataJob.value = null
@@ -518,6 +524,7 @@ function metadataValues(): AlbumMetadataValues {
     releaseYear: year === '' ? null : Number(year),
     totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
     genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
+    removedTagKeys: [...metadataRemovedTagKeys.value],
   }
   if (metadataCommentEnabled.value) values.comment = metadataForm.comment.trim() || null
 
@@ -597,6 +604,7 @@ function metadataFieldLabel(field: AlbumMetadataChange['field']) {
     totalDiscs: t('albums.totalDiscs'),
     genres: t('tracks.genres'),
     comment: t('tracks.comment'),
+    removedTagKeys: t('tracks.removeAdditionalTags'),
   }[field]
 }
 
@@ -752,6 +760,11 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
+            <CatalogDates
+              class="mt-4"
+              :created-at="album.createdAt"
+              :updated-at="album.updatedAt"
+            />
             <div class="personal-information mt-4">
               <div class="d-flex align-center justify-space-between ga-2 mb-2">
                 <div class="text-subtitle-2 text-high-emphasis">{{ t('albums.personalInformation') }}</div>
@@ -1086,6 +1099,16 @@ onUnmounted(() => {
             persistent-hint
             rows="3"
           />
+          <template v-if="albumAdditionalTags.length">
+            <v-divider class="mb-4" />
+            <AdditionalMetadataTagRemovalList
+              v-model="metadataRemovedTagKeys"
+              :hint="t('albums.removeAdditionalTagsHint')"
+              :tags="albumAdditionalTags"
+              :title="t('tracks.removeAdditionalTags')"
+              :total-track-count="album?.trackCount"
+            />
+          </template>
           <div class="text-caption text-medium-emphasis">{{ t('albums.metadataPreviewHint') }}</div>
         </template>
 

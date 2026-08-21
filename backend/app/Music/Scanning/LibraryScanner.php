@@ -13,6 +13,7 @@ use App\Models\ScanRun;
 use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Music\Artwork\AlbumArtworkManager;
+use App\Music\Catalog\GenreResolver;
 use App\Music\PlaybackStatistics\ImportedPlayStatistics;
 use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
@@ -123,6 +124,7 @@ class LibraryScanner
         private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
         private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryActivityLogger $activityLogger,
+        private readonly GenreResolver $genreResolver,
     ) {
     }
 
@@ -1408,9 +1410,7 @@ class LibraryScanner
             return $this->genreCache[$cacheKey];
         }
 
-        $genre = Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first();
-
-        return $this->genreCache[$cacheKey] = $genre ?? Genre::create(['name' => $name]);
+        return $this->genreCache[$cacheKey] = $this->genreResolver->resolve($name);
     }
 
     private function pathHash(string $relativePath): string

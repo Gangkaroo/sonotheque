@@ -27,7 +27,7 @@ class AlbumMetadataController extends Controller
         return response()->json($this->payloads->job($job), 202);
     }
 
-    /** @return array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string} */
+    /** @return array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string, removedTagKeys: list<string>} */
     private function values(Request $request): array
     {
         $validated = $request->validate([
@@ -39,6 +39,13 @@ class AlbumMetadataController extends Controller
             'genres' => ['present', 'array', 'max:50'],
             'genres.*' => ['string', 'max:255', 'not_regex:/^\s*$/'],
             'comment' => ['sometimes', 'nullable', 'string', 'max:10000'],
+            'removedTagKeys' => ['sometimes', 'array', 'max:64'],
+            'removedTagKeys.*' => [
+                'string',
+                'max:512',
+                'distinct',
+                'regex:/^[A-Z0-9]{4}(?::.+)?$/u',
+            ],
         ]);
         $genres = collect($validated['genres'])
             ->map(fn (string $genre) => trim($genre))
@@ -53,6 +60,7 @@ class AlbumMetadataController extends Controller
             'releaseYear' => $validated['releaseYear'],
             'totalDiscs' => $validated['totalDiscs'],
             'genres' => $genres,
+            'removedTagKeys' => array_values($validated['removedTagKeys'] ?? []),
         ];
         if (array_key_exists('comment', $validated)) {
             $values['comment'] = filled($validated['comment']) ? trim($validated['comment']) : null;

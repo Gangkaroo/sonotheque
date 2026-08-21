@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\ApplyAlbumMetadataEdit;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
@@ -242,6 +243,78 @@ class AlbumMetadataApiTest extends TestCase
         );
     }
 
+    public function test_it_can_remove_an_additional_tag_from_every_file_where_it_occurs(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $tracks = $album->tracks()->orderBy('track_number')->get();
+        $tracks[0]->mediaFile->update(['raw_metadata' => $this->additionalTags('Bandcamp')]);
+        $tracks[1]->mediaFile->update(['raw_metadata' => $this->additionalTags('CD rip')]);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+            'removedTagKeys' => ['TXXX:SOURCE'],
+        ];
+
+        $this->getJson("/api/catalog/albums/{$album->id}")
+            ->assertOk()
+            ->assertJsonPath('additionalTags.0.key', 'TXXX:SOURCE')
+            ->assertJsonPath('additionalTags.0.trackCount', 2)
+            ->assertJsonPath('additionalTags.0.protectedFromRemoval', false)
+            ->assertJsonCount(2, 'additionalTags.0.values');
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('changes.0.field', 'removedTagKeys')
+            ->assertJsonPath('changes.0.current.0', 'Source')
+            ->assertJsonPath('files.0.writeValues.removedTagKeys.0', 'TXXX:SOURCE')
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertSame(
+            [['removedTagKeys' => ['TXXX:SOURCE']], ['removedTagKeys' => ['TXXX:SOURCE']]],
+            MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->all(),
+        );
+    }
+
+    public function test_it_protects_synchronized_playback_statistics_tags_from_album_removal(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3']);
+        $album->tracks->first()->mediaFile->update([
+            'raw_metadata' => $this->additionalTags('Bandcamp', playCount: 12),
+        ]);
+        ApplicationSetting::current()->update([
+            'import_play_statistics_from_tags' => true,
+            'export_play_statistics_to_tags' => true,
+        ]);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+            'removedTagKeys' => ['TXXX:PLAY_COUNT'],
+        ];
+
+        $this->getJson("/api/catalog/albums/{$album->id}")
+            ->assertOk()
+            ->assertJsonPath('additionalTags.0.key', 'TXXX:PLAY_COUNT')
+            ->assertJsonPath('additionalTags.0.protectedFromRemoval', true);
+
+        $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('removedTagKeys');
+        Queue::assertNothingPushed();
+    }
+
     /** @return array{albumTitle: string, albumArtist: string, releaseYear: int, totalDiscs: int, genres: list<string>} */
     private function values(): array
     {
@@ -252,6 +325,30 @@ class AlbumMetadataApiTest extends TestCase
             'totalDiscs' => 2,
             'genres' => ['Doom', 'Metal'],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function additionalTags(string $source, ?int $playCount = null): array
+    {
+        $frames = [[
+            'framenamelong' => 'User defined text information frame',
+            'description' => 'Source',
+            'data' => $source,
+        ]];
+        $comments = [
+            'album_artist' => ['Artist'],
+            'source' => [$source],
+        ];
+        if ($playCount !== null) {
+            array_unshift($frames, [
+                'framenamelong' => 'User defined text information frame',
+                'description' => 'PLAY_COUNT',
+                'data' => (string) $playCount,
+            ]);
+            $comments['play_count'] = [(string) $playCount];
+        }
+
+        return ['id3v2' => ['comments' => $comments, 'TXXX' => $frames]];
     }
 
     /** @param list<string> $filenames */

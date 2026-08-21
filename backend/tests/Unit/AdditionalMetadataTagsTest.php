@@ -41,8 +41,73 @@ class AdditionalMetadataTagsTest extends TestCase
         $this->assertSame(['COMM:ITUNNORM', 'RVA2', 'TXXX:SOURCE'], array_column($tags, 'key'));
         $this->assertSame('iTunNORM', $tags[0]['name']);
         $this->assertSame([], $tags[0]['values']);
+        $this->assertFalse($tags[0]['playbackStatistic']);
         $this->assertSame('Relative volume adjustment (2)', $tags[1]['name']);
         $this->assertSame(5, $tags[1]['sizeBytes']);
         $this->assertSame(['Bandcamp'], $tags[2]['values']);
+    }
+
+    public function test_it_identifies_playback_statistics_frames(): void
+    {
+        $metadata = [
+            'id3v2' => [
+                'PCNT' => [['framenamelong' => 'Play counter', 'datalength' => 4]],
+                'TXXX' => [
+                    ['description' => 'PLAY_COUNT', 'data' => '12'],
+                    ['description' => 'FIRST_PLAYED_TIMESTAMP', 'data' => '123'],
+                    ['description' => 'LAST_PLAYED_TIMESTAMP', 'data' => '456'],
+                    ['description' => 'SOURCE', 'data' => 'Bandcamp'],
+                ],
+            ],
+        ];
+
+        $tags = (new AdditionalMetadataTags())->extract($metadata);
+
+        $this->assertSame(
+            ['PCNT', 'TXXX:FIRST_PLAYED_TIMESTAMP', 'TXXX:LAST_PLAYED_TIMESTAMP', 'TXXX:PLAY_COUNT'],
+            (new AdditionalMetadataTags())->playbackStatisticKeys($metadata),
+        );
+        $this->assertFalse(collect($tags)->firstWhere('key', 'TXXX:SOURCE')['playbackStatistic']);
+    }
+
+    public function test_it_keeps_grouped_user_defined_text_values_with_their_own_frames(): void
+    {
+        $metadata = [
+            'id3v2' => [
+                'comments' => [
+                    'text' => [
+                        'WWW' => 'GetMetal.CLUB',
+                        'BANDCAMP_URL' => 'https://example.bandcamp.com/album/reflections',
+                        'BANDCAMP_ALBUM_ID' => '1529389541',
+                    ],
+                ],
+                'TXXX' => [
+                    [
+                        'description' => 'WWW',
+                        'data' => '[binary data omitted: 28 bytes]',
+                        'framenameshort' => 'text',
+                    ],
+                    [
+                        'description' => 'BANDCAMP_URL',
+                        'data' => '[binary data omitted: 118 bytes]',
+                        'framenameshort' => 'text',
+                    ],
+                    [
+                        'description' => 'BANDCAMP_ALBUM_ID',
+                        'data' => '[binary data omitted: 22 bytes]',
+                        'framenameshort' => 'text',
+                    ],
+                ],
+            ],
+        ];
+
+        $tags = collect((new AdditionalMetadataTags())->extract($metadata))->keyBy('key');
+
+        $this->assertSame(['GetMetal.CLUB'], $tags['TXXX:WWW']['values']);
+        $this->assertSame(
+            ['https://example.bandcamp.com/album/reflections'],
+            $tags['TXXX:BANDCAMP_URL']['values'],
+        );
+        $this->assertSame(['1529389541'], $tags['TXXX:BANDCAMP_ALBUM_ID']['values']);
     }
 }

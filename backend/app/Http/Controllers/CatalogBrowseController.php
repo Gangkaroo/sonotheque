@@ -334,7 +334,7 @@ class CatalogBrowseController extends Controller
             ->selectRaw('max(track_play_statistics.last_played_at)');
 
         return $this->artistCatalogBaseQuery($libraryRootId)
-            ->select(['id', 'name', 'sort_name', 'browse_initial'])
+            ->select(['id', 'name', 'sort_name', 'browse_initial', 'created_at', 'updated_at'])
             ->addSelect([
                 'play_count' => $playCount,
                 'played_track_count' => $playedTrackCount,
@@ -458,6 +458,8 @@ class CatalogBrowseController extends Controller
             'id' => $artist->id,
             'name' => $artist->name,
             'browseInitial' => $artist->browse_initial,
+            'createdAt' => $artist->created_at?->toJSON(),
+            'updatedAt' => $artist->updated_at?->toJSON(),
             'albumCount' => $artist->albums_count,
             'trackCount' => $artist->tracks_count,
             'playStatistics' => [

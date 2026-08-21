@@ -94,6 +94,7 @@ describe('player store', () => {
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
       technical: emptyAlbumTechnical,
+      additionalTags: [],
       tracks,
     })
     await nextTick()
@@ -115,6 +116,7 @@ describe('player store', () => {
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
       technical: emptyAlbumTechnical,
+      additionalTags: [],
       tracks: [nextTrack],
     })
     await nextTick()
@@ -132,6 +134,7 @@ describe('player store', () => {
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
       technical: emptyAlbumTechnical,
+      additionalTags: [],
       tracks,
     }
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(album), { status: 200 }))
@@ -163,6 +166,7 @@ describe('player store', () => {
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
       technical: emptyAlbumTechnical,
+      additionalTags: [],
       tracks: [tracks[0]],
     }
     const nextAlbum: AlbumDetail = {
@@ -174,6 +178,7 @@ describe('player store', () => {
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
       technical: emptyAlbumTechnical,
+      additionalTags: [],
       tracks: [nextTrack],
     }
     const fetchMock = vi.fn()

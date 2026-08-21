@@ -4,6 +4,7 @@ namespace App\Music\Metadata;
 
 use App\Jobs\ApplyAlbumMetadataEdit;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\MetadataEditJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,17 +13,39 @@ class AlbumMetadataEditing
 {
     public function __construct(
         private readonly TrackMetadataEditing $trackEditing,
+        private readonly AdditionalMetadataTags $additionalTags,
     ) {
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string, removedTagKeys: list<string>}  $values
      * @return array<string, mixed>
      */
     public function preview(Album $album, array $values): array
     {
         $values['updateTrackArtists'] = $values['updateTrackArtists'] ?? true;
+        $values['removedTagKeys'] = $values['removedTagKeys'] ?? [];
         $album->loadMissing(['primaryArtist', 'tracks.mediaFile', 'tracks.artists', 'tracks.genres']);
+        $additionalTags = $album->tracks
+            ->flatMap(fn ($track) => $this->additionalTags->extract($track->mediaFile?->raw_metadata ?? []))
+            ->unique('key')
+            ->values();
+        $additionalTagKeys = $additionalTags->pluck('key')->all();
+        if (array_diff($values['removedTagKeys'], $additionalTagKeys) !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'One or more additional tags are no longer present in this album.',
+            ]);
+        }
+        $protectedTagKeys = $additionalTags
+            ->where('playbackStatistic', true)
+            ->pluck('key')
+            ->all();
+        if (ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags()
+            && array_intersect($values['removedTagKeys'], $protectedTagKeys) !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'Playback-statistics tags cannot be removed while file-tag synchronization is enabled.',
+            ]);
+        }
         $currentGenres = $album->tracks
             ->flatMap(fn ($track) => $track->genres->pluck('name'))
             ->unique(fn (string $name) => mb_strtolower($name))
@@ -51,6 +74,7 @@ class AlbumMetadataEditing
             'totalDiscs' => $album->disc_total,
             'genres' => $currentGenres,
             'comment' => count($currentComments) === 1 ? $currentComments[0] : $currentComments,
+            'removedTagKeys' => [],
         ];
         $metadataValues = $values;
         unset($metadataValues['updateTrackArtists']);
@@ -59,13 +83,20 @@ class AlbumMetadataEditing
             $unchanged = match ($field) {
                 'genres' => $this->sameNames($current[$field], $proposed),
                 'comment' => count($currentComments) === 1 && $currentComments[0] === $proposed,
+                'removedTagKeys' => $proposed === [],
                 'albumArtist' => $current[$field] === $proposed
                     && $albumArtistFilesMatch
                     && (! $values['updateTrackArtists'] || $trackArtistsMatch),
                 default => $current[$field] === $proposed,
             };
             if (! $unchanged) {
-                $change = ['field' => $field, 'current' => $current[$field], 'proposed' => $proposed];
+                $change = [
+                    'field' => $field,
+                    'current' => $field === 'removedTagKeys'
+                        ? $additionalTags->whereIn('key', $proposed)->pluck('name')->values()->all()
+                        : $current[$field],
+                    'proposed' => $field === 'removedTagKeys' ? [] : $proposed,
+                ];
                 if ($field === 'albumArtist'
                     && (! $albumArtistFilesMatch || ($values['updateTrackArtists'] && ! $trackArtistsMatch))) {
                     $change['fileValuesDiffer'] = true;
@@ -80,8 +111,21 @@ class AlbumMetadataEditing
             $writeValues['artistNames'] = [$values['albumArtist']];
         }
 
-        $files = $album->tracks->map(function ($track) use ($writeValues): array {
+        $files = $album->tracks->map(function ($track) use ($writeValues): ?array {
             $file = $track->mediaFile?->relative_path;
+            $trackWriteValues = $writeValues;
+            if (array_key_exists('removedTagKeys', $trackWriteValues)) {
+                $trackWriteValues['removedTagKeys'] = array_values(array_intersect(
+                    $trackWriteValues['removedTagKeys'],
+                    $this->additionalTags->keys($track->mediaFile?->raw_metadata ?? []),
+                ));
+                if ($trackWriteValues['removedTagKeys'] === []) {
+                    unset($trackWriteValues['removedTagKeys']);
+                }
+            }
+            if ($trackWriteValues === []) {
+                return null;
+            }
             $supportIssue = $this->trackEditing->supportIssue($track);
 
             return [
@@ -92,9 +136,9 @@ class AlbumMetadataEditing
                 'supported' => $supportIssue === null,
                 'supportIssue' => $supportIssue,
                 'fingerprint' => $this->trackEditing->fingerprint($track),
-                'writeValues' => $writeValues,
+                'writeValues' => $trackWriteValues,
             ];
-        })->values();
+        })->filter()->values();
 
         return [
             'albumId' => $album->id,
@@ -109,7 +153,7 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string, removedTagKeys: list<string>}  $values
      */
     public function queue(Album $album, array $values, string $fingerprint): MetadataEditJob
     {

@@ -5,14 +5,17 @@ namespace App\Music\Metadata;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\Track;
+use App\Music\Catalog\GenreResolver;
 use App\Music\Scanning\ArtistName;
 use App\Music\Scanning\AudioMetadata;
 use Carbon\CarbonImmutable;
 
 class TrackMetadataCatalogUpdater
 {
-    public function __construct(private readonly ArtistName $artistName)
-    {
+    public function __construct(
+        private readonly ArtistName $artistName,
+        private readonly GenreResolver $genreResolver,
+    ) {
     }
 
     public function apply(
@@ -52,10 +55,9 @@ class TrackMetadataCatalogUpdater
             ->delete();
 
         $previousGenreIds = $track->genres()->pluck('genres.id');
-        $genreIds = collect($metadata->genres)->map(function (string $name): int {
-            return Genre::query()->whereRaw('LOWER(name) = LOWER(?)', [$name])->first()?->id
-                ?? Genre::create(['name' => $name])->id;
-        })->all();
+        $genreIds = collect($metadata->genres)
+            ->map(fn (string $name): int => $this->genreResolver->resolve($name)->id)
+            ->all();
         $track->genres()->sync($genreIds);
         Genre::query()
             ->whereIn('id', $previousGenreIds)

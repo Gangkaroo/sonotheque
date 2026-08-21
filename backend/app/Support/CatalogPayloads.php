@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\MediaFileStatus;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Genre;
 use App\Models\MediaFile;
@@ -72,7 +73,7 @@ class CatalogPayloads
                     'genres:id,name',
                     'playStatistic:track_id,play_count,first_played_at,last_played_at',
                     'mediaFile' => fn ($query) => $query
-                        ->select(['id', 'relative_path', 'container', 'codec', 'bitrate', 'status'])
+                        ->select(['id', 'relative_path', 'container', 'codec', 'bitrate', 'status', 'raw_metadata'])
                         ->selectRaw("raw_metadata #>> '{audio,bitrate_mode}' AS bitrate_mode")
                         ->selectRaw("COALESCE(raw_metadata #>> '{audio,encoder_options}', raw_metadata #>> '{audio,streams,0,encoder_options}') AS encoder_settings"),
                 ])
@@ -93,6 +94,8 @@ class CatalogPayloads
 
         return [
             ...$this->albumSummary($album),
+            'createdAt' => $album->created_at?->toJSON(),
+            'updatedAt' => $album->updated_at?->toJSON(),
             'discTotal' => $album->disc_total,
             'artworkUrl' => $album->artwork_id ? "/api/albums/{$album->id}/artwork/original" : null,
             'artworkWidth' => $album->artwork?->width,
@@ -106,6 +109,7 @@ class CatalogPayloads
                 'name' => $genre->name,
             ])->values(),
             'technical' => $this->albumTechnicalSummary($album),
+            'additionalTags' => $this->albumAdditionalTags($album),
             'tracks' => $album->tracks->map(fn (Track $track) => [
                 ...$this->trackSummary($track),
                 'comment' => $track->comment,
@@ -167,6 +171,8 @@ class CatalogPayloads
 
         return [
             ...$this->trackSummary($track),
+            'createdAt' => $track->created_at?->toJSON(),
+            'updatedAt' => $track->updated_at?->toJSON(),
             'comment' => $track->comment,
             'composers' => $track->composers ?? [],
             'performers' => $track->performers ?? [],
@@ -193,7 +199,7 @@ class CatalogPayloads
                 'channels' => $mediaFile->channels,
                 'status' => $mediaFile->status?->value,
                 'scanError' => $mediaFile->scan_error,
-                'additionalTags' => $this->additionalTags->extract($mediaFile->raw_metadata ?? []),
+                'additionalTags' => $this->additionalTagsPayload($mediaFile->raw_metadata ?? []),
             ] : null,
             'playStatistics' => $this->playStatisticsPayload($track),
         ];
@@ -278,6 +284,56 @@ class CatalogPayloads
                 $files->map(fn (MediaFile $file): ?string => $this->encoderSettings($file->getAttribute('encoder_settings'))),
             ),
         ];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function albumAdditionalTags(Album $album): array
+    {
+        $tags = [];
+        foreach ($album->tracks as $track) {
+            foreach ($this->additionalTags->extract($track->mediaFile?->raw_metadata ?? []) as $tag) {
+                $tags[$tag['key']] ??= [
+                    ...$tag,
+                    'trackCount' => 0,
+                ];
+                $tags[$tag['key']]['values'] = array_values(array_unique([
+                    ...$tags[$tag['key']]['values'],
+                    ...$tag['values'],
+                ]));
+                if ($tag['sizeBytes'] !== null) {
+                    $tags[$tag['key']]['sizeBytes'] = ($tags[$tag['key']]['sizeBytes'] ?? 0)
+                        + $tag['sizeBytes'];
+                }
+                $tags[$tag['key']]['trackCount']++;
+            }
+        }
+
+        ksort($tags, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $this->protectSynchronizedPlaybackTags(array_values($tags));
+    }
+
+    /**
+     * @param  array<string, mixed>  $rawMetadata
+     * @return list<array<string, mixed>>
+     */
+    private function additionalTagsPayload(array $rawMetadata): array
+    {
+        return $this->protectSynchronizedPlaybackTags($this->additionalTags->extract($rawMetadata));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $tags
+     * @return list<array<string, mixed>>
+     */
+    private function protectSynchronizedPlaybackTags(array $tags): array
+    {
+        $synchronizesStatistics = ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags();
+
+        return array_map(static fn (array $tag): array => [
+            ...$tag,
+            'protectedFromRemoval' => $synchronizesStatistics && $tag['playbackStatistic'],
+        ], $tags);
     }
 
     private function fileType(MediaFile $file): ?string

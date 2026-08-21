@@ -705,6 +705,10 @@ Completed:
 - Defensive play-count import that normalizes non-standard ID3 counters and
   excludes ambiguous global popularity values from per-track totals
 - Previewed and queued MP3 track/album metadata editing with verification, conflict fingerprints, and optional durable backups
+- Track, album, and artist detail timestamps for when catalog records were added
+  and last updated, plus track- and album-level cleanup of additional ID3v2
+  frames. Playback-statistics frames are identified and protected while tag
+  synchronization manages them.
 - Last.fm authorization and asynchronous scrobbling with encrypted credentials, shared counted-play rules, retry handling, and delivery state
 - Opt-in current-track enrichment using attributed Last.fm artist/album context and LRCLIB lyrics
 - Provider-aware enrichment caching with atomic request deduplication, unique stale refresh jobs, configurable throttling, exponential backoff, diagnostics, and cache controls
@@ -1117,6 +1121,11 @@ File writes remain queued and require a preview and explicit confirmation.
   (Queued job status, per-file progress, and partial-error reporting complete
   for individual tracks and album batches; durable backup/rollback guidance
   pending)
+- Display additional ID3v2 frames in track and album metadata editors and allow
+  selected frames to be removed across one track or every applicable album
+  track. Keep frame values separated by their user-defined description, show
+  album coverage, and disable playback-statistics removals while statistics-tag
+  synchronization is enabled. (Complete)
 - Re-scan or re-read changed files after writing so the database reflects the
   actual file contents. (Complete for MP3 track and album edits)
 - Add tests with small representative files for the supported audio/tag formats.
