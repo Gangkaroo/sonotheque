@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
     'setup_completed',
     'import_play_statistics_from_tags',
     'export_play_statistics_to_tags',
+    'synchronize_ratings_with_tags',
     'metadata_backups_enabled',
     'metadata_backup_path',
     'metadata_backup_retention_days',
@@ -48,6 +49,7 @@ class ApplicationSetting extends Model
             'setup_completed' => false,
             'import_play_statistics_from_tags' => false,
             'export_play_statistics_to_tags' => false,
+            'synchronize_ratings_with_tags' => false,
             'metadata_backups_enabled' => false,
             'metadata_backup_path' => config('sonotheque.metadata_backups.default_path'),
             'metadata_backup_retention_days' => config('sonotheque.metadata_backups.default_retention_days'),
@@ -71,6 +73,11 @@ class ApplicationSetting extends Model
     public function synchronizesPlaybackStatisticsWithTags(): bool
     {
         return $this->import_play_statistics_from_tags && $this->export_play_statistics_to_tags;
+    }
+
+    public function synchronizesRatingsWithTags(): bool
+    {
+        return $this->synchronize_ratings_with_tags;
     }
 
     public function hasLastFmCredentials(): bool
@@ -132,6 +139,7 @@ class ApplicationSetting extends Model
             'setup_completed' => 'boolean',
             'import_play_statistics_from_tags' => 'boolean',
             'export_play_statistics_to_tags' => 'boolean',
+            'synchronize_ratings_with_tags' => 'boolean',
             'metadata_backups_enabled' => 'boolean',
             'metadata_backup_retention_days' => 'integer',
             'lastfm_scrobbling_enabled' => 'boolean',

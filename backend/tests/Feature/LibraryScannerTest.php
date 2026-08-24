@@ -279,6 +279,45 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(10, $track->playStatistic()->firstOrFail()->play_count);
     }
 
+    public function test_scanner_imports_ratings_from_cached_metadata_once_enabled(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $this->metadataReader = new FakeAudioMetadataReader(new AudioMetadata(
+            title: 'Human Behaviour',
+            album: 'Debut',
+            albumArtist: 'Björk',
+            artists: ['Björk'],
+            rawMetadata: [
+                'id3v2' => [
+                    'POPM' => [[
+                        'email' => 'Windows Media Player 9 Series',
+                        'rating' => 196,
+                    ]],
+                    'TXXX' => [[
+                        'description' => 'SONOTHEQUE_ALBUM_RATING',
+                        'data' => '4.5',
+                    ]],
+                ],
+            ],
+        ));
+        $this->app->instance(AudioMetadataReader::class, $this->metadataReader);
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $scanner->scan($this->createScan($root));
+        ApplicationSetting::current()->update(['synchronize_ratings_with_tags' => true]);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $importScan = $this->createScan($root);
+        $scanner->scan($importScan);
+
+        $this->assertSame(1, $this->metadataReader->calls);
+        $this->assertSame(8, Track::sole()->rating_half_steps);
+        $this->assertSame(9, Album::sole()->rating_half_steps);
+        $this->assertSame(2, $importScan->fresh()->summary['ratingsImported']);
+        $this->assertSame(1, MediaFile::sole()->rating_tags_import_version);
+    }
+
     public function test_incremental_scan_batches_progress_and_cancellation_queries(): void
     {
         $albumPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut';

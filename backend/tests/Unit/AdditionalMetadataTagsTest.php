@@ -70,6 +70,25 @@ class AdditionalMetadataTagsTest extends TestCase
         $this->assertFalse(collect($tags)->firstWhere('key', 'TXXX:SOURCE')['playbackStatistic']);
     }
 
+    public function test_it_identifies_rating_frames(): void
+    {
+        $metadata = [
+            'id3v2' => [
+                'POPM' => [['email' => 'rating@sonotheque.local', 'rating' => 196]],
+                'TXXX' => [
+                    ['description' => 'RATING', 'data' => '4'],
+                    ['description' => 'SONOTHEQUE_ALBUM_RATING', 'data' => '4.5'],
+                    ['description' => 'SOURCE', 'data' => 'Bandcamp'],
+                ],
+            ],
+        ];
+
+        $this->assertSame(
+            ['POPM', 'TXXX:RATING', 'TXXX:SONOTHEQUE_ALBUM_RATING'],
+            (new AdditionalMetadataTags())->ratingKeys($metadata),
+        );
+    }
+
     public function test_it_keeps_grouped_user_defined_text_values_with_their_own_frames(): void
     {
         $metadata = [

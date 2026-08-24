@@ -18,6 +18,8 @@ use App\Music\PlaybackStatistics\ImportedPlayStatistics;
 use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
 use App\Music\Playlists\PlaylistFileSynchronizationDispatcher;
+use App\Music\Ratings\ImportedRatingTags;
+use App\Music\Ratings\RatingTagReader;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -89,6 +91,10 @@ class LibraryScanner
 
     private int $playStatisticsImported = 0;
 
+    private bool $importRatingsFromTags = false;
+
+    private int $ratingsImported = 0;
+
     private int $issueRecordCount = 0;
 
     /** @var list<array{scan_run_id: int, code: string, severity: string, message: string, path: ?string, occurrence_count: int, created_at: mixed, updated_at: mixed}> */
@@ -112,6 +118,9 @@ class LibraryScanner
     /** @var array<int, true> */
     private array $pendingPlayStatisticsImportMediaFileIds = [];
 
+    /** @var array<int, true> */
+    private array $pendingRatingImportMediaFileIds = [];
+
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
         private readonly ScanDiscoveryManifest $discoveryManifest,
@@ -121,6 +130,7 @@ class LibraryScanner
         private readonly AlbumArtworkManager $artworkManager,
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
+        private readonly RatingTagReader $ratingTagReader,
         private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
         private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryActivityLogger $activityLogger,
@@ -426,12 +436,24 @@ class LibraryScanner
                         $this->importPlayStatistics($trackId, $imported, $existing->id),
                     );
                 }
+                if ($trackId !== null && $existing->ratingTags !== null) {
+                    $warnings = array_merge(
+                        $warnings,
+                        $this->importRatings(
+                            $trackId,
+                            $existing->albumId,
+                            $existing->ratingTags,
+                            $existing->id,
+                        ),
+                    );
+                }
 
                 return ['created' => false, 'changed' => false, 'warnings' => $warnings];
             }
         }
 
         $contentFingerprint = $this->fingerprint($file);
+        $previousRatings = $this->previousRatingTags($existing);
         $metadata = $this->metadataReader->read($file->absolutePath);
 
         try {
@@ -483,6 +505,7 @@ class LibraryScanner
                         'content_fingerprint' => $contentFingerprint,
                         'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
                         'play_statistics_import_version' => null,
+                        'rating_tags_import_version' => null,
                     ],
                 );
 
@@ -541,6 +564,15 @@ class LibraryScanner
             $this->playStatisticsTagReader->read($metadata->rawMetadata),
             $processed['mediaFile']->id,
         );
+        $newRatings = $this->ratingTagReader->read($metadata->rawMetadata);
+        $ratingWarnings = $this->importRatings(
+            $processed['track'],
+            $processed['album']->id,
+            $newRatings,
+            $processed['mediaFile']->id,
+            overwriteTrack: $this->tagChanged($previousRatings, $newRatings, 'track'),
+            overwriteAlbum: $this->tagChanged($previousRatings, $newRatings, 'album'),
+        );
 
         return [
             'created' => $processed['created'],
@@ -548,6 +580,7 @@ class LibraryScanner
             'warnings' => array_merge(
                 $metadata->warnings,
                 $importWarnings,
+                $ratingWarnings,
                 $this->syncArtwork(
                     $processed['album'],
                     $scanRun,
@@ -584,6 +617,17 @@ class LibraryScanner
                 $existing->trackId,
                 $existing->playStatistics,
                 $existing->id,
+            );
+        }
+        if ($existing->trackId !== null && $existing->ratingTags !== null) {
+            $warnings = array_merge(
+                $warnings,
+                $this->importRatings(
+                    $existing->trackId,
+                    $existing->albumId,
+                    $existing->ratingTags,
+                    $existing->id,
+                ),
             );
         }
 
@@ -742,6 +786,7 @@ class LibraryScanner
     {
         $this->flushUnchangedFiles($seenAt);
         $this->flushPlayStatisticsImports();
+        $this->flushRatingImports();
     }
 
     private function deleteAlbumsWithoutMediaFiles(ScanRun $scanRun): void
@@ -837,7 +882,11 @@ class LibraryScanner
         $this->playStatisticsImported = 0;
         $this->pendingPlayStatisticsImports = [];
         $this->pendingPlayStatisticsImportMediaFileIds = [];
-        $this->importPlayStatisticsFromTags = ApplicationSetting::current()->import_play_statistics_from_tags;
+        $this->pendingRatingImportMediaFileIds = [];
+        $settings = ApplicationSetting::current();
+        $this->importPlayStatisticsFromTags = $settings->import_play_statistics_from_tags;
+        $this->importRatingsFromTags = $settings->synchronizesRatingsWithTags();
+        $this->ratingsImported = 0;
         $this->existingFiles = [];
         $query = $scanRun->libraryRoot->mediaFiles()
             ->getQuery()
@@ -855,6 +904,7 @@ class LibraryScanner
                 'media_files.content_fingerprint',
                 'media_files.content_fingerprint_version',
                 'tracks.id as track_id',
+                'media_files.rating_tags_import_version',
             ]);
         $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
 
@@ -869,6 +919,9 @@ class LibraryScanner
 
         if ($this->importPlayStatisticsFromTags) {
             $this->preparePendingPlayStatisticsImports($scanRun);
+        }
+        if ($this->importRatingsFromTags) {
+            $this->preparePendingRatingImports($scanRun);
         }
     }
 
@@ -910,6 +963,34 @@ class LibraryScanner
         }
     }
 
+    private function preparePendingRatingImports(ScanRun $scanRun): void
+    {
+        $query = $scanRun->libraryRoot->mediaFiles()
+            ->getQuery()
+            ->select([
+                'media_files.id',
+                'media_files.relative_path_hash',
+                'media_files.raw_metadata',
+            ])
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('media_files.rating_tags_import_version')
+                    ->orWhere(
+                        'media_files.rating_tags_import_version',
+                        '!=',
+                        RatingTagReader::IMPORT_VERSION,
+                    );
+            });
+        $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
+
+        foreach ($query->lazyById(1000, 'media_files.id', 'id') as $mediaFile) {
+            $state = $this->existingFiles[$mediaFile->relative_path_hash] ?? null;
+            if ($state !== null) {
+                $state->ratingTags = $this->ratingTagReader->read($mediaFile->raw_metadata ?? []);
+            }
+        }
+    }
+
     private function mediaFileState(MediaFile $mediaFile): ScanMediaFileState
     {
         return new ScanMediaFileState(
@@ -922,6 +1003,7 @@ class LibraryScanner
             metadataParserVersion: $mediaFile->metadata_parser_version,
             contentFingerprint: $mediaFile->content_fingerprint,
             contentFingerprintVersion: $mediaFile->content_fingerprint_version,
+            ratingTagsImportVersion: $mediaFile->rating_tags_import_version,
         );
     }
 
@@ -1151,6 +1233,89 @@ class LibraryScanner
         $this->pendingPlayStatisticsImportMediaFileIds = [];
     }
 
+    private function previousRatingTags(?ScanMediaFileState $existing): ?ImportedRatingTags
+    {
+        if (! $this->importRatingsFromTags || $existing === null) {
+            return null;
+        }
+
+        $mediaFile = MediaFile::find($existing->id);
+
+        return $mediaFile === null ? null : $this->ratingTagReader->read($mediaFile->raw_metadata ?? []);
+    }
+
+    private function tagChanged(
+        ?ImportedRatingTags $previous,
+        ImportedRatingTags $current,
+        string $field,
+    ): bool {
+        if ($previous === null) {
+            return false;
+        }
+
+        return match ($field) {
+            'track' => $previous->trackTagPresent !== $current->trackTagPresent
+                || $previous->trackHalfSteps !== $current->trackHalfSteps,
+            'album' => $previous->albumTagPresent !== $current->albumTagPresent
+                || $previous->albumHalfSteps !== $current->albumHalfSteps,
+            default => throw new \LogicException("Unknown rating field [{$field}]."),
+        };
+    }
+
+    /** @return list<string> */
+    private function importRatings(
+        Track|int|null $track,
+        ?int $albumId,
+        ImportedRatingTags $imported,
+        int $mediaFileId,
+        bool $overwriteTrack = false,
+        bool $overwriteAlbum = false,
+    ): array {
+        if (! $this->importRatingsFromTags) {
+            return [];
+        }
+
+        $this->pendingRatingImportMediaFileIds[$mediaFileId] = true;
+        $trackModel = $track instanceof Track ? $track : ($track === null ? null : Track::find($track));
+        if ($trackModel !== null
+            && ($overwriteTrack || ($imported->trackTagPresent && $trackModel->rating_half_steps === null))) {
+            $trackModel->rating_half_steps = $imported->trackTagPresent
+                ? $imported->trackHalfSteps
+                : null;
+            if ($trackModel->isDirty('rating_half_steps')) {
+                $trackModel->save();
+                $this->ratingsImported++;
+            }
+        }
+
+        $album = $albumId === null ? null : Album::find($albumId);
+        if ($album !== null
+            && ($overwriteAlbum || ($imported->albumTagPresent && $album->rating_half_steps === null))) {
+            $album->rating_half_steps = $imported->albumTagPresent
+                ? $imported->albumHalfSteps
+                : null;
+            if ($album->isDirty('rating_half_steps')) {
+                $album->save();
+                $this->ratingsImported++;
+                $this->albumIdCache[$album->id] = $album;
+            }
+        }
+
+        return $imported->warnings;
+    }
+
+    private function flushRatingImports(): void
+    {
+        if ($this->pendingRatingImportMediaFileIds === []) {
+            return;
+        }
+
+        MediaFile::query()
+            ->whereKey(array_keys($this->pendingRatingImportMediaFileIds))
+            ->update(['rating_tags_import_version' => RatingTagReader::IMPORT_VERSION]);
+        $this->pendingRatingImportMediaFileIds = [];
+    }
+
     private function findAlbumById(?int $albumId): ?Album
     {
         if ($albumId === null) {
@@ -1286,6 +1451,7 @@ class LibraryScanner
             'unchangedFilesFastTracked' => $this->unchangedFilesFastTracked ?: null,
             'error' => $error,
             'playStatisticsImported' => $this->playStatisticsImported ?: null,
+            'ratingsImported' => $this->ratingsImported ?: null,
             'issuesTruncated' => $this->issueRecordCount > count($issues) ?: null,
             'issues' => $issues,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);

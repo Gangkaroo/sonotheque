@@ -245,8 +245,8 @@ setup flow:
 1. Runtime check: database, queue worker, storage, and mounted music paths.
 2. Library root setup: add one or more folders and cover-path candidates.
 3. Scan exclusions: optionally select folders to ignore.
-4. Metadata settings: keep tag writing and statistics synchronization disabled
-   by default, with clear explanations.
+4. Metadata settings: keep tag writing, statistics synchronization, and rating
+   synchronization disabled by default, with clear explanations.
 5. Optional connections: Last.fm and online enrichment can be skipped.
 6. First scan: start the scan and explain the counting phase before metadata
    parsing begins.

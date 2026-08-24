@@ -16,22 +16,28 @@ class PlaybackStatisticsSettingsController extends Controller
     public function update(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'synchronizeWithFileTags' => ['required', 'boolean'],
+            'synchronizeWithFileTags' => ['sometimes', 'required', 'boolean'],
+            'synchronizeRatingsWithFileTags' => ['sometimes', 'required', 'boolean'],
         ]);
         $settings = ApplicationSetting::current();
-        $settings->update([
-            'import_play_statistics_from_tags' => $validated['synchronizeWithFileTags'],
-            'export_play_statistics_to_tags' => $validated['synchronizeWithFileTags'],
-        ]);
+        if (array_key_exists('synchronizeWithFileTags', $validated)) {
+            $settings->import_play_statistics_from_tags = $validated['synchronizeWithFileTags'];
+            $settings->export_play_statistics_to_tags = $validated['synchronizeWithFileTags'];
+        }
+        if (array_key_exists('synchronizeRatingsWithFileTags', $validated)) {
+            $settings->synchronize_ratings_with_tags = $validated['synchronizeRatingsWithFileTags'];
+        }
+        $settings->save();
 
         return response()->json($this->payload($settings));
     }
 
-    /** @return array{synchronizeWithFileTags: bool, supportedExportFormats: list<string>} */
+    /** @return array{synchronizeWithFileTags: bool, synchronizeRatingsWithFileTags: bool, supportedExportFormats: list<string>} */
     private function payload(ApplicationSetting $settings): array
     {
         return [
             'synchronizeWithFileTags' => $settings->synchronizesPlaybackStatisticsWithTags(),
+            'synchronizeRatingsWithFileTags' => $settings->synchronizesRatingsWithTags(),
             'supportedExportFormats' => ['mp3'],
         ];
     }

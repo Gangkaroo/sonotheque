@@ -13,10 +13,12 @@ describe('playback statistics settings store', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
         synchronizeWithFileTags: false,
+        synchronizeRatingsWithFileTags: false,
         supportedExportFormats: ['mp3'],
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         synchronizeWithFileTags: true,
+        synchronizeRatingsWithFileTags: false,
         supportedExportFormats: ['mp3'],
       }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -29,6 +31,24 @@ describe('playback statistics settings store', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/settings/playback-statistics', expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({ synchronizeWithFileTags: true }),
+    }))
+  })
+
+  it('updates rating synchronization independently', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      synchronizeWithFileTags: false,
+      synchronizeRatingsWithFileTags: true,
+      supportedExportFormats: ['mp3'],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePlaybackStatisticsSettingsStore()
+
+    await store.setSynchronizeRatingsWithFileTags(true)
+
+    expect(store.settings.synchronizeRatingsWithFileTags).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith('/api/settings/playback-statistics', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ synchronizeRatingsWithFileTags: true }),
     }))
   })
 })

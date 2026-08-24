@@ -46,6 +46,8 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint'));
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'play_statistics_import_version'));
+        $this->assertTrue(Schema::hasColumn('media_files', 'rating_tags_import_version'));
+        $this->assertTrue(Schema::hasColumn('application_settings', 'synchronize_ratings_with_tags'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
         $this->assertTrue(Schema::hasColumn(
             'application_settings',

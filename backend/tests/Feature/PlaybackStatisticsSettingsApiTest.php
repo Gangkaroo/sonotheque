@@ -15,6 +15,7 @@ class PlaybackStatisticsSettingsApiTest extends TestCase
         $this->getJson('/api/settings/playback-statistics')
             ->assertOk()
             ->assertJsonPath('synchronizeWithFileTags', false)
+            ->assertJsonPath('synchronizeRatingsWithFileTags', false)
             ->assertJsonPath('supportedExportFormats.0', 'mp3');
 
         $this->patchJson('/api/settings/playback-statistics', [
@@ -24,6 +25,12 @@ class PlaybackStatisticsSettingsApiTest extends TestCase
 
         $this->assertTrue(ApplicationSetting::current()->import_play_statistics_from_tags);
         $this->assertTrue(ApplicationSetting::current()->export_play_statistics_to_tags);
+
+        $this->patchJson('/api/settings/playback-statistics', [
+            'synchronizeRatingsWithFileTags' => true,
+        ])->assertOk()
+            ->assertJsonPath('synchronizeRatingsWithFileTags', true);
+        $this->assertTrue(ApplicationSetting::current()->synchronize_ratings_with_tags);
     }
 
     public function test_synchronization_setting_requires_a_boolean(): void
@@ -32,5 +39,10 @@ class PlaybackStatisticsSettingsApiTest extends TestCase
             'synchronizeWithFileTags' => 'yes',
         ])->assertUnprocessable()
             ->assertJsonValidationErrors('synchronizeWithFileTags');
+
+        $this->patchJson('/api/settings/playback-statistics', [
+            'synchronizeRatingsWithFileTags' => 'yes',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('synchronizeRatingsWithFileTags');
     }
 }

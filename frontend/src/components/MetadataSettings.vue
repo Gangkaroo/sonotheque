@@ -28,6 +28,13 @@ async function setSynchronizePlayStatistics(enabled) {
   await playbackStatisticsSettings.setSynchronizeWithFileTags(enabled)
 }
 
+/** @param {boolean | null} enabled */
+async function setSynchronizeRatings(enabled) {
+  if (enabled === null) return
+
+  await playbackStatisticsSettings.setSynchronizeRatingsWithFileTags(enabled)
+}
+
 /** @param {string} path */
 function selectBackupFolder(path) {
   backupForm.path = path
@@ -66,6 +73,16 @@ async function saveBackupSettings() {
           :model-value="playbackStatisticsSettings.settings.synchronizeWithFileTags"
           persistent-hint
           @update:model-value="setSynchronizePlayStatistics"
+        />
+        <v-switch
+          color="primary"
+          :disabled="playbackStatisticsSettings.saving"
+          :hint="t('settings.synchronizeRatingsHint')"
+          :label="t('settings.synchronizeRatings')"
+          :loading="playbackStatisticsSettings.saving"
+          :model-value="playbackStatisticsSettings.settings.synchronizeRatingsWithFileTags"
+          persistent-hint
+          @update:model-value="setSynchronizeRatings"
         />
       </v-card-text>
     </v-card>

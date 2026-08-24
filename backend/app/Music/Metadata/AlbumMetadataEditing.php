@@ -46,6 +46,16 @@ class AlbumMetadataEditing
                 'removedTagKeys' => 'Playback-statistics tags cannot be removed while file-tag synchronization is enabled.',
             ]);
         }
+        $protectedRatingKeys = $additionalTags
+            ->where('rating', true)
+            ->pluck('key')
+            ->all();
+        if (ApplicationSetting::current()->synchronizesRatingsWithTags()
+            && array_intersect($values['removedTagKeys'], $protectedRatingKeys) !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'Rating tags cannot be removed while rating synchronization is enabled.',
+            ]);
+        }
         $currentGenres = $album->tracks
             ->flatMap(fn ($track) => $track->genres->pluck('name'))
             ->unique(fn (string $name) => mb_strtolower($name))

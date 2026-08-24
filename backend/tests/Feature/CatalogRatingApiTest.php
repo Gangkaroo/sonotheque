@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SynchronizeTrackRatings;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class CatalogRatingApiTest extends TestCase
@@ -53,6 +56,29 @@ class CatalogRatingApiTest extends TestCase
         $this->patchJson("/api/tracks/{$track->id}/rating", ['rating' => 5.5])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('rating');
+    }
+
+    public function test_rating_changes_queue_file_synchronization_only_when_enabled(): void
+    {
+        Queue::fake();
+        [$album, $track] = $this->createCatalog();
+
+        $this->patchJson("/api/tracks/{$track->id}/rating", ['rating' => 4])->assertOk();
+        Queue::assertNothingPushed();
+
+        ApplicationSetting::current()->update(['synchronize_ratings_with_tags' => true]);
+        $this->patchJson("/api/tracks/{$track->id}/rating", ['rating' => 4.5])->assertOk();
+        Queue::assertPushed(
+            SynchronizeTrackRatings::class,
+            fn (SynchronizeTrackRatings $job): bool => $job->trackId === $track->id,
+        );
+
+        Queue::fake();
+        $this->deleteJson("/api/albums/{$album->id}/rating")->assertNoContent();
+        Queue::assertPushed(
+            SynchronizeTrackRatings::class,
+            fn (SynchronizeTrackRatings $job): bool => $job->trackId === $track->id,
+        );
     }
 
     /** @return array{Album, Track} */

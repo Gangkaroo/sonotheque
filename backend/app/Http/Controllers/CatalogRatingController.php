@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SynchronizeTrackRatings;
 use App\Models\Album;
+use App\Models\ApplicationSetting;
 use App\Models\Track;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -39,6 +41,7 @@ class CatalogRatingController extends Controller
 
         $model->setAttribute('rating_half_steps', $halfSteps);
         $model->save();
+        $this->synchronizeFiles($model);
 
         return response()->json([
             'id' => $model->getKey(),
@@ -50,7 +53,22 @@ class CatalogRatingController extends Controller
     {
         $model->setAttribute('rating_half_steps', null);
         $model->save();
+        $this->synchronizeFiles($model);
 
         return response()->json(null, 204);
+    }
+
+    private function synchronizeFiles(Model $model): void
+    {
+        if (! ApplicationSetting::current()->synchronizesRatingsWithTags()) {
+            return;
+        }
+
+        $trackIds = $model instanceof Track
+            ? [$model->id]
+            : $model->tracks()->pluck('id')->all();
+        foreach ($trackIds as $trackId) {
+            SynchronizeTrackRatings::dispatch($trackId)->afterCommit();
+        }
     }
 }

@@ -45,6 +45,15 @@ class TrackMetadataEditing
                 'removedTagKeys' => 'Playback-statistics tags cannot be removed while file-tag synchronization is enabled.',
             ]);
         }
+        if (ApplicationSetting::current()->synchronizesRatingsWithTags()
+            && array_intersect(
+                $values['removedTagKeys'],
+                $this->additionalTags->ratingKeys($mediaFile->raw_metadata ?? []),
+            ) !== []) {
+            throw ValidationException::withMessages([
+                'removedTagKeys' => 'Rating tags cannot be removed while rating synchronization is enabled.',
+            ]);
+        }
 
         $supportIssue = $this->supportIssue($track);
         $current = [

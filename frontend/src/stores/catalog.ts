@@ -192,6 +192,7 @@ export interface AdditionalMetadataTag {
   values: string[]
   sizeBytes?: number | null
   playbackStatistic: boolean
+  rating: boolean
   protectedFromRemoval: boolean
 }
 

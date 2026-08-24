@@ -33,6 +33,10 @@ function tagValue(tag: AdditionalMetadataTag) {
 
   return t('tracks.additionalTagValueUnavailable')
 }
+
+function protectedTagHint(tag: AdditionalMetadataTag) {
+  return t(tag.rating ? 'tracks.ratingTagManaged' : 'tracks.playbackStatisticsTagManaged')
+}
 </script>
 
 <template>
@@ -44,7 +48,7 @@ function tagValue(tag: AdditionalMetadataTag) {
       :key="tag.key"
       :disabled="!tag.protectedFromRemoval"
       location="top"
-      :text="t('tracks.playbackStatisticsTagManaged')"
+      :text="protectedTagHint(tag)"
     >
       <template #activator="{ props: tooltipProps }">
         <div v-bind="tooltipProps" class="tag-option">

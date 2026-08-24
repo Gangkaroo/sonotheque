@@ -101,6 +101,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
+     * @param  array<string, int|null>  $popularimeterFrames
      */
     public function write(
         string $path,
@@ -109,6 +110,7 @@ class Mp3Id3v2TagEditor
         Closure $verify,
         array $commentFrames = [],
         array $removedTagKeys = [],
+        array $popularimeterFrames = [],
     ): void {
         if (! $this->supports($path)) {
             throw new UnsupportedPlaybackStatisticsTagFormat(
@@ -138,6 +140,7 @@ class Mp3Id3v2TagEditor
                 $userTextFrames,
                 $commentFrames,
                 $removedTagKeys,
+                $popularimeterFrames,
             );
         if ($inPlaceReplacement !== null) {
             $this->writeTagInPlace(
@@ -162,6 +165,7 @@ class Mp3Id3v2TagEditor
                 $userTextFrames,
                 $commentFrames,
                 $removedTagKeys,
+                $popularimeterFrames,
             );
             $verify($temporaryPath);
             $this->replaceOriginal($path, $temporaryPath, $backupPath);
@@ -178,6 +182,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
+     * @param  array<string, int|null>  $popularimeterFrames
      * @return null|array{original: string, replacement: string}
      */
     private function inPlaceReplacement(
@@ -186,6 +191,7 @@ class Mp3Id3v2TagEditor
         array $userTextFrames,
         array $commentFrames,
         array $removedTagKeys,
+        array $popularimeterFrames,
     ): ?array {
         $source = fopen($path, 'rb');
         if ($source === false) {
@@ -209,6 +215,7 @@ class Mp3Id3v2TagEditor
                 $userTextFrames,
                 $commentFrames,
                 $removedTagKeys,
+                $popularimeterFrames,
             );
             if (strlen($payload) > $existing['payloadSize']) {
                 return null;
@@ -343,6 +350,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
+     * @param  array<string, int|null>  $popularimeterFrames
      */
     private function writeTemporaryFile(
         string $sourcePath,
@@ -351,6 +359,7 @@ class Mp3Id3v2TagEditor
         array $userTextFrames,
         array $commentFrames,
         array $removedTagKeys,
+        array $popularimeterFrames,
     ): void {
         $source = fopen($sourcePath, 'rb');
         $target = fopen($temporaryPath, 'xb');
@@ -382,13 +391,20 @@ class Mp3Id3v2TagEditor
                     $userTextFrames,
                     $commentFrames,
                     $removedTagKeys,
+                    $popularimeterFrames,
                 );
                 $payloadSize = max($existing['payloadSize'], strlen($payload) + 1024);
             } else {
                 $majorVersion = 4;
                 $revision = 0;
                 $flags = 0;
-                $payload = $this->newFrames($majorVersion, $textFrames, $userTextFrames, $commentFrames);
+                $payload = $this->newFrames(
+                    $majorVersion,
+                    $textFrames,
+                    $userTextFrames,
+                    $commentFrames,
+                    $popularimeterFrames,
+                );
                 $payloadSize = strlen($payload) + 1024;
             }
 
@@ -613,6 +629,7 @@ class Mp3Id3v2TagEditor
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
+     * @param  array<string, int|null>  $popularimeterFrames
      */
     private function replaceFrames(
         string $payload,
@@ -621,11 +638,13 @@ class Mp3Id3v2TagEditor
         array $userTextFrames,
         array $commentFrames,
         array $removedTagKeys,
+        array $popularimeterFrames,
     ): string {
         $offset = 0;
         $preserved = '';
         $payloadLength = strlen($payload);
         $targetDescriptions = array_map('mb_strtoupper', array_keys($userTextFrames));
+        $targetPopularimeters = array_change_key_case($popularimeterFrames, CASE_LOWER);
 
         while ($offset + 10 <= $payloadLength) {
             $frameId = substr($payload, $offset, 4);
@@ -669,6 +688,12 @@ class Mp3Id3v2TagEditor
             $replaceCommentFrame = $frameId === 'COMM'
                 && array_key_exists('COMM', $commentFrames)
                 && $commentDescription === '';
+            $replacePopularimeterFrame = $frameId === 'POPM'
+                && $descriptivePayload !== null
+                && array_key_exists(
+                    mb_strtolower($this->popularimeterEmail($descriptivePayload)),
+                    $targetPopularimeters,
+                );
             $removeAdditionalFrame = in_array($frameId, $removedTagKeys, true)
                 || ($frameId === 'TXXX'
                     && $textDescription !== null
@@ -680,6 +705,7 @@ class Mp3Id3v2TagEditor
             if (! $replaceStandardFrame
                 && ! $replaceUserFrame
                 && ! $replaceCommentFrame
+                && ! $replacePopularimeterFrame
                 && ! $removeAdditionalFrame) {
                 $preserved .= $frame;
             }
@@ -691,7 +717,13 @@ class Mp3Id3v2TagEditor
             throw new RuntimeException('The existing ID3v2 padding contains data that cannot be preserved safely.');
         }
 
-        return $preserved.$this->newFrames($majorVersion, $textFrames, $userTextFrames, $commentFrames);
+        return $preserved.$this->newFrames(
+            $majorVersion,
+            $textFrames,
+            $userTextFrames,
+            $commentFrames,
+            $popularimeterFrames,
+        );
     }
 
     private function descriptiveFramePayload(
@@ -751,12 +783,14 @@ class Mp3Id3v2TagEditor
      * @param  array<string, string|list<string>|null>  $textFrames
      * @param  array<string, ?string>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
+     * @param  array<string, int|null>  $popularimeterFrames
      */
     private function newFrames(
         int $majorVersion,
         array $textFrames,
         array $userTextFrames,
         array $commentFrames,
+        array $popularimeterFrames,
     ): string {
         $frames = '';
         foreach ($textFrames as $frameId => $value) {
@@ -772,6 +806,15 @@ class Mp3Id3v2TagEditor
         foreach ($commentFrames as $frameId => $value) {
             if ($value !== null) {
                 $frames .= $this->frame($majorVersion, $frameId, $this->commentPayload($majorVersion, $value));
+            }
+        }
+        foreach ($popularimeterFrames as $email => $rating) {
+            if ($rating !== null) {
+                $frames .= $this->frame(
+                    $majorVersion,
+                    'POPM',
+                    $this->popularimeterPayload($email, $rating),
+                );
             }
         }
 
@@ -813,6 +856,25 @@ class Mp3Id3v2TagEditor
         }
 
         return chr(1).'eng'."\xFF\xFE\0\0".mb_convert_encoding($value, 'UTF-16LE', 'UTF-8');
+    }
+
+    private function popularimeterPayload(string $email, int $rating): string
+    {
+        if ($email === '' || str_contains($email, "\0")) {
+            throw new RuntimeException('The POPM identifier is invalid.');
+        }
+        if ($rating < 0 || $rating > 255) {
+            throw new RuntimeException('The POPM rating must be between 0 and 255.');
+        }
+
+        return $email."\0".chr($rating).pack('N', 0);
+    }
+
+    private function popularimeterEmail(string $payload): string
+    {
+        $separator = strpos($payload, "\0");
+
+        return $separator === false ? '' : substr($payload, 0, $separator);
     }
 
     private function commentDescription(string $payload): ?string

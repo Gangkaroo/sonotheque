@@ -37,7 +37,7 @@ final class AdditionalMetadataTags
 
     /**
      * @param  array<string, mixed>  $rawMetadata
-     * @return list<array{key: string, frameId: string, name: string, values: list<string>, sizeBytes: ?int, playbackStatistic: bool}>
+     * @return list<array{key: string, frameId: string, name: string, values: list<string>, sizeBytes: ?int, playbackStatistic: bool, rating: bool}>
      */
     public function extract(array $rawMetadata): array
     {
@@ -74,6 +74,7 @@ final class AdditionalMetadataTags
                     'values' => [],
                     'sizeBytes' => null,
                     'playbackStatistic' => $this->isPlaybackStatistic($frameId, $description),
+                    'rating' => $this->isRating($frameId, $description),
                 ];
                 $tags[$key]['values'] = array_values(array_unique([
                     ...$tags[$key]['values'],
@@ -108,6 +109,19 @@ final class AdditionalMetadataTags
     {
         return collect($this->extract($rawMetadata))
             ->where('playbackStatistic', true)
+            ->pluck('key')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $rawMetadata
+     * @return list<string>
+     */
+    public function ratingKeys(array $rawMetadata): array
+    {
+        return collect($this->extract($rawMetadata))
+            ->where('rating', true)
             ->pluck('key')
             ->values()
             ->all();
@@ -224,5 +238,14 @@ final class AdditionalMetadataTags
     {
         return $frameId === 'PCNT'
             || in_array($this->normalizedKey($description), self::PLAYBACK_STATISTIC_NAMES, true);
+    }
+
+    private function isRating(string $frameId, string $description): bool
+    {
+        return $frameId === 'POPM'
+            || in_array($this->normalizedKey($description), [
+                'rating',
+                'sonotheque_album_rating',
+            ], true);
     }
 }

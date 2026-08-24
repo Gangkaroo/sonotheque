@@ -4,6 +4,7 @@ namespace App\Music\Scanning;
 
 use App\Enums\MediaFileStatus;
 use App\Music\PlaybackStatistics\ImportedPlayStatistics;
+use App\Music\Ratings\ImportedRatingTags;
 
 final class ScanMediaFileState
 {
@@ -12,6 +13,8 @@ final class ScanMediaFileState
     public ?int $trackId = null;
 
     public ?ImportedPlayStatistics $playStatistics = null;
+
+    public ?ImportedRatingTags $ratingTags = null;
 
     public function __construct(
         public readonly int $id,
@@ -23,6 +26,7 @@ final class ScanMediaFileState
         public readonly int $metadataParserVersion,
         public ?string $contentFingerprint,
         public ?int $contentFingerprintVersion,
+        public readonly ?int $ratingTagsImportVersion,
     ) {
     }
 }

@@ -36,7 +36,8 @@ made available on a trusted local network.
   including verification and optional backups.
 - Store album notes, owned physical copies, format, purchase source and date,
   condition, and Discogs release links.
-- Rate albums and tracks from 0.5 to 5 stars in half-star increments.
+- Rate albums and tracks from 0.5 to 5 stars in half-star increments, with
+  optional MP3 tag synchronization.
 - Enrich albums and artists with MusicBrainz, Discogs, Last.fm, and lyrics data,
   using provider-aware caching and background refreshes.
 - Collect and manually refine musician credits associated with albums.

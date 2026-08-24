@@ -783,9 +783,10 @@ Open roadmap work:
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
   guidance
-- Optional import/export of personal ratings through explicitly configured,
-  format-aware file-tag mappings; disabled by default, with database ratings as
-  the source of truth
+- Extend personal-rating tag synchronization beyond the completed MP3 mapping
+  only when a format has an explicit, round-trip-tested convention. Database
+  ratings remain the source of truth and synchronization remains disabled by
+  default.
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional remote access with trusted-browser enrollment, explicit local
@@ -1064,12 +1065,15 @@ This phase was pulled forward after the queue model became stable. It builds on 
   details and playable track lists, but collapse below the desktop `lg`
   breakpoint to keep narrow layouts usable. (Complete for database-backed
   ratings)
-- Evaluate optional rating synchronization through file metadata only behind a
-  separate disabled-by-default setting. Rating tags are less interoperable than
-  the existing foo_playcount fields: MP3 commonly uses `POPM`, while other
-  applications and containers use incompatible scales or custom fields. The
-  database remains authoritative until mappings, conflict handling, and
-  round-trip fixtures are defined. (Planned follow-up)
+- Synchronize ratings with MP3 tags behind a separate disabled-by-default
+  setting. Track ratings use a Sonotheque-owned `POPM` frame while preserving
+  other applications' `POPM` entries. Album ratings use
+  `TXXX:SONOTHEQUE_ALBUM_RATING` because ID3 defines no album-rating frame.
+  Scans accept common external `POPM` values and numeric `TXXX:RATING` values;
+  first-time imports fill empty database ratings, while later external tag
+  changes can update or clear imported values. File writes are queued, deferred
+  while a track is streaming, re-read for verification, and update the stored
+  file metadata. (Complete for MP3; other formats remain planned)
 - Add a playlist navigation section. (Complete)
 - Add playlist folders for organizing custom playlists. (Foundation complete)
 - Add playlist create, rename, move-to-folder, delete, and reorder workflows. (Complete)
@@ -1874,6 +1878,9 @@ The first milestone is complete when:
 - Keep personal album and track ratings in the database as the source of truth.
   File-tag import/export is optional and disabled by default because rating
   frames and numeric scales are not standardized consistently across players.
+  MP3 synchronization uses a Sonotheque-owned `POPM` entry for track ratings
+  and `TXXX:SONOTHEQUE_ALBUM_RATING` for album ratings; other `POPM` entries are
+  preserved.
 - Treat the selected library root as session-level query context, with all roots
   as the default, rather than modifying or duplicating catalog records.
 - Keep personal album information separate from scanned metadata so filesystem

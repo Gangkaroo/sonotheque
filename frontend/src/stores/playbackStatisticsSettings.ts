@@ -5,12 +5,14 @@ import { apiRequest } from '@/api/client'
 
 export interface PlaybackStatisticsSettings {
   synchronizeWithFileTags: boolean
+  synchronizeRatingsWithFileTags: boolean
   supportedExportFormats: string[]
 }
 
 export const usePlaybackStatisticsSettingsStore = defineStore('playbackStatisticsSettings', () => {
   const settings = ref<PlaybackStatisticsSettings>({
     synchronizeWithFileTags: false,
+    synchronizeRatingsWithFileTags: false,
     supportedExportFormats: ['mp3'],
   })
   const loading = ref(false)
@@ -45,7 +47,31 @@ export const usePlaybackStatisticsSettingsStore = defineStore('playbackStatistic
     }
   }
 
-  return { settings, loading, saving, error, load, setSynchronizeWithFileTags }
+  async function setSynchronizeRatingsWithFileTags(enabled: boolean) {
+    saving.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<PlaybackStatisticsSettings>('/settings/playback-statistics', {
+        method: 'PATCH',
+        body: JSON.stringify({ synchronizeRatingsWithFileTags: enabled }),
+      })
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
+  return {
+    settings,
+    loading,
+    saving,
+    error,
+    load,
+    setSynchronizeWithFileTags,
+    setSynchronizeRatingsWithFileTags,
+  }
 })
 
 function errorMessage(cause: unknown) {

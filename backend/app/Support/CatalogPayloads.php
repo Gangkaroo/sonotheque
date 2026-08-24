@@ -355,7 +355,7 @@ class CatalogPayloads
 
         ksort($tags, SORT_NATURAL | SORT_FLAG_CASE);
 
-        return $this->protectSynchronizedPlaybackTags(array_values($tags));
+        return $this->protectSynchronizedTags(array_values($tags));
     }
 
     /**
@@ -364,20 +364,23 @@ class CatalogPayloads
      */
     private function additionalTagsPayload(array $rawMetadata): array
     {
-        return $this->protectSynchronizedPlaybackTags($this->additionalTags->extract($rawMetadata));
+        return $this->protectSynchronizedTags($this->additionalTags->extract($rawMetadata));
     }
 
     /**
      * @param  list<array<string, mixed>>  $tags
      * @return list<array<string, mixed>>
      */
-    private function protectSynchronizedPlaybackTags(array $tags): array
+    private function protectSynchronizedTags(array $tags): array
     {
-        $synchronizesStatistics = ApplicationSetting::current()->synchronizesPlaybackStatisticsWithTags();
+        $settings = ApplicationSetting::current();
+        $synchronizesStatistics = $settings->synchronizesPlaybackStatisticsWithTags();
+        $synchronizesRatings = $settings->synchronizesRatingsWithTags();
 
         return array_map(static fn (array $tag): array => [
             ...$tag,
-            'protectedFromRemoval' => $synchronizesStatistics && $tag['playbackStatistic'],
+            'protectedFromRemoval' => ($synchronizesStatistics && $tag['playbackStatistic'])
+                || ($synchronizesRatings && $tag['rating']),
         ], $tags);
     }
 
