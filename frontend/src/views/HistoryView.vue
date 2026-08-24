@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
@@ -125,6 +126,15 @@ watch(
             <template #append>
               <div class="track-actions">
                 <span class="text-caption text-medium-emphasis">{{ duration(play.track.durationMs) }}</span>
+                <CatalogRating
+                  :entity-id="play.track.id"
+                  entity-type="track"
+                  compact
+                  :model-value="play.track.rating"
+                  responsive
+                  size="18"
+                  @update:model-value="play.track.rating = $event"
+                />
                 <TooltipIconButton
                   :text="player.currentTrack?.id === play.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :aria-label="player.currentTrack?.id === play.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
@@ -204,6 +214,15 @@ watch(
             <template #append>
               <div class="track-actions">
                 <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
+                <CatalogRating
+                  :entity-id="track.id"
+                  entity-type="track"
+                  compact
+                  :model-value="track.rating"
+                  responsive
+                  size="18"
+                  @update:model-value="track.rating = $event"
+                />
                 <TooltipIconButton
                   :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"

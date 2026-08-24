@@ -32,7 +32,7 @@ class PlaybackStatisticsController extends Controller
             ->where('counted', true)
             ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
             ->with(['track' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'album_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'rating_half_steps', 'album_id'])
                 ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
             ->orderByDesc('played_at')
             ->orderByDesc('id')
@@ -61,7 +61,7 @@ class PlaybackStatisticsController extends Controller
             ->whereBelongsTo($track)
             ->where('counted', true)
             ->with(['track' => fn ($query) => $query
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'album_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'rating_half_steps', 'album_id'])
                 ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])])
             ->orderByDesc('played_at')
             ->orderByDesc('id')
@@ -83,7 +83,7 @@ class PlaybackStatisticsController extends Controller
 
         $tracks = $this->libraryRootScope->tracks(Track::query(), $libraryRootId)
             ->join('track_play_statistics', 'track_play_statistics.track_id', '=', 'tracks.id')
-            ->select(['tracks.id', 'tracks.title', 'tracks.sort_title', 'tracks.duration_ms', 'tracks.track_number', 'tracks.disc_number', 'tracks.year', 'tracks.album_id'])
+            ->select(['tracks.id', 'tracks.title', 'tracks.sort_title', 'tracks.duration_ms', 'tracks.track_number', 'tracks.disc_number', 'tracks.year', 'tracks.rating_half_steps', 'tracks.album_id'])
             ->with(['album:id,title,original_release_year,artwork_id', 'album.personalMetadata', 'album.ownedCopies', 'artists:id,name', 'playStatistic:track_id,play_count,first_played_at,last_played_at'])
             ->where('track_play_statistics.play_count', '>', 0)
             ->orderByDesc('track_play_statistics.play_count')
@@ -109,6 +109,7 @@ class PlaybackStatisticsController extends Controller
                 'albums.title',
                 'albums.sort_title',
                 'albums.original_release_year',
+                'albums.rating_half_steps',
                 'albums.primary_artist_id',
                 'albums.artwork_id',
             ])
@@ -122,6 +123,7 @@ class PlaybackStatisticsController extends Controller
                 'albums.title',
                 'albums.sort_title',
                 'albums.original_release_year',
+                'albums.rating_half_steps',
                 'albums.primary_artist_id',
                 'albums.artwork_id',
             ])

@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'track_number',
     'disc_number',
     'year',
+    'rating_half_steps',
     'comment',
     'composers',
     'performers',
@@ -143,6 +144,7 @@ class Track extends Model
             'composers' => 'array',
             'performers' => 'array',
             'metadata' => 'array',
+            'rating_half_steps' => 'integer',
         ];
     }
 }

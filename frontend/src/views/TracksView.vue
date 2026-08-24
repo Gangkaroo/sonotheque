@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
@@ -532,6 +533,15 @@ onUnmounted(() => {
               <div v-for="(line, index) in playCountTooltip(track)" :key="index">{{ line }}</div>
             </div>
           </v-tooltip>
+          <CatalogRating
+            :entity-id="track.id"
+            entity-type="track"
+            compact
+            :model-value="track.rating"
+            responsive
+            size="18"
+            @update:model-value="track.rating = $event"
+          />
           <TooltipIconButton
             :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
             :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"

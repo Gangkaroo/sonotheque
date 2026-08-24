@@ -632,6 +632,11 @@ export default {
     emptyTracksTitle: 'No favorite tracks yet',
     emptyTracksDescription: 'Use the heart button on tracks or in the player to keep them here.',
   },
+  ratings: {
+    albumLabel: 'Rate album',
+    trackLabel: 'Rate track',
+    updateFailed: 'The rating could not be saved.',
+  },
   history: {
     title: 'History',
     description: 'Recent listening activity and your most played tracks.',

@@ -8,6 +8,7 @@ import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTag
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import AlbumPlaylistExportDialog from '@/components/AlbumPlaylistExportDialog.vue'
 import CatalogDates from '@/components/CatalogDates.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import OwnedAlbumCopies from '@/components/OwnedAlbumCopies.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
@@ -70,6 +71,7 @@ const personalDialog = ref(false)
 const personalLoading = ref(false)
 const personalError = ref<string | null>(null)
 const personalSuccess = ref(false)
+const artistCountry = ref<string | null>(null)
 const personalForm = reactive({
   notes: '',
 })
@@ -654,6 +656,7 @@ function toggleTrack(track: Track) {
 
 watch(albumId, (id) => {
   exitSelectionMode()
+  artistCountry.value = null
   if (Number.isInteger(id) && id > 0) void catalog.loadAlbum(id)
 }, { immediate: true })
 
@@ -710,6 +713,15 @@ onUnmounted(() => {
                 <v-icon icon="mdi-album" />
               </v-avatar>
             </template>
+            <template #append>
+              <CatalogRating
+                :entity-id="album.id"
+                entity-type="album"
+                :model-value="album.rating"
+                size="24"
+                @update:model-value="album.rating = $event"
+              />
+            </template>
             <v-card-title>{{ album.title }}</v-card-title>
             <v-card-subtitle>
               <RouterLink
@@ -725,8 +737,8 @@ onUnmounted(() => {
           <v-card-text class="text-medium-emphasis">
             {{ albumDetails }}<span v-if="albumPlayingTime"> · {{ t('catalog.playingTime', { duration: albumPlayingTime }) }}</span>
             <span v-if="showLibraryRoot && album.libraryRoot"> · {{ album.libraryRoot.name }}</span>
-            <div v-if="albumGenres.length || albumTechnicalChips.length" class="album-classification mt-4">
-              <div v-if="albumGenres.length" class="d-flex flex-wrap ga-2">
+            <div v-if="albumGenres.length || artistCountry || albumTechnicalChips.length" class="album-classification mt-4">
+              <div v-if="albumGenres.length || artistCountry" class="d-flex flex-wrap ga-2">
                 <v-chip
                   v-for="genre in albumGenres"
                   :key="genre.id"
@@ -735,6 +747,14 @@ onUnmounted(() => {
                   variant="tonal"
                 >
                   {{ genre.name }}
+                </v-chip>
+                <v-chip
+                  v-if="artistCountry"
+                  prepend-icon="mdi-earth"
+                  size="small"
+                  variant="outlined"
+                >
+                  {{ t('player.country') }}: {{ artistCountry }}
                 </v-chip>
               </div>
               <div v-if="albumTechnicalChips.length" class="d-flex flex-wrap ga-2">
@@ -968,6 +988,15 @@ onUnmounted(() => {
                 <div v-for="(line, index) in playCountTooltip(track)" :key="index">{{ line }}</div>
               </div>
             </v-tooltip>
+            <CatalogRating
+              :entity-id="track.id"
+              entity-type="track"
+              compact
+              :model-value="track.rating"
+              responsive
+              size="18"
+              @update:model-value="track.rating = $event"
+            />
             <TooltipIconButton
               :text="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
               :aria-label="isCurrentTrack(track) && player.isPlaying ? t('player.pause') : t('player.play')"
@@ -1002,6 +1031,7 @@ onUnmounted(() => {
       :album-id="albumId"
       class="mt-8"
       :track-id="tracks[0].id"
+      @artist-country="artistCountry = $event"
     />
   </template>
 

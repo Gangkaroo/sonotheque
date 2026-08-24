@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 
 import { apiRequest } from '@/api/client'
 import { withLibraryRootScope } from '@/stores/libraryRootScope'
-import type { AlbumDetail, Track } from '@/stores/catalog'
+import type { AlbumDetail, AlbumPlaybackPayload, Track } from '@/stores/catalog'
 
 export type PlayableTrack = Track
 export type PlaybackContext = 'album' | 'track-list' | null
@@ -134,7 +134,7 @@ export const usePlayerStore = defineStore('player', () => {
     playbackPosition.value = 0
   }
 
-  function playAlbum(album: AlbumDetail, scope: AlbumPlaybackScope | null = null) {
+  function playAlbum(album: AlbumPlaybackPayload, scope: AlbumPlaybackScope | null = null) {
     const [firstTrack] = album.tracks
     if (!firstTrack) return
 
@@ -266,7 +266,7 @@ export const usePlayerStore = defineStore('player', () => {
     try {
       const frozenScope = normalizeAlbumPlaybackScope(scope)
       const path = catalogPlaybackPath('/catalog/playback/albums/random', frozenScope)
-      const album = await apiRequest<AlbumDetail>(path)
+      const album = await apiRequest<AlbumPlaybackPayload>(path)
       playAlbum(album, frozenScope)
     } catch (cause) {
       setError(errorMessage(cause))
@@ -425,7 +425,7 @@ export const usePlayerStore = defineStore('player', () => {
       const path = random
         ? catalogPlaybackPath('/catalog/playback/albums/random', scope, { exclude: currentTrack.value.album.id })
         : catalogPlaybackPath(`/catalog/playback/albums/${currentTrack.value.album.id}/next`, scope)
-      const album = await apiRequest<AlbumDetail>(path)
+      const album = await apiRequest<AlbumPlaybackPayload>(path)
       playAlbum(album, scope)
     } catch (cause) {
       setError(errorMessage(cause))

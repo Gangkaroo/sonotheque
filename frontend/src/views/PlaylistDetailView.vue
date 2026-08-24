@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PlaylistFileExportDialog from '@/components/PlaylistFileExportDialog.vue'
 import PlaylistSimilarityOrderDialog from '@/components/PlaylistSimilarityOrderDialog.vue'
@@ -582,6 +583,16 @@ onBeforeUnmount(stopDragAutoScroll)
                   <div v-for="(line, lineIndex) in playCountTooltip(item.track)" :key="lineIndex">{{ line }}</div>
                 </div>
               </v-tooltip>
+              <CatalogRating
+                v-if="item.track.available !== false"
+                :entity-id="item.track.id"
+                entity-type="track"
+                compact
+                :model-value="item.track.rating"
+                responsive
+                size="18"
+                @update:model-value="item.track.rating = $event"
+              />
               <TooltipIconButton
                 :text="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                 :aria-label="player.currentTrack?.id === item.track.id && player.isPlaying ? t('player.pause') : t('player.play')"

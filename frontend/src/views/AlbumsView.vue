@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
@@ -474,6 +475,17 @@ onUnmounted(() => {
           />
         </div>
         <v-card-item>
+          <template #append>
+            <CatalogRating
+              :entity-id="album.id"
+              entity-type="album"
+              card
+              :model-value="album.rating"
+              size="18"
+              @click.prevent.stop
+              @update:model-value="album.rating = $event"
+            />
+          </template>
           <v-card-title>{{ album.title }}</v-card-title>
           <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
         </v-card-item>

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Album, Track } from '@/stores/catalog'
@@ -136,6 +137,15 @@ onMounted(() => {
             <template #append>
               <div class="d-flex align-center ga-1">
                 <span class="text-caption text-medium-emphasis">{{ duration(track.durationMs) }}</span>
+                <CatalogRating
+                  :entity-id="track.id"
+                  entity-type="track"
+                  compact
+                  :model-value="track.rating"
+                  responsive
+                  size="18"
+                  @update:model-value="track.rating = $event"
+                />
                 <TooltipIconButton
                   :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"

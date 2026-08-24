@@ -632,6 +632,11 @@ export default {
     emptyTracksTitle: 'Noch keine favorisierten Titel',
     emptyTracksDescription: 'Nutze das Herz bei Titeln oder im Player, um sie hier zu speichern.',
   },
+  ratings: {
+    albumLabel: 'Album bewerten',
+    trackLabel: 'Titel bewerten',
+    updateFailed: 'Die Bewertung konnte nicht gespeichert werden.',
+  },
   history: {
     title: 'Verlauf',
     description: 'Kürzlich gehörte Titel und deine meistgespielten Titel.',

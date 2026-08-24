@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import CatalogDates from '@/components/CatalogDates.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
@@ -388,6 +389,14 @@ function syncDetailStateToRoute() {
                         <template v-if="album.originalReleaseYear">{{ album.originalReleaseYear }} · </template>
                         {{ t('albums.trackCount', { count: album.trackCount }) }}
                       </div>
+                      <CatalogRating
+                        :entity-id="album.id"
+                        entity-type="album"
+                        card
+                        :model-value="album.rating"
+                        size="16"
+                        @update:model-value="album.rating = $event"
+                      />
                     </div>
                   </div>
                 </v-card>
@@ -436,6 +445,15 @@ function syncDetailStateToRoute() {
                 </v-list-item-subtitle>
                 <template #append>
                   <div class="d-flex align-center ga-1">
+                    <CatalogRating
+                      :entity-id="track.id"
+                      entity-type="track"
+                      compact
+                      :model-value="track.rating"
+                      responsive
+                      size="18"
+                      @update:model-value="track.rating = $event"
+                    />
                     <TooltipIconButton
                       :text="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"
                       :aria-label="player.currentTrack?.id === track.id && player.isPlaying ? t('player.pause') : t('player.play')"

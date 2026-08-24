@@ -12,6 +12,7 @@ use App\Http\Controllers\AudioIntelligenceSettingsController;
 use App\Http\Controllers\AudioSimilarityEvaluationController;
 use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\CatalogBrowseController;
+use App\Http\Controllers\CatalogRatingController;
 use App\Http\Controllers\CollectionAssistantSettingsController;
 use App\Http\Controllers\CollectionAssistantController;
 use App\Http\Controllers\CustomPlaylistExportController;
@@ -61,6 +62,8 @@ Route::get('/catalog/playback/albums/{album}/next', [CatalogBrowseController::cl
 Route::get('/catalog/playback/tracks/random', [CatalogBrowseController::class, 'randomTrack']);
 Route::get('/catalog/playback/tracks/{track}/next', [CatalogBrowseController::class, 'nextTrack']);
 Route::get('/catalog/albums/{album}', [CatalogBrowseController::class, 'album']);
+Route::patch('/albums/{album}/rating', [CatalogRatingController::class, 'updateAlbum']);
+Route::delete('/albums/{album}/rating', [CatalogRatingController::class, 'clearAlbum']);
 Route::patch('/albums/{album}/personal-metadata', [AlbumPersonalMetadataController::class, 'update']);
 Route::patch('/albums/{album}/personal-notes', [AlbumPersonalMetadataController::class, 'updateNotes']);
 Route::get('/albums/{album}/playlist-export', [AlbumPlaylistExportController::class, 'show']);
@@ -91,6 +94,8 @@ Route::delete('/albums/{album}/musician-credits/suppressions/{sourceKey}', [Albu
     ->where('sourceKey', '[a-f0-9]{64}');
 Route::get('/catalog/tracks', [CatalogBrowseController::class, 'tracks']);
 Route::get('/catalog/tracks/{track}', [CatalogBrowseController::class, 'track']);
+Route::patch('/tracks/{track}/rating', [CatalogRatingController::class, 'updateTrack']);
+Route::delete('/tracks/{track}/rating', [CatalogRatingController::class, 'clearTrack']);
 Route::get('/catalog/genres', [CatalogBrowseController::class, 'genres']);
 Route::get('/catalog/library-roots/{libraryRoot}/folders', [LibraryFolderController::class, 'show']);
 Route::get('/catalog/library-roots/{libraryRoot}/folder-tracks', [LibraryFolderController::class, 'tracks']);

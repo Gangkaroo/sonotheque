@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{
   artistImage: [url: string | null]
+  artistCountry: [country: string | null]
 }>()
 const { locale, t } = useI18n()
 const activeTab = ref<'album' | 'artist' | 'musicians'>(props.content === 'artist' ? 'artist' : 'album')
@@ -134,6 +135,7 @@ async function load(trackId: number, albumId: number | undefined, language: stri
   musicianReleaseDialog.value = false
   musicianReleaseError.value = null
   emit('artistImage', null)
+  emit('artistCountry', null)
   albumExpanded.value = false
   artistExpanded.value = false
 
@@ -148,6 +150,10 @@ async function load(trackId: number, albumId: number | undefined, language: stri
 
     identity.value = nextIdentity
     information.value = nextInformation
+    emit(
+      'artistCountry',
+      ready(nextIdentity.artist) ? nextIdentity.artist.data.country ?? null : null,
+    )
     if (props.content === 'artist') void loadArtistImage(trackId, request)
     if (props.content === 'all' && albumId) void loadMusicians(albumId, request, true)
   } catch (cause) {

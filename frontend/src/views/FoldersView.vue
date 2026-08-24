@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import type { Track } from '@/stores/catalog'
 import { useLibraryFoldersStore } from '@/stores/libraryFolders'
@@ -574,6 +575,16 @@ function showNotice(message: string) {
           >
             <template #append>
               <div class="folder-actions d-flex align-center ga-1">
+                <CatalogRating
+                  v-if="item.track && item.available"
+                  :entity-id="item.track.id"
+                  entity-type="track"
+                  compact
+                  :model-value="item.track.rating"
+                  responsive
+                  size="18"
+                  @update:model-value="item.track.rating = $event"
+                />
                 <TooltipIconButton
                   :text="player.currentTrack?.id === item.track?.id && player.isPlaying ? t('player.pause') : t('player.play')"
                   :aria-label="player.currentTrack?.id === item.track?.id && player.isPlaying ? t('player.pause') : t('player.play')"

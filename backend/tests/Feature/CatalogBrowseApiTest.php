@@ -745,7 +745,9 @@ class CatalogBrowseApiTest extends TestCase
 
         $this->getJson("/api/catalog/playback/albums/random?exclude={$alphaAlbum->id}")
             ->assertOk()
-            ->assertJsonPath('id', $betaAlbum->id);
+            ->assertJsonPath('id', $betaAlbum->id)
+            ->assertJsonMissingPath('additionalTags')
+            ->assertJsonMissingPath('technical');
 
         $albumScope = [
             'search' => 'Alpha',

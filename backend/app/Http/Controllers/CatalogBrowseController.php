@@ -12,6 +12,7 @@ use App\Support\CatalogPayloads;
 use App\Support\LibraryRootScope;
 use App\Support\MusicianCatalog;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -132,6 +133,7 @@ class CatalogBrowseController extends Controller
                 'albums.title',
                 'albums.sort_title',
                 'albums.original_release_year',
+                'albums.rating_half_steps',
                 'albums.primary_artist_id',
                 'albums.artwork_id',
             ])
@@ -183,16 +185,9 @@ class CatalogBrowseController extends Controller
         ]);
 
         $query = $this->filteredAlbumQuery($libraryRootId, $filters);
-        if (
-            ($filters['exclude'] ?? null)
-            && (clone $query)->whereKeyNot($filters['exclude'])->exists()
-        ) {
-            $query->whereKeyNot($filters['exclude']);
-        }
+        $album = $this->randomCatalogItem($query, $filters['exclude'] ?? null);
 
-        $album = $query->inRandomOrder()->firstOrFail();
-
-        return response()->json($this->payloads->albumDetail($album));
+        return response()->json($this->payloads->albumPlayback($album));
     }
 
     public function nextAlbum(Request $request, Album $album): JsonResponse
@@ -205,7 +200,7 @@ class CatalogBrowseController extends Controller
         $index = array_search($album->id, $ids, true);
         $nextId = $ids[$index === false ? 0 : ($index + 1) % count($ids)];
 
-        return response()->json($this->payloads->albumDetail(Album::findOrFail($nextId)));
+        return response()->json($this->payloads->albumPlayback(Album::findOrFail($nextId)));
     }
 
     public function randomTrack(Request $request): JsonResponse
@@ -217,14 +212,7 @@ class CatalogBrowseController extends Controller
         ]);
 
         $query = $this->filteredTrackQuery($libraryRootId, $filters);
-        if (
-            ($filters['exclude'] ?? null)
-            && (clone $query)->whereKeyNot($filters['exclude'])->exists()
-        ) {
-            $query->whereKeyNot($filters['exclude']);
-        }
-
-        $track = $query->inRandomOrder()->firstOrFail();
+        $track = $this->randomCatalogItem($query, $filters['exclude'] ?? null);
 
         return response()->json($this->payloads->trackSummary($this->loadPlayableTrack($track)));
     }
@@ -532,6 +520,22 @@ class CatalogBrowseController extends Controller
             );
     }
 
+    /**
+     * @template TModel of Model
+     * @param  Builder<TModel>  $query
+     * @return TModel
+     */
+    private function randomCatalogItem(Builder $query, ?int $excludeId): Model
+    {
+        $candidateQuery = clone $query;
+        if ($excludeId !== null) {
+            $candidateQuery->whereKeyNot($excludeId);
+        }
+
+        return $candidateQuery->inRandomOrder()->first()
+            ?? $query->inRandomOrder()->firstOrFail();
+    }
+
     private function albumSearchIds(string $term): QueryBuilder
     {
         $pattern = '%'.$this->escapeLike($term).'%';
@@ -755,6 +759,7 @@ class CatalogBrowseController extends Controller
                 'tracks.track_number',
                 'tracks.disc_number',
                 'tracks.year',
+                'tracks.rating_half_steps',
                 'tracks.album_id',
             ])
             ->with([

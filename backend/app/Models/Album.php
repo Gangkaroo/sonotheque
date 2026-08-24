@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'relative_path_hash',
     'original_release_year',
     'disc_total',
+    'rating_half_steps',
     'metadata',
 ])]
 #[ApiResource(
@@ -189,6 +190,7 @@ class Album extends Model
         return [
             'metadata' => 'array',
             'artwork_source_type' => ArtworkSource::class,
+            'rating_half_steps' => 'integer',
         ];
     }
 }

@@ -76,6 +76,7 @@ The implemented release baseline and active roadmap include:
   root/search/genre/year/ownership/sort scope for subsequent choices
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
+- Personal half-star ratings from 0.5 to 5 stars for albums and tracks
 - Custom playlists, playlist folders, ordered playlist items, queue-to-playlist
   actions, M3U/M3U8 import and export, and optional background file
   synchronization
@@ -235,6 +236,10 @@ Physical file information:
 - Track-artist and track-genre pivot tables
 
 Tracks contain normalized values such as title, duration, year, track number, disc number, and links to the source media file.
+
+Albums and tracks also carry an optional personal rating stored as integer
+half-steps from 1 through 10. The API presents these values as 0.5 through 5
+stars. A missing value means unrated and remains distinct from the lowest rating.
 
 Artists store a normalized sort name and an indexed browse initial. The browse initial contains `A` through `Z`; accented Latin initials are transliterated into those buckets, while names beginning with numbers, symbols, or other characters are grouped under `#`. Albums store the original release year separately from track-level tag data. PostgreSQL trigram indexes support case-insensitive partial searches for artist, album, and genre names. Genre names are unique without regard to letter case so filter values do not fragment into variants such as `Rock` and `rock`.
 
@@ -636,6 +641,9 @@ Completed:
 - Persistent browser playback controls with seeking, volume, explicit playback state, current-track navigation, random album/track actions, continuous play, and optional random continuation
 - Visible current queue drawer with jump/remove actions plus queue album and queue track actions
 - Favorite track and favorite album persistence, buttons, and browse sections
+- Database-backed album and track ratings in half-star increments, with album
+  ratings on album details/cards and responsive track ratings on track details
+  and playable track lists
 - Playlist folder, playlist, and ordered playlist-item persistence APIs
 - Playlists navigation page with folder and playlist creation/deletion
 - Add-to-playlist actions from tracks, albums, queue entries, and the player
@@ -775,6 +783,9 @@ Open roadmap work:
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
   guidance
+- Optional import/export of personal ratings through explicitly configured,
+  format-aware file-tag mappings; disabled by default, with database ratings as
+  the source of truth
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
 - Optional remote access with trusted-browser enrollment, explicit local
@@ -1048,6 +1059,17 @@ This phase was pulled forward after the queue model became stable. It builds on 
 
 - Add favorite buttons to track detail, album detail, track lists, album lists, and player affordances. (Complete)
 - Add favorite track and favorite album browse sections. (Complete)
+- Add optional 0.5-to-5-star personal ratings for albums and tracks. Album
+  ratings appear on album details and album cards; track ratings appear on track
+  details and playable track lists, but collapse below the desktop `lg`
+  breakpoint to keep narrow layouts usable. (Complete for database-backed
+  ratings)
+- Evaluate optional rating synchronization through file metadata only behind a
+  separate disabled-by-default setting. Rating tags are less interoperable than
+  the existing foo_playcount fields: MP3 commonly uses `POPM`, while other
+  applications and containers use incompatible scales or custom fields. The
+  database remains authoritative until mappings, conflict handling, and
+  round-trip fixtures are defined. (Planned follow-up)
 - Add a playlist navigation section. (Complete)
 - Add playlist folders for organizing custom playlists. (Foundation complete)
 - Add playlist create, rename, move-to-folder, delete, and reorder workflows. (Complete)
@@ -1849,6 +1871,9 @@ The first milestone is complete when:
 - Prefer the configured folder cover over embedded artwork and generate thumbnails during scanning rather than resizing images on every request.
 - Treat tag editing as a file-writing workflow, not just a database update.
 - Keep app listening statistics in the database as the source of truth; importing or exporting statistics through file tags is optional and disabled by default.
+- Keep personal album and track ratings in the database as the source of truth.
+  File-tag import/export is optional and disabled by default because rating
+  frames and numeric scales are not standardized consistently across players.
 - Treat the selected library root as session-level query context, with all roots
   as the default, rather than modifying or duplicating catalog records.
 - Keep personal album information separate from scanned metadata so filesystem

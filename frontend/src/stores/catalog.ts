@@ -121,6 +121,7 @@ export interface DiscogsLinkedReleaseDetails {
 export interface Album {
   id: number
   title: string
+  rating?: number | null
   originalReleaseYear?: number
   primaryArtist: NamedCatalogItem | null
   trackCount: number
@@ -149,9 +150,16 @@ export interface AlbumDetail extends Album {
   tracks: Track[]
 }
 
+export interface AlbumPlaybackPayload {
+  id: number
+  title: string
+  tracks: Track[]
+}
+
 export interface Track {
   id: number
   title: string
+  rating?: number | null
   available?: boolean
   streamUrl: string
   durationMs?: number
@@ -895,6 +903,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     metricsHaveCatalog,
     loadMetrics,
     invalidateMetrics,
+    invalidateBrowseCache,
     invalidateCatalog,
     loadArtists,
     loadMusicians,

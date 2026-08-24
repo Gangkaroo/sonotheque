@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTagRemovalList.vue'
 import CatalogDates from '@/components/CatalogDates.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
@@ -652,6 +653,15 @@ onUnmounted(() => {
           <v-avatar color="primary" variant="tonal" size="44">
             <v-icon icon="mdi-music-note" />
           </v-avatar>
+        </template>
+        <template #append>
+          <CatalogRating
+            :entity-id="track.id"
+            entity-type="track"
+            :model-value="track.rating"
+            size="24"
+            @update:model-value="track.rating = $event"
+          />
         </template>
         <v-card-title>{{ track.title }}</v-card-title>
         <v-card-subtitle>{{ artistNames }}</v-card-subtitle>

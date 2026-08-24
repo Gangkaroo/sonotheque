@@ -40,6 +40,7 @@ class CatalogPayloads
             'id' => $album->id,
             'title' => $album->title,
             'originalReleaseYear' => $album->original_release_year,
+            'rating' => $this->rating($album->rating_half_steps),
             'primaryArtist' => $album->primaryArtist ? [
                 'id' => $album->primaryArtist->id,
                 'name' => $album->primaryArtist->name,
@@ -64,7 +65,7 @@ class CatalogPayloads
                     'mediaFile',
                     fn ($query) => $query->where('status', MediaFileStatus::Available->value),
                 )
-                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'comment', 'album_id', 'media_file_id'])
+                ->select(['id', 'title', 'sort_title', 'duration_ms', 'track_number', 'disc_number', 'year', 'rating_half_steps', 'comment', 'album_id', 'media_file_id'])
                 ->with([
                     'album:id,title,original_release_year,artwork_id',
                     'album.personalMetadata',
@@ -117,6 +118,44 @@ class CatalogPayloads
         ];
     }
 
+    /** @return array{id: int, title: string, tracks: Collection<int, array<string, mixed>>} */
+    public function albumPlayback(Album $album): array
+    {
+        $album->load([
+            'tracks' => fn ($query) => $query
+                ->whereHas(
+                    'mediaFile',
+                    fn ($query) => $query->where('status', MediaFileStatus::Available->value),
+                )
+                ->select([
+                    'id',
+                    'title',
+                    'duration_ms',
+                    'track_number',
+                    'disc_number',
+                    'year',
+                    'rating_half_steps',
+                    'album_id',
+                ])
+                ->with([
+                    'album:id,title,original_release_year,artwork_id',
+                    'artists:id,name',
+                    'playStatistic:track_id,play_count,first_played_at,last_played_at',
+                ])
+                ->orderBy('disc_number')
+                ->orderBy('track_number')
+                ->orderBy('id'),
+        ]);
+
+        return [
+            'id' => $album->id,
+            'title' => $album->title,
+            'tracks' => $album->tracks
+                ->map(fn (Track $track): array => $this->trackSummary($track))
+                ->values(),
+        ];
+    }
+
     /** @return array<string, mixed> */
     public function trackSummary(Track $track): array
     {
@@ -132,6 +171,7 @@ class CatalogPayloads
             'trackNumber' => $track->track_number,
             'discNumber' => $track->disc_number,
             'year' => $track->year,
+            'rating' => $this->rating($track->rating_half_steps),
             'album' => $track->album ? [
                 'id' => $track->album->id,
                 'title' => $track->album->title,
@@ -250,6 +290,11 @@ class CatalogPayloads
             'firstPlayedAt' => $statistics?->first_played_at?->toJSON(),
             'lastPlayedAt' => $statistics?->last_played_at?->toJSON(),
         ];
+    }
+
+    private function rating(?int $halfSteps): ?float
+    {
+        return $halfSteps === null ? null : $halfSteps / 2;
     }
 
     /**

@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import CatalogPagination from '@/components/CatalogPagination.vue'
+import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import { useCatalogStore } from '@/stores/catalog'
@@ -200,6 +201,14 @@ function sourceLabel(source: string) {
                     <template v-if="album.originalReleaseYear">{{ album.originalReleaseYear }} · </template>
                     {{ t('albums.trackCount', { count: album.trackCount }) }}
                   </div>
+                  <CatalogRating
+                    :entity-id="album.id"
+                    entity-type="album"
+                    card
+                    :model-value="album.rating"
+                    size="16"
+                    @update:model-value="album.rating = $event"
+                  />
                   <div v-if="album.musicianCredits" class="d-flex flex-wrap ga-1 mt-2">
                     <v-chip
                       v-for="role in album.musicianCredits.roles.slice(0, 3)"
