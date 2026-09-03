@@ -12,6 +12,7 @@ use App\Models\Artwork;
 use App\Models\Genre;
 use App\Models\Library;
 use App\Models\MediaFile;
+use App\Models\RecordLabel;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +27,7 @@ class SonothequeSchemaTest extends TestCase
     {
         $this->assertSame('pgsql', DB::connection()->getDriverName());
 
-        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_vectors', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback', 'audio_similarity_personalizations', 'playlist_order_snapshots', 'musician_credit_backfill_runs'] as $table) {
+        foreach (['application_settings', 'playlist_export_locations', 'libraries', 'library_roots', 'library_watch_directories', 'library_activity_logs', 'scan_runs', 'artists', 'genres', 'artwork', 'albums', 'record_labels', 'album_record_labels', 'media_files', 'tracks', 'metadata_backups', 'online_content_cache', 'audio_analysis_profiles', 'audio_analysis_artifacts', 'audio_analysis_vectors', 'audio_analysis_runs', 'audio_analysis_run_items', 'audio_analyzer_benchmarks', 'audio_similarity_feedback', 'audio_similarity_personalizations', 'playlist_order_snapshots', 'musician_credit_backfill_runs'] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Expected table [{$table}] to exist.");
         }
 
@@ -47,6 +48,7 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('media_files', 'content_fingerprint_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'play_statistics_import_version'));
         $this->assertTrue(Schema::hasColumn('media_files', 'rating_tags_import_version'));
+        $this->assertTrue(Schema::hasColumn('media_files', 'record_label_tags_import_version'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'synchronize_ratings_with_tags'));
         $this->assertTrue(Schema::hasColumn('application_settings', 'audio_intelligence_enabled'));
         $this->assertTrue(Schema::hasColumn(
@@ -205,6 +207,16 @@ class SonothequeSchemaTest extends TestCase
             'disc_number' => 1,
         ]);
         $genre = Genre::create(['name' => 'Electronic']);
+        $recordLabel = RecordLabel::create([
+            'name' => 'Example Records',
+            'normalized_name' => 'example records',
+        ]);
+        $albumLabel = $album->recordLabelAssignments()->create([
+            'record_label_id' => $recordLabel->id,
+            'catalog_number' => 'EX-001',
+            'catalog_number_hash' => hash('sha256', 'ex-001'),
+            'source' => 'file_tag',
+        ]);
 
         $track->artists()->attach($artist, ['role' => 'primary', 'position' => 0]);
         $track->genres()->attach($genre);
@@ -224,6 +236,9 @@ class SonothequeSchemaTest extends TestCase
         $this->assertTrue($genre->tracks()->whereKey($track->id)->exists());
         $this->assertTrue($mediaFile->track()->whereKey($track->id)->exists());
         $this->assertSame(2026, $album->fresh()->original_release_year);
+        $this->assertTrue($albumLabel->fresh()->album->is($album));
+        $this->assertTrue($albumLabel->fresh()->recordLabel->is($recordLabel));
+        $this->assertTrue($recordLabel->albumAssignments()->whereKey($albumLabel->id)->exists());
     }
 
     public function test_relative_file_paths_are_unique_within_a_library_root(): void

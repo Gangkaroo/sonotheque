@@ -17,11 +17,13 @@ class FolderBrowserApiTest extends TestCase
         mkdir($this->path.DIRECTORY_SEPARATOR.'Beta', recursive: true);
         mkdir($this->path.DIRECTORY_SEPARATOR.'alpha', recursive: true);
         file_put_contents($this->path.DIRECTORY_SEPARATOR.'track.mp3', 'not listed');
+        file_put_contents($this->path.DIRECTORY_SEPARATOR.'backup.sonotheque-backup', 'backup');
     }
 
     protected function tearDown(): void
     {
         unlink($this->path.DIRECTORY_SEPARATOR.'track.mp3');
+        unlink($this->path.DIRECTORY_SEPARATOR.'backup.sonotheque-backup');
         rmdir($this->path.DIRECTORY_SEPARATOR.'alpha');
         rmdir($this->path.DIRECTORY_SEPARATOR.'Beta');
         rmdir($this->path);
@@ -45,5 +47,14 @@ class FolderBrowserApiTest extends TestCase
         $this->getJson('/api/folders?path='.urlencode($this->path.DIRECTORY_SEPARATOR.'missing'))
             ->assertUnprocessable()
             ->assertJsonPath('message', fn (string $message): bool => str_contains($message, 'does not exist'));
+    }
+
+    public function test_it_can_list_only_sonotheque_backup_files_for_restore(): void
+    {
+        $this->getJson(
+            '/api/folders?systemBackupFiles=1&path='.urlencode($this->path),
+        )->assertOk()
+            ->assertJsonCount(1, 'files')
+            ->assertJsonPath('files.0.name', 'backup.sonotheque-backup');
     }
 }

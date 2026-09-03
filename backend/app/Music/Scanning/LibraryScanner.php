@@ -14,6 +14,8 @@ use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Music\Artwork\AlbumArtworkManager;
 use App\Music\Catalog\GenreResolver;
+use App\Music\Catalog\RecordLabelImporter;
+use App\Music\Catalog\RecordLabelTagReader;
 use App\Music\PlaybackStatistics\ImportedPlayStatistics;
 use App\Music\PlaybackStatistics\PlaybackStatisticsImporter;
 use App\Music\PlaybackStatistics\PlaybackStatisticsTagReader;
@@ -95,6 +97,8 @@ class LibraryScanner
 
     private int $ratingsImported = 0;
 
+    private int $recordLabelChanges = 0;
+
     private int $issueRecordCount = 0;
 
     /** @var list<array{scan_run_id: int, code: string, severity: string, message: string, path: ?string, occurrence_count: int, created_at: mixed, updated_at: mixed}> */
@@ -121,6 +125,12 @@ class LibraryScanner
     /** @var array<int, true> */
     private array $pendingRatingImportMediaFileIds = [];
 
+    /** @var array<int, true> */
+    private array $pendingRecordLabelImportAlbumIds = [];
+
+    /** @var array<int, true> */
+    private array $pendingRecordLabelImportMediaFileIds = [];
+
     public function __construct(
         private readonly AudioFileDiscoverer $discoverer,
         private readonly ScanDiscoveryManifest $discoveryManifest,
@@ -131,6 +141,7 @@ class LibraryScanner
         private readonly PlaybackStatisticsTagReader $playStatisticsTagReader,
         private readonly PlaybackStatisticsImporter $playStatisticsImporter,
         private readonly RatingTagReader $ratingTagReader,
+        private readonly RecordLabelImporter $recordLabelImporter,
         private readonly PlaylistFileSynchronizationDispatcher $playlistSynchronizationDispatcher,
         private readonly LibraryPathGuard $pathGuard,
         private readonly LibraryActivityLogger $activityLogger,
@@ -356,9 +367,19 @@ class LibraryScanner
                 ->where('library_root_id', $scanRun->library_root_id)
                 ->where('last_seen_at', '<', $startedAt);
             $this->scopeMediaFilesToScan($staleFiles, $scanRun);
+            $staleAlbumIds = (clone $staleFiles)
+                ->where('status', '!=', MediaFileStatus::Missing->value)
+                ->whereNotNull('album_id')
+                ->distinct()
+                ->pluck('album_id')
+                ->map(fn (int $albumId): int => $albumId)
+                ->all();
             $removed = $this->markStaleFilesMissing($staleFiles, $diagnostics);
 
             if ($removed > 0) {
+                foreach ($staleAlbumIds as $albumId) {
+                    $this->pendingRecordLabelImportAlbumIds[$albumId] = true;
+                }
                 $this->addIssue(
                     $issues,
                     'files_unavailable',
@@ -381,6 +402,8 @@ class LibraryScanner
                 );
                 $progress['warning_count']++;
             }
+
+            $this->flushRecordLabelImports();
 
             $this->deleteAlbumsWithoutMediaFiles($scanRun);
             $this->deleteOrphanedCatalogData();
@@ -506,6 +529,7 @@ class LibraryScanner
                         'content_fingerprint_version' => AudioContentFingerprinter::VERSION,
                         'play_statistics_import_version' => null,
                         'rating_tags_import_version' => null,
+                        'record_label_tags_import_version' => null,
                     ],
                 );
 
@@ -559,6 +583,11 @@ class LibraryScanner
         }
 
         $this->albumIdCache[$processed['album']->id] = $processed['album'];
+        $this->queueRecordLabelImport(
+            $processed['mediaFile']->id,
+            $processed['album']->id,
+            $existing?->albumId,
+        );
         $importWarnings = $this->importPlayStatistics(
             $processed['track'],
             $this->playStatisticsTagReader->read($metadata->rawMetadata),
@@ -883,10 +912,13 @@ class LibraryScanner
         $this->pendingPlayStatisticsImports = [];
         $this->pendingPlayStatisticsImportMediaFileIds = [];
         $this->pendingRatingImportMediaFileIds = [];
+        $this->pendingRecordLabelImportAlbumIds = [];
+        $this->pendingRecordLabelImportMediaFileIds = [];
         $settings = ApplicationSetting::current();
         $this->importPlayStatisticsFromTags = $settings->import_play_statistics_from_tags;
         $this->importRatingsFromTags = $settings->synchronizesRatingsWithTags();
         $this->ratingsImported = 0;
+        $this->recordLabelChanges = 0;
         $this->existingFiles = [];
         $query = $scanRun->libraryRoot->mediaFiles()
             ->getQuery()
@@ -923,6 +955,7 @@ class LibraryScanner
         if ($this->importRatingsFromTags) {
             $this->preparePendingRatingImports($scanRun);
         }
+        $this->preparePendingRecordLabelImports($scanRun);
     }
 
     private function preparePendingPlayStatisticsImports(ScanRun $scanRun): void
@@ -987,6 +1020,33 @@ class LibraryScanner
             $state = $this->existingFiles[$mediaFile->relative_path_hash] ?? null;
             if ($state !== null) {
                 $state->ratingTags = $this->ratingTagReader->read($mediaFile->raw_metadata ?? []);
+            }
+        }
+    }
+
+    private function preparePendingRecordLabelImports(ScanRun $scanRun): void
+    {
+        $query = $scanRun->libraryRoot->mediaFiles()
+            ->getQuery()
+            ->select([
+                'media_files.id',
+                'media_files.album_id',
+            ])
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('media_files.record_label_tags_import_version')
+                    ->orWhere(
+                        'media_files.record_label_tags_import_version',
+                        '!=',
+                        RecordLabelTagReader::IMPORT_VERSION,
+                    );
+            });
+        $this->scopeMediaFilesToScan($query, $scanRun, 'media_files.relative_path');
+
+        foreach ($query->lazyById(1000, 'media_files.id', 'id') as $mediaFile) {
+            $this->pendingRecordLabelImportMediaFileIds[(int) $mediaFile->id] = true;
+            if ($mediaFile->album_id !== null) {
+                $this->pendingRecordLabelImportAlbumIds[(int) $mediaFile->album_id] = true;
             }
         }
     }
@@ -1316,6 +1376,34 @@ class LibraryScanner
         $this->pendingRatingImportMediaFileIds = [];
     }
 
+    private function queueRecordLabelImport(int $mediaFileId, int $albumId, ?int $previousAlbumId = null): void
+    {
+        $this->pendingRecordLabelImportMediaFileIds[$mediaFileId] = true;
+        $this->pendingRecordLabelImportAlbumIds[$albumId] = true;
+        if ($previousAlbumId !== null && $previousAlbumId !== $albumId) {
+            $this->pendingRecordLabelImportAlbumIds[$previousAlbumId] = true;
+        }
+    }
+
+    private function flushRecordLabelImports(): void
+    {
+        $albumIds = array_map('intval', array_keys($this->pendingRecordLabelImportAlbumIds));
+        $this->recordLabelChanges += $this->recordLabelImporter->syncAlbums($albumIds);
+
+        if ($this->pendingRecordLabelImportMediaFileIds !== []) {
+            foreach (array_chunk(array_keys($this->pendingRecordLabelImportMediaFileIds), 5000) as $mediaFileIds) {
+                MediaFile::query()
+                    ->whereKey($mediaFileIds)
+                    ->update([
+                        'record_label_tags_import_version' => RecordLabelTagReader::IMPORT_VERSION,
+                    ]);
+            }
+        }
+
+        $this->pendingRecordLabelImportAlbumIds = [];
+        $this->pendingRecordLabelImportMediaFileIds = [];
+    }
+
     private function findAlbumById(?int $albumId): ?Album
     {
         if ($albumId === null) {
@@ -1452,6 +1540,7 @@ class LibraryScanner
             'error' => $error,
             'playStatisticsImported' => $this->playStatisticsImported ?: null,
             'ratingsImported' => $this->ratingsImported ?: null,
+            'recordLabelChanges' => $this->recordLabelChanges ?: null,
             'issuesTruncated' => $this->issueRecordCount > count($issues) ?: null,
             'issues' => $issues,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);

@@ -256,16 +256,50 @@ class AlbumMusicianCreditManager
     public function resolveRelease(Album $album, string $releaseId): array
     {
         $enrichment = AlbumMusicianEnrichment::query()->find($album->id);
-        $candidateIds = collect($enrichment?->candidate_releases ?? [])
-            ->pluck('id')
-            ->filter(fn (mixed $candidateId): bool => is_string($candidateId));
-
-        if ($enrichment === null || ! $candidateIds->containsStrict($releaseId)) {
+        if (! $this->isReleaseCandidate($enrichment, $releaseId)) {
             throw ValidationException::withMessages([
                 'releaseId' => 'Select one of the MusicBrainz releases suggested for this album.',
             ]);
         }
 
+        $this->selectRelease($album, $enrichment, $releaseId);
+
+        return $this->state(
+            OnlineContentStatus::Pending->value,
+            $this->resolutionPayload($enrichment->fresh()),
+        );
+    }
+
+    public function resolveReleaseIfCandidate(Album $album, string $releaseId): bool
+    {
+        $enrichment = AlbumMusicianEnrichment::query()->find($album->id);
+        if (! $this->isReleaseCandidate($enrichment, $releaseId)) {
+            return false;
+        }
+        if ($enrichment->selected_release_id === $releaseId
+            && in_array($enrichment->status, [OnlineContentStatus::Pending, OnlineContentStatus::Ready], true)) {
+            return true;
+        }
+
+        $this->selectRelease($album, $enrichment, $releaseId);
+
+        return true;
+    }
+
+    private function isReleaseCandidate(?AlbumMusicianEnrichment $enrichment, string $releaseId): bool
+    {
+        return $enrichment !== null
+            && collect($enrichment->candidate_releases ?? [])
+                ->pluck('id')
+                ->filter(fn (mixed $candidateId): bool => is_string($candidateId))
+                ->containsStrict($releaseId);
+    }
+
+    private function selectRelease(
+        Album $album,
+        AlbumMusicianEnrichment $enrichment,
+        string $releaseId,
+    ): void {
         DB::transaction(function () use ($album, $enrichment, $releaseId): void {
             $this->clearCurrentReview($album);
             $enrichment->update([
@@ -283,11 +317,6 @@ class AlbumMusicianCreditManager
             ]);
         });
         RefreshAlbumMusicianCredits::dispatch($album->id, self::LOOKUP_VERSION);
-
-        return $this->state(
-            OnlineContentStatus::Pending->value,
-            $this->resolutionPayload($enrichment->fresh()),
-        );
     }
 
     /** @return array<string, mixed> */

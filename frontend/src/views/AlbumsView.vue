@@ -24,6 +24,8 @@ interface AlbumFilters {
   year: number | null
   genre: number | null
   genreName: string
+  label: number | null
+  labelName: string
   musician: number | null
   musicianName: string
   physicalCopy: PhysicalCopyFilter
@@ -47,6 +49,8 @@ const initial = ref<string | null>(restoredFilters.initial)
 const search = ref(restoredFilters.search)
 const genre = ref(restoredFilters.genre)
 const genreName = ref(restoredFilters.genreName)
+const label = ref(restoredFilters.label)
+const labelName = ref(restoredFilters.labelName)
 const musician = ref(restoredFilters.musician)
 const musicianName = ref(restoredFilters.musicianName)
 const year = ref<number | null>(restoredFilters.year)
@@ -84,6 +88,7 @@ function load() {
     initial: initial.value,
     year: year.value,
     genre: genre.value,
+    label: label.value,
     musician: musician.value,
     physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
     sort: sort.value,
@@ -102,6 +107,8 @@ function playRandomAlbum() {
     year: filters.year,
     genreId: filters.genre,
     genreName: filters.genreName,
+    labelId: filters.label,
+    labelName: filters.labelName,
     musicianId: filters.musician,
     musicianName: filters.musicianName,
     physicalCopy: filters.physicalCopy === 'all' ? null : filters.physicalCopy,
@@ -124,6 +131,8 @@ function currentFilters(): AlbumFilters {
     year: year.value,
     genre: genre.value,
     genreName: genreName.value,
+    label: label.value,
+    labelName: labelName.value,
     musician: musician.value,
     musicianName: musicianName.value,
     physicalCopy: physicalCopy.value,
@@ -139,6 +148,8 @@ function defaultFilters(): AlbumFilters {
     year: null,
     genre: null,
     genreName: '',
+    label: null,
+    labelName: '',
     musician: null,
     musicianName: '',
     physicalCopy: 'all',
@@ -164,6 +175,8 @@ function filtersFromQuery(): AlbumFilters | null {
     year: queryNumber(route.query.year),
     genre: queryNumber(route.query.genre),
     genreName: querySearch(route.query.genreName),
+    label: queryNumber(route.query.label),
+    labelName: querySearch(route.query.labelName),
     musician: queryNumber(route.query.musician),
     musicianName: querySearch(route.query.musicianName),
     physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
@@ -172,7 +185,7 @@ function filtersFromQuery(): AlbumFilters | null {
 }
 
 function hasFilterQuery() {
-  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'musician', 'musicianName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
+  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'label', 'labelName', 'musician', 'musicianName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
 }
 
 function filtersFromStorage(): AlbumFilters | null {
@@ -189,6 +202,8 @@ function filtersFromStorage(): AlbumFilters | null {
       year: typeof parsed.year === 'number' ? parsed.year : null,
       genre: typeof parsed.genre === 'number' ? parsed.genre : null,
       genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
+      label: typeof parsed.label === 'number' ? parsed.label : null,
+      labelName: typeof parsed.labelName === 'string' ? parsed.labelName : '',
       musician: typeof parsed.musician === 'number' ? parsed.musician : null,
       musicianName: typeof parsed.musicianName === 'string' ? parsed.musicianName : '',
       physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
@@ -225,6 +240,8 @@ function applyFilters(filters: AlbumFilters) {
   year.value = filters.year
   genre.value = filters.genre
   genreName.value = filters.genreName
+  label.value = filters.label
+  labelName.value = filters.labelName
   musician.value = filters.musician
   musicianName.value = filters.musicianName
   physicalCopy.value = filters.physicalCopy
@@ -242,6 +259,8 @@ function filterQuery(filters: AlbumFilters) {
   if (filters.year) query.year = String(filters.year)
   if (filters.genre) query.genre = String(filters.genre)
   if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
+  if (filters.label) query.label = String(filters.label)
+  if (filters.labelName.trim()) query.labelName = filters.labelName.trim()
   if (filters.musician) query.musician = String(filters.musician)
   if (filters.musicianName.trim()) query.musicianName = filters.musicianName.trim()
   if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
@@ -258,6 +277,8 @@ function normalizedFilterQuery(query: typeof route.query) {
     year: queryNumber(query.year),
     genre: queryNumber(query.genre),
     genreName: querySearch(query.genreName),
+    label: queryNumber(query.label),
+    labelName: querySearch(query.labelName),
     musician: queryNumber(query.musician),
     musicianName: querySearch(query.musicianName),
     physicalCopy: queryPhysicalCopy(query.physicalCopy),
@@ -312,6 +333,12 @@ function clearMusicianFilter() {
   page.value = 1
 }
 
+function clearLabelFilter() {
+  label.value = null
+  labelName.value = ''
+  page.value = 1
+}
+
 function changePage(value: number) {
   if (value === page.value) return
 
@@ -348,14 +375,14 @@ watch(() => route.query, () => {
 
   syncFiltersToRoute()
 })
-watch([initial, year, genre, genreName, musician, musicianName, physicalCopy, sort], () => {
+watch([initial, year, genre, genreName, label, labelName, musician, musicianName, physicalCopy, sort], () => {
   if (applyingRouteFilters) return
 
   page.value = 1
   saveFilters()
   syncFiltersToRoute()
 })
-watch([page, initial, year, genre, musician, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
+watch([page, initial, year, genre, label, musician, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch(search, () => {
   const wasNotFirstPage = page.value !== 1
   if (searchTimer) clearTimeout(searchTimer)
@@ -444,9 +471,12 @@ onUnmounted(() => {
       {{ letter }}
     </v-btn>
   </div>
-  <div v-if="genre || musician" class="d-flex flex-wrap ga-2 mb-6">
+  <div v-if="genre || label || musician" class="d-flex flex-wrap ga-2 mb-6">
     <v-chip v-if="genre" closable color="primary" variant="tonal" @click:close="clearGenreFilter">
       {{ t('genres.filterLabel', { name: genreName || t('genres.filterFallback', { id: genre }) }) }}
+    </v-chip>
+    <v-chip v-if="label" closable color="primary" variant="tonal" @click:close="clearLabelFilter">
+      {{ t('albums.labelFilter', { name: labelName || t('albums.labelFilterFallback', { id: label }) }) }}
     </v-chip>
     <v-chip v-if="musician" closable color="primary" variant="tonal" @click:close="clearMusicianFilter">
       {{ t('musicians.filterLabel', { name: musicianName || t('musicians.filterFallback', { id: musician }) }) }}

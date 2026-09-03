@@ -110,6 +110,10 @@ export interface DiscogsLinkedReleaseDetails {
     country?: string | null
     formats: string[]
     labels: string[]
+    recordLabels?: Array<{
+      name: string
+      catalogNumber?: string | null
+    }>
     catalogNumber?: string | null
     thumbnailUrl?: string | null
     webUrl: string
@@ -134,11 +138,24 @@ export interface Album {
   musicianCredits?: MusicianAlbumCredits | null
 }
 
+export interface RecordLabelSource {
+  type: string
+  reference?: string | null
+}
+
+export interface AlbumRecordLabel {
+  id: number
+  name: string
+  catalogNumber?: string | null
+  sources: RecordLabelSource[]
+}
+
 export interface AlbumDetail extends Album {
   createdAt?: string | null
   updatedAt?: string | null
   libraryRoot: NamedCatalogItem | null
   genres: NamedCatalogItem[]
+  recordLabels: AlbumRecordLabel[]
   technical: {
     fileTypes: string[]
     bitrateMinimum?: number | null
@@ -316,6 +333,7 @@ interface CatalogQuery {
   initial?: string | null
   year?: number | string | null
   genre?: number | string | null
+  label?: number | string | null
   artist?: number | string | null
   musician?: number | string | null
   playStatus?: string | null
@@ -336,6 +354,9 @@ function queryPath(path: string, query: CatalogQuery): string {
   }
   if (query.genre !== undefined && query.genre !== null && String(query.genre).trim() !== '') {
     parameters.set('genre', String(query.genre).trim())
+  }
+  if (query.label !== undefined && query.label !== null && String(query.label).trim() !== '') {
+    parameters.set('label', String(query.label).trim())
   }
   if (query.artist !== undefined && query.artist !== null && String(query.artist).trim() !== '') {
     parameters.set('artist', String(query.artist).trim())

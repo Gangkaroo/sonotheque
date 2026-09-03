@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Enums\OnlineContentStatus;
 use App\Models\Album;
+use App\Models\AlbumMusicianEnrichment;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\Track;
+use App\Music\Enrichment\OnlineEnrichmentManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -236,6 +239,37 @@ class OnlineEnrichmentApiTest extends TestCase
             ->assertJsonPath('artist.data.country', 'DE')
             ->assertJsonPath('album.status', 'ready')
             ->assertJsonPath('album.data.releaseDate', '2020-03-06');
+    }
+
+    public function test_musicbrainz_album_identity_prefers_the_selected_musician_release(): void
+    {
+        config(['sonotheque.enrichment.providers.musicbrainz.minimum_interval_ms' => 0]);
+        $track = $this->createTrack();
+        $releaseId = '18d5d0ca-1107-4df2-9d51-df1c5fe57490';
+        AlbumMusicianEnrichment::create([
+            'album_id' => $track->album_id,
+            'provider' => 'musicbrainz',
+            'lookup_version' => 4,
+            'status' => OnlineContentStatus::Pending,
+            'selected_release_id' => $releaseId,
+        ]);
+        ApplicationSetting::current()->update(['online_information_enabled' => true]);
+        Http::fake([
+            '*musicbrainz.org*' => Http::response([
+                'id' => $releaseId,
+                'title' => 'Example Album',
+                'date' => '2020-03-06',
+                'artist-credit' => [['name' => 'Example Artist']],
+                'release-group' => ['primary-type' => 'Album'],
+            ]),
+        ]);
+
+        $result = app(OnlineEnrichmentManager::class)->albumIdentityForTrack($track);
+
+        $this->assertSame('ready', $result['status']);
+        $this->assertSame($releaseId, $result['data']['providerReference']);
+        $this->assertSame('2020-03-06', $result['data']['releaseDate']);
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), "/release/{$releaseId}"));
     }
 
     /** @param array<string, mixed> $rawMetadata */

@@ -58,6 +58,9 @@ x-backend-image: &backend-image
   volumes:
     - backend-storage:/app/storage
     - type: bind
+      source: ${SONOTHEQUE_BACKUP_DIRECTORY:-./backups}
+      target: /backups
+    - type: bind
       source: ${SONOTHEQUE_ROOT_1:-./packaged/music-root-1}
       target: /music/root-1
   depends_on:

@@ -9,6 +9,7 @@ use App\Models\Artist;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\MetadataEditItem;
+use App\Models\RecordLabel;
 use App\Models\Track;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -240,6 +241,62 @@ class AlbumMetadataApiTest extends TestCase
         $this->assertSame(
             [['comment' => null], ['comment' => null]],
             MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->all(),
+        );
+    }
+
+    public function test_it_can_repair_record_label_tags_that_are_missing_from_some_album_files(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $recordLabel = RecordLabel::create([
+            'name' => 'InsideOut Music',
+            'normalized_name' => 'insideout music',
+        ]);
+        $album->recordLabelAssignments()->create([
+            'record_label_id' => $recordLabel->id,
+            'catalog_number' => 'IOMCD 123',
+            'catalog_number_hash' => hash('sha256', 'iomcd 123'),
+            'source' => 'file_tag',
+        ]);
+        $album->mediaFiles()->orderBy('id')->firstOrFail()->update([
+            'raw_metadata' => [
+                'comments' => [
+                    'album_artist' => ['Artist'],
+                    'publisher' => ['InsideOut Music'],
+                    'catalognumber' => ['IOMCD 123'],
+                ],
+            ],
+        ]);
+        $values = [
+            'albumTitle' => 'Album',
+            'albumArtist' => 'Artist',
+            'releaseYear' => 2000,
+            'totalDiscs' => null,
+            'genres' => [],
+            'recordLabels' => [[
+                'name' => 'InsideOut Music',
+                'catalogNumber' => 'IOMCD 123',
+            ]],
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonCount(1, 'changes')
+            ->assertJsonPath('changes.0.field', 'recordLabels')
+            ->assertJsonPath('changes.0.fileValuesDiffer', true)
+            ->assertJsonPath('files.0.writeValues.recordLabels.0.name', 'InsideOut Music')
+            ->json();
+
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values,
+            'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+
+        $this->assertSame(
+            [$values['recordLabels'], $values['recordLabels']],
+            MetadataEditItem::query()->orderBy('id')->pluck('requested_changes')->map(
+                fn (array $changes): array => $changes['recordLabels'],
+            )->all(),
         );
     }
 

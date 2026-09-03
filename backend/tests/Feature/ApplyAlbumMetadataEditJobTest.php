@@ -10,6 +10,7 @@ use App\Models\Genre;
 use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\MetadataBackup;
+use App\Models\RecordLabel;
 use App\Models\Track;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\TrackMetadataWriter;
@@ -67,6 +68,16 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
             'releaseYear' => 2025,
             'totalDiscs' => 2,
             'genres' => ['Doom', 'Metal'],
+            'recordLabels' => [[
+                'name' => 'Example Records',
+                'catalogNumber' => 'EX-001',
+            ]],
+            'recordLabelProvenance' => [[
+                'name' => 'Example Records',
+                'catalogNumber' => 'EX-001',
+                'source' => 'musicbrainz',
+                'sourceReference' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+            ]],
             'comment' => null,
         ];
         $preview = $editing->preview($album, $values);
@@ -95,6 +106,18 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $this->assertEqualsCanonicalizing(['Doom', 'Metal'], $album->tracks->first()->genres()->pluck('name')->all());
         $this->assertSame([null, null], $album->tracks()->orderBy('track_number')->pluck('comment')->all());
         $this->assertDatabaseMissing(Genre::class, ['name' => 'Old genre']);
+        $this->assertDatabaseHas(RecordLabel::class, ['name' => 'Example Records']);
+        $this->assertDatabaseHas('album_record_labels', [
+            'album_id' => $album->id,
+            'catalog_number' => 'EX-001',
+            'source' => 'file_tag',
+        ]);
+        $this->assertDatabaseHas('album_record_labels', [
+            'album_id' => $album->id,
+            'catalog_number' => 'EX-001',
+            'source' => 'musicbrainz',
+            'source_reference' => '18d5d0ca-1107-4df2-9d51-df1c5fe57490',
+        ]);
         $this->assertSame(['Track 1', 'Track 2'], $album->tracks()->orderBy('track_number')->pluck('title')->all());
         $this->assertSame([1, 2], $album->tracks()->orderBy('track_number')->pluck('track_number')->all());
         $this->assertSame(2, MetadataBackup::count());

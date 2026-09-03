@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\MediaFileStatus;
 use App\Models\Album;
+use App\Models\AlbumRecordLabel;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Genre;
@@ -60,6 +61,7 @@ class CatalogPayloads
             'artwork:id,width,height',
             'personalMetadata',
             'ownedCopies',
+            'recordLabelAssignments.recordLabel:id,name,normalized_name',
             'tracks' => fn ($query) => $query
                 ->whereHas(
                     'mediaFile',
@@ -109,6 +111,7 @@ class CatalogPayloads
                 'id' => $genre->id,
                 'name' => $genre->name,
             ])->values(),
+            'recordLabels' => $this->albumRecordLabels($album),
             'technical' => $this->albumTechnicalSummary($album),
             'additionalTags' => $this->albumAdditionalTags($album),
             'tracks' => $album->tracks->map(fn (Track $track) => [
@@ -295,6 +298,46 @@ class CatalogPayloads
     private function rating(?int $halfSteps): ?float
     {
         return $halfSteps === null ? null : $halfSteps / 2;
+    }
+
+    /**
+     * @return list<array{
+     *     id: int,
+     *     name: string,
+     *     catalogNumber: ?string,
+     *     sources: list<array{type: string, reference: ?string}>
+     * }>
+     */
+    private function albumRecordLabels(Album $album): array
+    {
+        return $album->recordLabelAssignments
+            ->filter(fn (AlbumRecordLabel $assignment): bool => $assignment->recordLabel !== null)
+            ->groupBy(fn (AlbumRecordLabel $assignment): string => $assignment->record_label_id.'|'.$assignment->catalog_number_hash)
+            ->map(function (Collection $assignments): array {
+                /** @var AlbumRecordLabel $first */
+                $first = $assignments->first();
+
+                return [
+                    'id' => $first->recordLabel->id,
+                    'name' => $first->recordLabel->name,
+                    'catalogNumber' => $first->catalog_number,
+                    'sources' => $assignments
+                        ->map(fn (AlbumRecordLabel $assignment): array => [
+                            'type' => $assignment->source,
+                            'reference' => $assignment->source_reference,
+                        ])
+                        ->unique(fn (array $source): string => $source['type'].'|'.($source['reference'] ?? ''))
+                        ->sortBy(fn (array $source): string => $source['type'].'|'.($source['reference'] ?? ''), SORT_NATURAL | SORT_FLAG_CASE)
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->sortBy(
+                fn (array $label): string => $label['name'].'|'.($label['catalogNumber'] ?? ''),
+                SORT_NATURAL | SORT_FLAG_CASE,
+            )
+            ->values()
+            ->all();
     }
 
     /**

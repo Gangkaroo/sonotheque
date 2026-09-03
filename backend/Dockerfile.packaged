@@ -13,6 +13,7 @@ RUN apk add --no-cache \
         libpng \
         libzip \
         oniguruma \
+        postgresql-client \
         postgresql-libs \
         setpriv \
     && apk add --no-cache --virtual .build-deps \

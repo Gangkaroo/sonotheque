@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
+import FolderBrowserDialog from '@/components/FolderBrowserDialog.vue'
 import { formatDateTime } from '@/utils/formatters'
 
 type SystemHealthStatus = 'ok' | 'warning' | 'error' | 'unknown'
@@ -109,10 +110,43 @@ interface FailedScan {
   message: string | null
 }
 
+interface SystemBackupOperation {
+  id: string
+  type: 'backup' | 'restore'
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  progress: number
+  phase: string | null
+  message: string | null
+  archiveName: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+  safetyBackupName?: string | null
+}
+
+interface SystemBackupInspection {
+  path: string
+  name: string
+  createdAt: string | null
+  mode: string | null
+  database: string | null
+  bytes: number
+  modeMatches: boolean
+  appKeyMatches: boolean
+}
+
 const { t, locale } = useI18n()
 const health = ref<HealthStatus | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const backupFolderDialog = ref(false)
+const restoreFileDialog = ref(false)
+const restoreConfirmDialog = ref(false)
+const backupOperation = ref<SystemBackupOperation | null>(null)
+const restoreArchive = ref<SystemBackupInspection | null>(null)
+const backupActionError = ref<string | null>(null)
+const preparingRestore = ref(false)
+let operationPollTimer: ReturnType<typeof setTimeout> | null = null
 
 const rootNames = computed(() => new Map(
   health.value?.libraryRoots.map((root) => [root.id, root.name]) ?? [],
@@ -156,6 +190,7 @@ const recoveryHints = computed(() => {
 })
 
 onMounted(loadHealth)
+onBeforeUnmount(stopOperationPolling)
 
 async function loadHealth() {
   loading.value = true
@@ -184,6 +219,7 @@ function boolText(value: boolean) {
 
 function formatDate(value: string | null | undefined) {
   return formatDateTime(value, locale.value, t('settings.notAvailable'))
+    ?? t('settings.notAvailable')
 }
 
 function rootName(id: number) {
@@ -216,8 +252,103 @@ function schedulerAlertType() {
   }[health.value?.scheduler.status ?? 'unknown'] as 'success' | 'warning' | 'error'
 }
 
-function backupMode() {
-  return health.value?.app.environment === 'production' ? 'Packaged' : 'Development'
+function defaultBackupPath() {
+  return health.value?.app.environment === 'production' ? '/backups' : ''
+}
+
+async function createBackup(destination: string) {
+  backupActionError.value = null
+  try {
+    backupOperation.value = await apiRequest<SystemBackupOperation>('/settings/system-backups', {
+      method: 'POST',
+      body: JSON.stringify({ destination }),
+    })
+    scheduleOperationPolling()
+  } catch (cause) {
+    backupActionError.value = cause instanceof Error ? cause.message : t('settings.systemBackupStartFailed')
+  }
+}
+
+async function selectRestoreArchive(path: string) {
+  backupActionError.value = null
+  preparingRestore.value = true
+  try {
+    restoreArchive.value = await apiRequest<SystemBackupInspection>('/settings/system-backups/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    })
+    restoreConfirmDialog.value = true
+  } catch (cause) {
+    backupActionError.value = cause instanceof Error ? cause.message : t('settings.systemRestoreInspectFailed')
+  } finally {
+    preparingRestore.value = false
+  }
+}
+
+async function restoreBackup() {
+  if (!restoreArchive.value) return
+
+  backupActionError.value = null
+  try {
+    backupOperation.value = await apiRequest<SystemBackupOperation>('/settings/system-backups/restore', {
+      method: 'POST',
+      body: JSON.stringify({ path: restoreArchive.value.path, confirmed: true }),
+    })
+    restoreConfirmDialog.value = false
+    scheduleOperationPolling()
+  } catch (cause) {
+    backupActionError.value = cause instanceof Error ? cause.message : t('settings.systemRestoreStartFailed')
+  }
+}
+
+function scheduleOperationPolling() {
+  stopOperationPolling()
+  if (!backupOperation.value || ['completed', 'failed'].includes(backupOperation.value.status)) return
+
+  operationPollTimer = setTimeout(pollOperation, 3000)
+}
+
+async function pollOperation() {
+  if (!backupOperation.value) return
+
+  try {
+    backupOperation.value = await apiRequest<SystemBackupOperation>(
+      `/settings/system-backups/operations/${backupOperation.value.id}`,
+    )
+    if (backupOperation.value.status === 'completed') await loadHealth()
+  } catch {
+    // Restore temporarily places the API in maintenance mode. Keep polling until it returns.
+  }
+  scheduleOperationPolling()
+}
+
+function stopOperationPolling() {
+  if (operationPollTimer !== null) {
+    clearTimeout(operationPollTimer)
+    operationPollTimer = null
+  }
+}
+
+function operationText(operation: SystemBackupOperation) {
+  if (operation.status === 'failed') return operation.message ?? t('settings.systemBackupOperationFailed')
+  if (operation.status === 'completed') {
+    return operation.type === 'backup'
+      ? t('settings.systemBackupCompleted', { name: operation.archiveName })
+      : t('settings.systemRestoreCompleted', { name: operation.archiveName })
+  }
+  if (operation.status === 'queued') return t('settings.systemBackupQueued')
+
+  return operation.phase
+    ? t(`settings.systemBackupPhases.${operation.phase}`)
+    : t('settings.systemBackupRunning')
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`
 }
 </script>
 
@@ -481,14 +612,106 @@ function backupMode() {
             <v-alert v-else type="info" variant="tonal" class="mb-4">
               {{ t('settings.noSystemBackup') }}
             </v-alert>
-            <p class="text-body-2 mb-3">{{ t('settings.systemBackupGuidance') }}</p>
-            <code class="system-command d-block pa-3">.\scripts\backup.ps1 -Mode {{ backupMode() }}</code>
-            <code class="system-command d-block pa-3 mt-2">.\scripts\restore.ps1 -BackupPath &quot;...&quot; -Mode {{ backupMode() }} -Force</code>
+            <v-alert v-if="backupActionError" type="error" variant="tonal" class="mb-4">
+              {{ backupActionError }}
+            </v-alert>
+            <v-alert
+              v-if="backupOperation"
+              :type="backupOperation.status === 'failed' ? 'error' : backupOperation.status === 'completed' ? 'success' : 'info'"
+              variant="tonal"
+              class="mb-4"
+            >
+              <div>{{ operationText(backupOperation) }}</div>
+              <v-progress-linear
+                v-if="!['completed', 'failed'].includes(backupOperation.status)"
+                class="mt-3"
+                color="primary"
+                height="8"
+                :model-value="backupOperation.progress"
+                rounded
+              />
+            </v-alert>
+            <p class="text-body-2 mb-4">{{ t('settings.systemBackupGuidance') }}</p>
+            <div class="d-flex flex-wrap ga-3">
+              <v-btn
+                color="primary"
+                :disabled="Boolean(backupOperation && !['completed', 'failed'].includes(backupOperation.status))"
+                prepend-icon="mdi-database-export-outline"
+                variant="flat"
+                @click="backupFolderDialog = true"
+              >
+                {{ t('settings.createSystemBackup') }}
+              </v-btn>
+              <v-btn
+                :disabled="Boolean(backupOperation && !['completed', 'failed'].includes(backupOperation.status))"
+                :loading="preparingRestore"
+                prepend-icon="mdi-database-import-outline"
+                variant="tonal"
+                @click="restoreFileDialog = true"
+              >
+                {{ t('settings.restoreSystemBackup') }}
+              </v-btn>
+            </div>
           </v-card-text>
         </v-card>
       </template>
     </v-card-text>
   </v-card>
+
+  <FolderBrowserDialog
+    v-model="backupFolderDialog"
+    :initial-path="defaultBackupPath()"
+    :title="t('settings.systemBackupFolderTitle')"
+    @select="createBackup"
+  />
+
+  <FolderBrowserDialog
+    v-model="restoreFileDialog"
+    :initial-path="defaultBackupPath()"
+    :title="t('settings.systemRestoreFileTitle')"
+    system-backup-files
+    @select="selectRestoreArchive"
+  />
+
+  <v-dialog v-model="restoreConfirmDialog" max-width="620" persistent>
+    <v-card rounded="xl">
+      <v-card-title class="pa-6 pb-2">{{ t('settings.systemRestoreConfirmTitle') }}</v-card-title>
+      <v-card-text class="pa-6 pt-4">
+        <v-alert type="warning" variant="tonal" class="mb-4">
+          {{ t('settings.systemRestoreWarning') }}
+        </v-alert>
+        <v-list v-if="restoreArchive" density="compact" lines="two">
+          <v-list-item :title="t('settings.file')" :subtitle="restoreArchive.name" />
+          <v-list-item
+            :title="t('settings.createdAt')"
+            :subtitle="formatDate(restoreArchive.createdAt)"
+          />
+          <v-list-item :title="t('settings.size')" :subtitle="formatBytes(restoreArchive.bytes)" />
+          <v-list-item
+            :title="t('settings.runtimeMode')"
+            :subtitle="restoreArchive.modeMatches ? t('settings.compatible') : t('settings.notCompatibleRuntime')"
+          />
+          <v-list-item
+            :title="t('settings.encryptionKey')"
+            :subtitle="restoreArchive.appKeyMatches ? t('settings.compatible') : t('settings.notCompatible')"
+          />
+        </v-list>
+      </v-card-text>
+      <v-card-actions class="px-6 pb-6">
+        <v-spacer />
+        <v-btn @click="restoreConfirmDialog = false">{{ t('settings.cancel') }}</v-btn>
+        <v-btn
+          color="error"
+          :disabled="!restoreArchive?.appKeyMatches || !restoreArchive?.modeMatches"
+          prepend-icon="mdi-backup-restore"
+          variant="flat"
+          @click="restoreBackup"
+        >
+          {{ t('settings.confirmSystemRestore') }}
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style scoped>

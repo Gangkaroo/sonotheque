@@ -933,6 +933,22 @@ backend/storage/app/artwork
 
 ## Backup And Recovery
 
+Settings > System provides the normal backup workflow. **Create backup** writes
+a checksummed single-file `.sonotheque-backup` archive to the selected folder in
+the background. **Restore backup** browses those files, validates the manifest,
+checksums, `APP_KEY`, and runtime mode, and shows a destructive confirmation
+before doing any work. Restore creates a safety archive, pauses the application
+through Laravel maintenance mode, restores PostgreSQL and `storage/app`, runs migrations, and
+reopens the app. A failed restore is automatically rolled back; if rollback
+also fails, Sonotheque remains in maintenance mode and reports the safety
+archive path in the worker error.
+
+The UI intentionally refuses a backup from another installation when its
+`APP_KEY` differs. Use the command-line `-UseBackupAppKey` workflow below for
+that cross-installation recovery because the packaged environment must also be
+updated. The UI also refuses cross-mode restores; use the documented
+development-to-packaged migration workflow for those moves.
+
 Create a complete development-mode backup from the repository folder:
 
 ```powershell

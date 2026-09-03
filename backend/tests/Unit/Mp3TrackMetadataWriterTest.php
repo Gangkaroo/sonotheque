@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Music\Catalog\RecordLabelTagReader;
 use App\Music\Metadata\Mp3Id3v2TagEditor;
 use App\Music\Metadata\Mp3TrackMetadataWriter;
 use App\Music\Scanning\GetId3MetadataReader;
@@ -115,6 +116,37 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertSame(2025, $metadata->originalReleaseYear);
         $this->assertSame(3, $metadata->discTotal);
         $this->assertEqualsCanonicalizing(['Heavy Metal', 'Doom'], $metadata->genres);
+    }
+
+    public function test_it_writes_and_verifies_multiple_record_label_pairs(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'record-labels.mp3';
+        $payload = $this->frame('TIT2', "\0Track title")
+            .$this->frame('TPUB', "\0Old label")
+            .$this->textFrame('CATALOGNUMBER', 'OLD-1');
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64),
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new TestId3MetadataReader(),
+        ))->write($path, [
+            'recordLabels' => [
+                ['name' => 'Label One', 'catalogNumber' => 'ONE-1'],
+                ['name' => 'Label Two', 'catalogNumber' => null],
+            ],
+        ]);
+        $recordLabels = (new RecordLabelTagReader())->read($metadata->rawMetadata)->items;
+
+        $this->assertCount(2, $recordLabels);
+        $this->assertSame('Label One', $recordLabels[0]->name);
+        $this->assertSame('ONE-1', $recordLabels[0]->catalogNumber);
+        $this->assertSame('Label Two', $recordLabels[1]->name);
+        $this->assertNull($recordLabels[1]->catalogNumber);
     }
 
     public function test_it_rewrites_a_padded_id3_tag_without_copying_the_audio_payload(): void

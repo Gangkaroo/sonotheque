@@ -47,6 +47,7 @@ export const usePlaylistExportSettingsStore = defineStore('playlistExportSetting
   const settings = ref<PlaylistExportSettings>({ ...defaults, locations: [] })
   const loading = ref(false)
   const saving = ref(false)
+  const retrying = ref(false)
   const error = ref<string | null>(null)
 
   async function load() {
@@ -121,6 +122,22 @@ export const usePlaylistExportSettingsStore = defineStore('playlistExportSetting
     })
   }
 
+  async function retryFailedSynchronization() {
+    retrying.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<PlaylistExportSettings>(
+        '/settings/playlist-exports/synchronization/retry-failed',
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      retrying.value = false
+    }
+  }
+
   async function save(operation: () => Promise<void>) {
     saving.value = true
     error.value = null
@@ -138,6 +155,7 @@ export const usePlaylistExportSettingsStore = defineStore('playlistExportSetting
     settings,
     loading,
     saving,
+    retrying,
     error,
     load,
     refreshSynchronization,
@@ -146,6 +164,7 @@ export const usePlaylistExportSettingsStore = defineStore('playlistExportSetting
     updateLocation,
     setDefaultLocation,
     removeLocation,
+    retryFailedSynchronization,
   }
 })
 

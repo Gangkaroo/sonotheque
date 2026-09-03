@@ -127,6 +127,7 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
         }
 
         $releaseGroup = is_array($album['release-group'] ?? null) ? $album['release-group'] : $album;
+        $recordLabels = $entity === 'release' ? $this->recordLabels($album['label-info'] ?? []) : [];
         $types = array_filter([
             $this->text($releaseGroup['primary-type'] ?? null),
             ...$this->strings($releaseGroup['secondary-types'] ?? []),
@@ -137,7 +138,7 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
             artistName: $this->artistCredit($album) ?? $lookup->artistName,
             summary: null,
             releaseDate: $this->text($album['date'] ?? $album['first-release-date'] ?? null),
-            label: $this->text($album['label-info'][0]['label']['name'] ?? null),
+            label: $recordLabels[0]['name'] ?? null,
             releaseType: $types === [] ? null : implode(' / ', $types),
             tags: $this->tags($album['tags'] ?? []),
             attribution: new ProviderAttribution(
@@ -148,7 +149,27 @@ class MusicBrainzInformationProvider implements AlbumInformationProvider, Artist
             providerReference: $album['id'],
             matchMethod: $matchMethod,
             matchConfidence: $confidence,
+            recordLabels: $recordLabels,
         );
+    }
+
+    /** @return list<array{name: string, catalogNumber: ?string}> */
+    private function recordLabels(mixed $labelInfo): array
+    {
+        if (! is_array($labelInfo)) {
+            return [];
+        }
+
+        return collect($labelInfo)
+            ->filter(fn (mixed $item): bool => is_array($item)
+                && $this->text($item['label']['name'] ?? null) !== null)
+            ->map(fn (array $item): array => [
+                'name' => $this->text($item['label']['name']) ?? '',
+                'catalogNumber' => $this->text($item['catalog-number'] ?? null),
+            ])
+            ->unique(fn (array $item): string => mb_strtolower($item['name']).'|'.mb_strtolower($item['catalogNumber'] ?? ''))
+            ->values()
+            ->all();
     }
 
     /** @param mixed $results

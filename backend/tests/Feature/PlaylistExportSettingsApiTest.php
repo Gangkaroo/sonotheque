@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\ApplicationSetting;
+use App\Models\Playlist;
 use App\Models\PlaylistExportLocation;
+use App\Jobs\SynchronizePlaylistFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class PlaylistExportSettingsApiTest extends TestCase
@@ -71,6 +74,44 @@ class PlaylistExportSettingsApiTest extends TestCase
             ->assertJsonValidationErrors('synchronizePlaylists');
 
         $this->assertFalse(ApplicationSetting::current()->synchronize_playlists_to_files);
+    }
+
+    public function test_it_retries_only_failed_playlist_synchronizations(): void
+    {
+        Queue::fake();
+        $path = $this->temporaryDirectory('retry');
+        PlaylistExportLocation::create([
+            'name' => 'Default',
+            'path' => $path,
+            'path_hash' => $this->pathHash($path),
+            'is_default' => true,
+        ]);
+        ApplicationSetting::current()->update([
+            'synchronize_playlists_to_files' => true,
+        ]);
+        $failed = Playlist::create([
+            'name' => 'Failed',
+            'playlist_export_sync_error' => 'The drive was unavailable.',
+        ]);
+        $synced = Playlist::create([
+            'name' => 'Synced',
+            'playlist_export_synced_at' => now(),
+        ]);
+
+        $this->postJson('/api/settings/playlist-exports/synchronization/retry-failed')
+            ->assertAccepted()
+            ->assertJsonPath('synchronization.failedCount', 0)
+            ->assertJsonPath('synchronization.pendingCount', 1);
+
+        $failed->refresh();
+        $this->assertNotNull($failed->playlist_export_sync_pending_at);
+        $this->assertNull($failed->playlist_export_sync_error);
+        $this->assertNull($synced->refresh()->playlist_export_sync_pending_at);
+        Queue::assertPushed(
+            SynchronizePlaylistFile::class,
+            fn (SynchronizePlaylistFile $job): bool => $job->playlistId === $failed->id,
+        );
+        Queue::assertPushed(SynchronizePlaylistFile::class, 1);
     }
 
     public function test_it_can_create_a_named_subfolder_inside_the_selected_location(): void

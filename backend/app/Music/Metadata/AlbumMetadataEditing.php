@@ -6,6 +6,10 @@ use App\Jobs\ApplyAlbumMetadataEdit;
 use App\Models\Album;
 use App\Models\ApplicationSetting;
 use App\Models\MetadataEditJob;
+use App\Models\AlbumRecordLabel;
+use App\Music\Catalog\ImportedRecordLabel;
+use App\Music\Catalog\RecordLabelNormalizer;
+use App\Music\Catalog\RecordLabelTagReader;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -14,18 +18,28 @@ class AlbumMetadataEditing
     public function __construct(
         private readonly TrackMetadataEditing $trackEditing,
         private readonly AdditionalMetadataTags $additionalTags,
+        private readonly RecordLabelTagReader $recordLabelTagReader,
+        private readonly RecordLabelNormalizer $recordLabelNormalizer,
     ) {
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string, removedTagKeys: list<string>}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, recordLabels?: list<array{name: string, catalogNumber: ?string}>, recordLabelProvenance?: list<array{name: string, catalogNumber: ?string, source: string, sourceReference: ?string}>, comment?: ?string, removedTagKeys: list<string>}  $values
      * @return array<string, mixed>
      */
     public function preview(Album $album, array $values): array
     {
         $values['updateTrackArtists'] = $values['updateTrackArtists'] ?? true;
         $values['removedTagKeys'] = $values['removedTagKeys'] ?? [];
-        $album->loadMissing(['primaryArtist', 'tracks.mediaFile', 'tracks.artists', 'tracks.genres']);
+        $recordLabelProvenance = $values['recordLabelProvenance'] ?? [];
+        unset($values['recordLabelProvenance']);
+        $album->loadMissing([
+            'primaryArtist',
+            'recordLabelAssignments.recordLabel',
+            'tracks.mediaFile',
+            'tracks.artists',
+            'tracks.genres',
+        ]);
         $additionalTags = $album->tracks
             ->flatMap(fn ($track) => $this->additionalTags->extract($track->mediaFile?->raw_metadata ?? []))
             ->unique('key')
@@ -67,6 +81,22 @@ class AlbumMetadataEditing
             ->uniqueStrict()
             ->values()
             ->all();
+        $currentRecordLabels = $album->recordLabelAssignments
+            ->where('source', 'file_tag')
+            ->map(fn (AlbumRecordLabel $assignment): array => [
+                'name' => $assignment->recordLabel->name,
+                'catalogNumber' => $assignment->catalog_number,
+            ])
+            ->sortBy(fn (array $recordLabel): string => $this->recordLabelIdentity($recordLabel))
+            ->values()
+            ->all();
+        $values['recordLabels'] ??= $currentRecordLabels;
+        $recordLabelFilesMatch = $album->tracks->every(
+            fn ($track): bool => $this->sameRecordLabels(
+                $values['recordLabels'],
+                $this->recordLabelTagReader->read($track->mediaFile?->raw_metadata ?? [])->items,
+            ),
+        );
         $albumArtistFileValues = $album->tracks
             ->map(fn ($track): ?string => $this->fileAlbumArtist($track->mediaFile?->raw_metadata ?? []));
         $albumArtistFilesMatch = ! $albumArtistFileValues
@@ -84,6 +114,7 @@ class AlbumMetadataEditing
             'totalDiscs' => $album->disc_total,
             'genres' => $currentGenres,
             'comment' => count($currentComments) === 1 ? $currentComments[0] : $currentComments,
+            'recordLabels' => $currentRecordLabels,
             'removedTagKeys' => [],
         ];
         $metadataValues = $values;
@@ -93,6 +124,8 @@ class AlbumMetadataEditing
             $unchanged = match ($field) {
                 'genres' => $this->sameNames($current[$field], $proposed),
                 'comment' => count($currentComments) === 1 && $currentComments[0] === $proposed,
+                'recordLabels' => $this->sameRecordLabels($current[$field], $proposed)
+                    && $recordLabelFilesMatch,
                 'removedTagKeys' => $proposed === [],
                 'albumArtist' => $current[$field] === $proposed
                     && $albumArtistFilesMatch
@@ -109,6 +142,9 @@ class AlbumMetadataEditing
                 ];
                 if ($field === 'albumArtist'
                     && (! $albumArtistFilesMatch || ($values['updateTrackArtists'] && ! $trackArtistsMatch))) {
+                    $change['fileValuesDiffer'] = true;
+                }
+                if ($field === 'recordLabels' && ! $recordLabelFilesMatch) {
                     $change['fileValuesDiffer'] = true;
                 }
                 $changes[] = $change;
@@ -150,10 +186,15 @@ class AlbumMetadataEditing
             ];
         })->filter()->values();
 
+        $responseValues = $values;
+        if ($recordLabelProvenance !== []) {
+            $responseValues['recordLabelProvenance'] = $recordLabelProvenance;
+        }
+
         return [
             'albumId' => $album->id,
             'fingerprint' => $this->fingerprint($album),
-            'values' => $values,
+            'values' => $responseValues,
             'changes' => $changes,
             'trackArtistsWillChange' => $trackArtistsWillChange,
             'files' => $files,
@@ -163,7 +204,7 @@ class AlbumMetadataEditing
     }
 
     /**
-     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, comment?: ?string, removedTagKeys: list<string>}  $values
+     * @param  array{albumTitle: string, albumArtist: string, updateTrackArtists: bool, releaseYear: ?int, totalDiscs: ?int, genres: list<string>, recordLabels?: list<array{name: string, catalogNumber: ?string}>, recordLabelProvenance?: list<array{name: string, catalogNumber: ?string, source: string, sourceReference: ?string}>, comment?: ?string, removedTagKeys: list<string>}  $values
      */
     public function queue(Album $album, array $values, string $fingerprint): MetadataEditJob
     {
@@ -220,7 +261,12 @@ class AlbumMetadataEditing
 
     public function fingerprint(Album $album): string
     {
-        $album->loadMissing(['primaryArtist', 'tracks.mediaFile', 'tracks.genres']);
+        $album->loadMissing([
+            'primaryArtist',
+            'recordLabelAssignments.recordLabel',
+            'tracks.mediaFile',
+            'tracks.genres',
+        ]);
 
         return hash('sha256', json_encode([
             'album' => $album->only(['id', 'title', 'primary_artist_id', 'original_release_year', 'disc_total', 'updated_at']),
@@ -229,7 +275,47 @@ class AlbumMetadataEditing
                 ->map(fn ($track) => $this->trackEditing->fingerprint($track))
                 ->values()
                 ->all(),
+            'recordLabels' => $album->recordLabelAssignments
+                ->sortBy('id')
+                ->map(fn (AlbumRecordLabel $assignment): array => $assignment->only([
+                    'id',
+                    'record_label_id',
+                    'catalog_number_hash',
+                    'source',
+                    'source_reference',
+                    'updated_at',
+                ]))
+                ->values()
+                ->all(),
         ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @param  list<array{name: string, catalogNumber: ?string}>  $left
+     * @param  list<array{name: string, catalogNumber: ?string}|ImportedRecordLabel>  $right
+     */
+    private function sameRecordLabels(array $left, array $right): bool
+    {
+        $left = array_map(fn (array $recordLabel): string => $this->recordLabelIdentity($recordLabel), $left);
+        $right = array_map(
+            fn (array|ImportedRecordLabel $recordLabel): string => $this->recordLabelIdentity(
+                $recordLabel instanceof ImportedRecordLabel
+                    ? ['name' => $recordLabel->name, 'catalogNumber' => $recordLabel->catalogNumber]
+                    : $recordLabel,
+            ),
+            $right,
+        );
+        sort($left);
+        sort($right);
+
+        return array_values(array_unique($left)) === array_values(array_unique($right));
+    }
+
+    /** @param array{name: string, catalogNumber: ?string} $recordLabel */
+    private function recordLabelIdentity(array $recordLabel): string
+    {
+        return $this->recordLabelNormalizer->normalizedName($recordLabel['name'])
+            .'|'.$this->recordLabelNormalizer->catalogNumberHash($recordLabel['catalogNumber']);
     }
 
     /** @param list<string> $left

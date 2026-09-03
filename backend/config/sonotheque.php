@@ -99,6 +99,18 @@ return [
         'worker_busy_stale_seconds' => (int) env('SYSTEM_HEALTH_WORKER_BUSY_STALE_SECONDS', 300),
     ],
 
+    'system_backups' => [
+        'operation_path' => storage_path('app/system-backups/operations'),
+        'safety_path' => storage_path('app/system-backups/safety'),
+        'use_docker' => filter_var(
+            env('SYSTEM_BACKUP_USE_DOCKER', PHP_OS_FAMILY === 'Windows'),
+            FILTER_VALIDATE_BOOL,
+        ),
+        'postgres_container' => env('SYSTEM_BACKUP_POSTGRES_CONTAINER', 'sonotheque-postgres'),
+        'pg_dump_path' => env('SYSTEM_BACKUP_PG_DUMP_PATH', ''),
+        'pg_restore_path' => env('SYSTEM_BACKUP_PG_RESTORE_PATH', ''),
+    ],
+
     'lastfm' => [
         'api_url' => env('LASTFM_API_URL', 'https://ws.audioscrobbler.com/2.0/'),
         'auth_url' => env('LASTFM_AUTH_URL', 'https://www.last.fm/api/auth/'),
@@ -202,6 +214,7 @@ return [
             'api/trash*',
             'api/tracks/*/metadata*',
             'api/albums/*/metadata*',
+            'api/albums/*/record-label-suggestions*',
             'api/albums/*/personal-metadata',
             'api/albums/*/personal-notes',
             'api/albums/*/discogs*',

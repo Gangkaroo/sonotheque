@@ -82,6 +82,16 @@ async function saveDefaults() {
   }
 }
 
+async function retryFailedSynchronization() {
+  try {
+    await playlistExportSettings.retryFailedSynchronization()
+    savedMessage.value = t('settings.playlistSynchronizationRetryQueued')
+    saved.value = true
+  } catch {
+    // The store displays the request error.
+  }
+}
+
 function openAddLocation() {
   editedLocationId.value = null
   Object.assign(locationForm, { name: '', path: '', makeDefault: false })
@@ -243,6 +253,20 @@ function isFilesystemRoot(path: string) {
                   count: playlistExportSettings.settings.synchronization.pendingCount,
                 })
               }}
+            </div>
+            <div
+              v-if="playlistExportSettings.settings.synchronization.failedCount > 0"
+              class="d-flex justify-end mt-3"
+            >
+              <v-btn
+                :loading="playlistExportSettings.retrying"
+                prepend-icon="mdi-refresh"
+                size="small"
+                variant="tonal"
+                @click="retryFailedSynchronization"
+              >
+                {{ t('settings.retryFailedPlaylistSynchronization') }}
+              </v-btn>
             </div>
           </v-alert>
           <div class="d-flex justify-end mt-4">

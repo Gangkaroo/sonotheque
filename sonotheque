@@ -487,6 +487,7 @@ start_sonotheque() {
 
     assert_docker
     configuration init
+    mkdir -p "$REPOSITORY_ROOT/backups"
     docker_group_id=$(docker run --rm \
         --volume /var/run/docker.sock:/socket:ro \
         "$CONFIGURATION_IMAGE" \

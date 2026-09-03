@@ -137,6 +137,12 @@ class Album extends Model
         return $this->hasMany(Track::class);
     }
 
+    /** @return HasMany<AlbumRecordLabel, $this> */
+    public function recordLabelAssignments(): HasMany
+    {
+        return $this->hasMany(AlbumRecordLabel::class);
+    }
+
     /** @return HasOne<AlbumPersonalMetadata, $this> */
     public function personalMetadata(): HasOne
     {

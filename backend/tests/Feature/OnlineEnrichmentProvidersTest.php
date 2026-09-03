@@ -148,7 +148,10 @@ class OnlineEnrichmentProvidersTest extends TestCase
                 'title' => 'Example Album',
                 'date' => '2020-03-06',
                 'artist-credit' => [['name' => 'Example Artist']],
-                'label-info' => [['label' => ['name' => 'Example Records']]],
+                'label-info' => [[
+                    'label' => ['name' => 'Example Records'],
+                    'catalog-number' => 'EX-001',
+                ]],
                 'release-group' => ['primary-type' => 'Album'],
             ]);
 
@@ -165,6 +168,10 @@ class OnlineEnrichmentProvidersTest extends TestCase
         $this->assertSame('DE', $artist?->country);
         $this->assertSame('2020-03-06', $album?->releaseDate);
         $this->assertSame('Example Records', $album?->label);
+        $this->assertSame([[
+            'name' => 'Example Records',
+            'catalogNumber' => 'EX-001',
+        ]], $album?->recordLabels);
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/artist/5b11f4ce-a62d-471e-81fc-a69a8278c7da'));
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/release/18d5d0ca-1107-4df2-9d51-df1c5fe57490'));
     }

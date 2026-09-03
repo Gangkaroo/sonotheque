@@ -6,6 +6,7 @@ use App\Http\Controllers\AlbumMetadataController;
 use App\Http\Controllers\AlbumMusicianCreditController;
 use App\Http\Controllers\AlbumPersonalMetadataController;
 use App\Http\Controllers\AlbumPlaylistExportController;
+use App\Http\Controllers\AlbumRecordLabelSuggestionController;
 use App\Http\Controllers\AlbumTrackMetadataController;
 use App\Http\Controllers\ArtworkThumbnailController;
 use App\Http\Controllers\AudioIntelligenceSettingsController;
@@ -41,6 +42,7 @@ use App\Http\Controllers\PlaylistsController;
 use App\Http\Controllers\ScanRunIssuesController;
 use App\Http\Controllers\SimilarTracksController;
 use App\Http\Controllers\SystemHealthController;
+use App\Http\Controllers\SystemBackupController;
 use App\Http\Controllers\TrackMetadataController;
 use App\Http\Controllers\TrackPlayStatisticsController;
 use App\Http\Controllers\TrashController;
@@ -80,6 +82,9 @@ Route::delete('/albums/{album}/owned-copies/{ownedAlbumCopy}/discogs', [AlbumDis
 Route::get('/albums/{album}/artwork/original', [ArtworkThumbnailController::class, 'albumOriginal']);
 Route::post('/albums/{album}/metadata/preview', [AlbumMetadataController::class, 'preview']);
 Route::post('/albums/{album}/metadata-edits', [AlbumMetadataController::class, 'store']);
+Route::get('/albums/{album}/record-label-suggestions', [AlbumRecordLabelSuggestionController::class, 'index']);
+Route::post('/albums/{album}/record-label-suggestions/confirm', [AlbumRecordLabelSuggestionController::class, 'confirm']);
+Route::post('/albums/{album}/record-label-suggestions/select', [AlbumRecordLabelSuggestionController::class, 'select']);
 Route::post('/albums/{album}/tracks/metadata/preview', [AlbumTrackMetadataController::class, 'preview']);
 Route::post('/albums/{album}/tracks/metadata-edits', [AlbumTrackMetadataController::class, 'store']);
 Route::get('/albums/{album}/musician-credits', [AlbumMusicianCreditController::class, 'index']);
@@ -180,6 +185,10 @@ Route::get('/settings/access', AdminAccessController::class);
 Route::patch('/settings/playback-statistics', [PlaybackStatisticsSettingsController::class, 'update']);
 Route::get('/settings/playlist-exports', [PlaylistExportSettingsController::class, 'show']);
 Route::patch('/settings/playlist-exports', [PlaylistExportSettingsController::class, 'update']);
+Route::post(
+    '/settings/playlist-exports/synchronization/retry-failed',
+    [PlaylistExportSettingsController::class, 'retryFailedSynchronization'],
+);
 Route::post('/settings/playlist-exports/locations', [PlaylistExportSettingsController::class, 'storeLocation']);
 Route::patch(
     '/settings/playlist-exports/locations/{playlistExportLocation}',
@@ -216,6 +225,11 @@ Route::post('/settings/online-enrichment/musician-backfill/{musicianCreditBackfi
 Route::post('/settings/online-enrichment/musician-backfill/{musicianCreditBackfillRun}/resume', [MusicianCreditBackfillController::class, 'resume']);
 Route::delete('/settings/online-enrichment/musician-backfill/{musicianCreditBackfillRun}', [MusicianCreditBackfillController::class, 'destroy']);
 Route::get('/settings/system-health', SystemHealthController::class);
+Route::post('/settings/system-backups', [SystemBackupController::class, 'store']);
+Route::post('/settings/system-backups/inspect', [SystemBackupController::class, 'inspect']);
+Route::post('/settings/system-backups/restore', [SystemBackupController::class, 'restore']);
+Route::get('/settings/system-backups/operations/{operationId}', [SystemBackupController::class, 'show'])
+    ->whereUuid('operationId');
 Route::get('/library-activity', LibraryActivityLogController::class);
 Route::get('/scan_runs/{scanRun}/issues', ScanRunIssuesController::class);
 Route::get('/enrichment/tracks/{track}/information', [OnlineEnrichmentController::class, 'information']);

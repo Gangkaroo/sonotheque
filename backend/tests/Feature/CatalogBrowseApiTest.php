@@ -12,6 +12,7 @@ use App\Models\Library;
 use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\OwnedAlbumCopy;
+use App\Models\RecordLabel;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -34,6 +35,16 @@ class CatalogBrowseApiTest extends TestCase
             'original_release_year' => 1999,
         ]);
         $this->createTrackForAlbum($album->libraryRoot, $secondAlbum);
+        $recordLabel = RecordLabel::create([
+            'name' => 'Example Records',
+            'normalized_name' => 'example records',
+        ]);
+        $album->recordLabelAssignments()->create([
+            'record_label_id' => $recordLabel->id,
+            'catalog_number' => 'EX-001',
+            'catalog_number_hash' => hash('sha256', 'ex-001'),
+            'source' => 'file_tag',
+        ]);
         TrackPlayStatistic::create([
             'track_id' => $track->id,
             'play_count' => 3,
@@ -88,6 +99,11 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('total', 1);
 
         $this->getJson("/api/catalog/albums?genre={$genre->id}")
+            ->assertOk()
+            ->assertJsonPath('items.0.id', $album->id)
+            ->assertJsonPath('total', 1);
+
+        $this->getJson("/api/catalog/albums?label={$recordLabel->id}")
             ->assertOk()
             ->assertJsonPath('items.0.id', $album->id)
             ->assertJsonPath('total', 1);
@@ -166,6 +182,19 @@ class CatalogBrowseApiTest extends TestCase
             'artwork_source_type' => ArtworkSource::Folder,
             'artwork_source_relative_path' => 'Cover/Front.jpg',
         ]);
+        $recordLabel = RecordLabel::create([
+            'name' => 'Example Records',
+            'normalized_name' => 'example records',
+        ]);
+        foreach (['file_tag' => null, 'musicbrainz' => 'release-123'] as $source => $reference) {
+            $album->recordLabelAssignments()->create([
+                'record_label_id' => $recordLabel->id,
+                'catalog_number' => 'EX-001',
+                'catalog_number_hash' => hash('sha256', 'ex-001'),
+                'source' => $source,
+                'source_reference' => $reference,
+            ]);
+        }
 
         $this->getJson("/api/catalog/albums/{$album->id}")
             ->assertOk()
@@ -183,6 +212,12 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('artworkHeight', 1200)
             ->assertJsonPath('genres.0.id', Genre::where('name', 'Rock')->value('id'))
             ->assertJsonPath('genres.0.name', 'Rock')
+            ->assertJsonPath('recordLabels.0.id', $recordLabel->id)
+            ->assertJsonPath('recordLabels.0.name', 'Example Records')
+            ->assertJsonPath('recordLabels.0.catalogNumber', 'EX-001')
+            ->assertJsonPath('recordLabels.0.sources.0.type', 'file_tag')
+            ->assertJsonPath('recordLabels.0.sources.1.type', 'musicbrainz')
+            ->assertJsonPath('recordLabels.0.sources.1.reference', 'release-123')
             ->assertJsonPath('technical.fileTypes.0', 'MP3')
             ->assertJsonPath('technical.bitrateMinimum', 320000)
             ->assertJsonPath('technical.bitrateMaximum', 320000)
@@ -733,6 +768,15 @@ class CatalogBrowseApiTest extends TestCase
         $betaTrack = $this->createTrackForAlbum($root, $betaAlbum);
         $genre = Genre::create(['name' => 'Scoped Genre']);
         $alphaTrack->genres()->attach($genre);
+        $recordLabel = RecordLabel::create([
+            'name' => 'Scoped Label',
+            'normalized_name' => 'scoped label',
+        ]);
+        $alphaAlbum->recordLabelAssignments()->create([
+            'record_label_id' => $recordLabel->id,
+            'catalog_number_hash' => hash('sha256', ''),
+            'source' => 'file_tag',
+        ]);
 
         $this->getJson("/api/catalog/playback/albums/{$alphaAlbum->id}/next")
             ->assertOk()
@@ -754,6 +798,7 @@ class CatalogBrowseApiTest extends TestCase
             'initial' => 'A',
             'year' => 2001,
             'genre' => $genre->id,
+            'label' => $recordLabel->id,
             'sort' => 'year_desc',
         ];
         $this->getJson('/api/catalog/albums?'.http_build_query($albumScope))

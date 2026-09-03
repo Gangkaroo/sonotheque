@@ -21,6 +21,7 @@ class FolderBrowserController extends Controller
             return response()->json($browser->browse(
                 $path,
                 $request->boolean('playlistFiles'),
+                $request->boolean('systemBackupFiles'),
             ));
         } catch (InvalidLibraryPath $exception) {
             return response()->json(['message' => $exception->getMessage()], 422);

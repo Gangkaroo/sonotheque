@@ -7,6 +7,8 @@ use App\Models\Genre;
 use App\Models\MetadataEditItem;
 use App\Models\MetadataEditJob;
 use App\Music\Catalog\GenreResolver;
+use App\Music\Catalog\RecordLabelImporter;
+use App\Music\Catalog\RecordLabelTagReader;
 use App\Music\Metadata\AlbumMetadataEditing;
 use App\Music\Metadata\MetadataBackupManager;
 use App\Music\Metadata\MetadataEditProgress;
@@ -44,6 +46,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         MetadataBackupManager $backups,
         MetadataEditProgress $progress,
         GenreResolver $genreResolver,
+        RecordLabelImporter $recordLabelImporter,
     ): void {
         $edit = MetadataEditJob::with(['album.tracks', 'items.track.mediaFile.libraryRoot'])
             ->findOrFail($this->metadataEditJobId);
@@ -70,7 +73,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
 
         $edit->refresh();
         if ($edit->failed_items === 0) {
-            $this->applyCatalogChanges($edit, $artistName, $genreResolver);
+            $this->applyCatalogChanges($edit, $artistName, $genreResolver, $recordLabelImporter);
             $edit->update(['status' => 'completed', 'finished_at' => now()]);
         } else {
             $edit->update([
@@ -139,11 +142,15 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 $trackAttributes['comment'] = $metadata->comment;
             }
             $track->update($trackAttributes);
-            $mediaFile->update([
+            $mediaFileAttributes = [
                 'file_size' => $fileSize,
                 'modified_at' => CarbonImmutable::createFromTimestampUTC($modifiedAt),
                 'raw_metadata' => $metadata->rawMetadata,
-            ]);
+            ];
+            if (array_key_exists('recordLabels', $item->requested_changes)) {
+                $mediaFileAttributes['record_label_tags_import_version'] = RecordLabelTagReader::IMPORT_VERSION;
+            }
+            $mediaFile->update($mediaFileAttributes);
             $item->update(['status' => 'completed', 'finished_at' => now()]);
         } catch (Throwable $exception) {
             $item->update([
@@ -158,6 +165,7 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
         MetadataEditJob $edit,
         ArtistName $artistName,
         GenreResolver $genreResolver,
+        RecordLabelImporter $recordLabelImporter,
     ): void {
         $values = $edit->requested_changes;
         $changedFields = array_fill_keys(array_column($edit->preview['changes'], 'field'), true);
@@ -225,6 +233,13 @@ class ApplyAlbumMetadataEdit implements ShouldQueue
                 ->whereIn('id', $previousGenreIds)
                 ->whereDoesntHave('tracks')
                 ->delete();
+        }
+        if (isset($changedFields['recordLabels'])) {
+            $recordLabelImporter->syncAlbum($edit->album);
+            $recordLabelImporter->syncProviderAssignments(
+                $edit->album,
+                $values['recordLabelProvenance'] ?? [],
+            );
         }
     }
 }

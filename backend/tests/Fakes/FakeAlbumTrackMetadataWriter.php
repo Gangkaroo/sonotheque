@@ -15,6 +15,16 @@ class FakeAlbumTrackMetadataWriter implements TrackMetadataWriter
     public function write(string $path, array $values): AudioMetadata
     {
         file_put_contents($path, 'written');
+        $rawMetadata = ['verified' => true];
+        if (array_key_exists('recordLabels', $values)) {
+            $rawMetadata['comments'] = [
+                'publisher' => array_column($values['recordLabels'], 'name'),
+                'catalognumber' => array_values(array_filter(
+                    array_column($values['recordLabels'], 'catalogNumber'),
+                    static fn (?string $catalogNumber): bool => $catalogNumber !== null,
+                )),
+            ];
+        }
 
         return new AudioMetadata(
             album: $values['albumTitle'] ?? 'Album',
@@ -25,7 +35,7 @@ class FakeAlbumTrackMetadataWriter implements TrackMetadataWriter
             originalReleaseYear: $values['releaseYear'] ?? 2000,
             discTotal: $values['totalDiscs'] ?? null,
             comment: $values['comment'] ?? null,
-            rawMetadata: ['verified' => true],
+            rawMetadata: $rawMetadata,
         );
     }
 }

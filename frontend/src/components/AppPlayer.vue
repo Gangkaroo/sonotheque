@@ -190,6 +190,9 @@ const playbackScopeLabels = computed(() => {
   if (scope.genreId !== null) {
     labels.push(t('player.playbackScopeGenre', { value: scope.genreName || `#${scope.genreId}` }))
   }
+  if (scope.type === 'albums' && scope.labelId !== null) {
+    labels.push(t('player.playbackScopeLabel', { value: scope.labelName || `#${scope.labelId}` }))
+  }
   if (scope.musicianId !== null) {
     labels.push(t('player.playbackScopeMusician', { value: scope.musicianName || `#${scope.musicianId}` }))
   }

@@ -8,6 +8,7 @@ use App\Enums\ScanStatus;
 use App\Enums\ScanTrigger;
 use App\Jobs\ScanLibraryRoot;
 use App\Models\Album;
+use App\Models\AlbumRecordLabel;
 use App\Models\ApplicationSetting;
 use App\Models\Artist;
 use App\Models\Artwork;
@@ -18,11 +19,13 @@ use App\Models\LibraryRoot;
 use App\Models\MediaFile;
 use App\Models\Playlist;
 use App\Models\PlaylistItem;
+use App\Models\RecordLabel;
 use App\Models\ScanRun;
 use App\Models\ScanRunIssue;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use App\Music\Artwork\EmbeddedArtwork;
+use App\Music\Catalog\RecordLabelTagReader;
 use App\Music\Scanning\AudioFileDiscoverer;
 use App\Music\Scanning\AudioContentFingerprinter;
 use App\Music\Scanning\AudioMetadata;
@@ -316,6 +319,61 @@ class LibraryScannerTest extends TestCase
         $this->assertSame(9, Album::sole()->rating_half_steps);
         $this->assertSame(2, $importScan->fresh()->summary['ratingsImported']);
         $this->assertSame(1, MediaFile::sole()->rating_tags_import_version);
+    }
+
+    public function test_scanner_imports_record_labels_and_refreshes_them_from_cached_metadata(): void
+    {
+        $trackPath = $this->musicPath.DIRECTORY_SEPARATOR.'Bjoerk'.DIRECTORY_SEPARATOR.'Debut'.DIRECTORY_SEPARATOR.'01.mp3';
+        file_put_contents($trackPath, 'fake audio data');
+        $this->metadataReader = new FakeAudioMetadataReader(new AudioMetadata(
+            title: 'Human Behaviour',
+            album: 'Debut',
+            albumArtist: 'Björk',
+            artists: ['Björk'],
+            rawMetadata: [
+                'comments' => [
+                    'publisher' => ['One Little Indian Records'],
+                    'catalog_number' => ['TPLP31CD'],
+                ],
+            ],
+        ));
+        $this->app->instance(AudioMetadataReader::class, $this->metadataReader);
+        $root = $this->createRoot();
+        $scanner = $this->app->make(LibraryScanner::class);
+        $firstScan = $this->createScan($root);
+
+        $scanner->scan($firstScan);
+
+        $this->assertSame('One Little Indian Records', RecordLabel::sole()->name);
+        $this->assertDatabaseHas(AlbumRecordLabel::class, [
+            'album_id' => Album::sole()->id,
+            'catalog_number' => 'TPLP31CD',
+            'source' => 'file_tag',
+        ]);
+        $this->assertSame(
+            RecordLabelTagReader::IMPORT_VERSION,
+            MediaFile::sole()->record_label_tags_import_version,
+        );
+        $this->assertSame(1, $firstScan->fresh()->summary['recordLabelChanges']);
+
+        MediaFile::sole()->update([
+            'raw_metadata' => [
+                'comments' => [
+                    'LABEL' => ['One Little Independent Records'],
+                    'CATALOGNUMBER' => ['TPLP31CD'],
+                ],
+            ],
+            'record_label_tags_import_version' => null,
+        ]);
+        CarbonImmutable::setTestNow(CarbonImmutable::now()->addSecond());
+        $secondScan = $this->createScan($root);
+
+        $scanner->scan($secondScan);
+
+        $this->assertSame(1, $this->metadataReader->calls);
+        $this->assertSame('One Little Independent Records', RecordLabel::sole()->name);
+        $this->assertSame('TPLP31CD', AlbumRecordLabel::sole()->catalog_number);
+        $this->assertSame(2, $secondScan->fresh()->summary['recordLabelChanges']);
     }
 
     public function test_incremental_scan_batches_progress_and_cancellation_queries(): void

@@ -479,6 +479,7 @@ class CatalogBrowseController extends Controller
             'initial' => ['sometimes', 'nullable', 'string', 'in:#,A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z'],
             'year' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:9999'],
             'genre' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'label' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'artist' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'musician' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'physicalCopy' => ['sometimes', 'nullable', 'string', 'in:owned,not_owned'],
@@ -502,6 +503,9 @@ class CatalogBrowseController extends Controller
                 ->whereIn('albums.id', $this->musicians->albumIdsForMusician($musician)))
             ->when($filters['year'] ?? null, fn (Builder $query, int $year) => $query->where('albums.original_release_year', $year))
             ->when($filters['genre'] ?? null, fn (Builder $query, int $genre) => $query->whereHas('tracks.genres', fn (Builder $genreQuery) => $genreQuery->whereKey($genre)))
+            ->when($filters['label'] ?? null, fn (Builder $query, int $label) => $query
+                ->whereHas('recordLabelAssignments', fn (Builder $assignmentQuery) => $assignmentQuery
+                    ->where('record_label_id', $label)))
             ->when(($filters['physicalCopy'] ?? null) === 'owned', fn (Builder $query) => $query
                 ->whereHas('ownedCopies', fn (Builder $copy) => $copy->where('is_physical', true)))
             ->when(($filters['physicalCopy'] ?? null) === 'not_owned', fn (Builder $query) => $query
@@ -584,6 +588,7 @@ class CatalogBrowseController extends Controller
             'initial',
             'year',
             'genre',
+            'label',
             'artist',
             'musician',
             'physicalCopy',
@@ -629,7 +634,7 @@ class CatalogBrowseController extends Controller
     /** @param array<string, mixed> $filters */
     private function hasAlbumFilters(array $filters): bool
     {
-        foreach (['search', 'initial', 'year', 'genre', 'artist', 'musician', 'physicalCopy'] as $filter) {
+        foreach (['search', 'initial', 'year', 'genre', 'label', 'artist', 'musician', 'physicalCopy'] as $filter) {
             if (($filters[$filter] ?? null) !== null && ($filters[$filter] ?? '') !== '') {
                 return true;
             }

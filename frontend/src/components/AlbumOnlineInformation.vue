@@ -196,6 +196,22 @@ function reloadMusicians() {
   if (props.albumId) void loadMusicians(props.albumId, requestId, true)
 }
 
+async function reloadIdentity() {
+  const request = requestId
+  try {
+    const result = await apiRequest<TrackIdentity>(`/enrichment/tracks/${props.trackId}/identity`)
+    if (request !== requestId) return
+
+    identity.value = result
+    emit(
+      'artistCountry',
+      ready(result.artist) ? result.artist.data.country ?? null : null,
+    )
+  } catch {
+    // The musician selection remains valid; a later component reload can retry identity enrichment.
+  }
+}
+
 function clearMusiciansPoll() {
   if (musiciansPoll !== null) clearTimeout(musiciansPoll)
   musiciansPoll = null
@@ -291,6 +307,7 @@ async function resolveMusicianRelease() {
     )
     musicians.value = result
     musicianReleaseDialog.value = false
+    void reloadIdentity()
     if (result.status === 'pending') {
       musiciansPoll = setTimeout(() => void loadMusicians(props.albumId!, requestId), 1000)
     }

@@ -49,6 +49,10 @@ export interface AlbumInformation {
   summary?: string | null
   releaseDate?: string | null
   label?: string | null
+  recordLabels?: Array<{
+    name: string
+    catalogNumber?: string | null
+  }>
   releaseType?: string | null
   tags: string[]
   attribution: Attribution

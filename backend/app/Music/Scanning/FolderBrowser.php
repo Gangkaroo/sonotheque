@@ -20,8 +20,11 @@ class FolderBrowser
      *     volumes: list<array{name: string, path: string}>
      * }
      */
-    public function browse(?string $path, bool $includePlaylistFiles = false): array
-    {
+    public function browse(
+        ?string $path,
+        bool $includePlaylistFiles = false,
+        bool $includeSystemBackupFiles = false,
+    ): array {
         if ($path === null || trim($path) === '') {
             return [
                 'path' => null,
@@ -42,7 +45,10 @@ class FolderBrowser
             foreach ($iterator as $entry) {
                 try {
                     if (! $entry->isDir() || $entry->isLink()) {
-                        if ($includePlaylistFiles && $entry->isFile() && $this->isPlaylistFile($entry->getFilename())) {
+                        if ($entry->isFile() && (
+                            ($includePlaylistFiles && $this->isPlaylistFile($entry->getFilename()))
+                            || ($includeSystemBackupFiles && $this->isSystemBackupFile($entry->getFilename()))
+                        )) {
                             $files[] = [
                                 'name' => $entry->getFilename(),
                                 'path' => $this->normalize($entry->getPathname()),
@@ -85,6 +91,11 @@ class FolderBrowser
     private function isPlaylistFile(string $filename): bool
     {
         return in_array(mb_strtolower(pathinfo($filename, PATHINFO_EXTENSION)), ['m3u', 'm3u8'], true);
+    }
+
+    private function isSystemBackupFile(string $filename): bool
+    {
+        return mb_strtolower(pathinfo($filename, PATHINFO_EXTENSION)) === 'sonotheque-backup';
     }
 
     /** @return list<array{name: string, path: string}> */

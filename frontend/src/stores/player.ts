@@ -21,6 +21,8 @@ export interface AlbumPlaybackScope {
   year: number | null
   genreId: number | null
   genreName: string
+  labelId: number | null
+  labelName: string
   musicianId: number | null
   musicianName: string
   physicalCopy: PlaybackPhysicalCopyFilter
@@ -642,6 +644,9 @@ function catalogPlaybackPath(
     url.searchParams.set('artist', String(scope.artistId))
   }
   if (scope.genreId !== null) url.searchParams.set('genre', String(scope.genreId))
+  if (scope.type === 'albums' && scope.labelId !== null) {
+    url.searchParams.set('label', String(scope.labelId))
+  }
   if (scope.musicianId !== null) url.searchParams.set('musician', String(scope.musicianId))
   if (scope.physicalCopy !== null) url.searchParams.set('physicalCopy', scope.physicalCopy)
   if (scope.type === 'albums') {
@@ -693,6 +698,8 @@ function normalizeAlbumPlaybackScope(scope: unknown): AlbumPlaybackScope | null 
     year: positiveInteger(value.year),
     genreId: positiveInteger(value.genreId),
     genreName: typeof value.genreName === 'string' ? value.genreName.trim() : '',
+    labelId: positiveInteger(value.labelId),
+    labelName: typeof value.labelName === 'string' ? value.labelName.trim() : '',
     musicianId: positiveInteger(value.musicianId),
     musicianName: typeof value.musicianName === 'string' ? value.musicianName.trim() : '',
     physicalCopy,

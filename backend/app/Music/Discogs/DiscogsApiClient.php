@@ -249,6 +249,12 @@ class DiscogsApiClient
         $labels = collect($payload['labels'] ?? [])
             ->filter(fn (mixed $label): bool => is_array($label) && is_string($label['name'] ?? null))
             ->values();
+        $recordLabels = $labels->map(fn (array $label): array => [
+            'name' => trim($label['name']),
+            'catalogNumber' => is_string($label['catno'] ?? null) && trim($label['catno']) !== ''
+                ? trim($label['catno'])
+                : null,
+        ])->all();
         $image = collect($payload['images'] ?? [])->first(
             fn (mixed $item): bool => is_array($item) && is_string($item['uri150'] ?? null),
         );
@@ -265,6 +271,7 @@ class DiscogsApiClient
             'catalogNumber' => $labels->pluck('catno')->first(
                 fn (mixed $value): bool => is_string($value) && trim($value) !== '',
             ),
+            'recordLabels' => $recordLabels,
             'thumbnailUrl' => $this->images->register(is_array($image) ? $image['uri150'] : null),
             'webUrl' => $this->releaseWebUrl($payload['uri'] ?? null, (int) $payload['id']),
             'musicianCredits' => $this->musicianCredits($payload),

@@ -31,6 +31,7 @@ final class AdditionalMetadataTags
         'TPE2',
         'TPE3',
         'TPOS',
+        'TPUB',
         'TRCK',
         'TYER',
     ];

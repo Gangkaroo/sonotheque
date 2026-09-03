@@ -65,6 +65,24 @@ class PlaylistExportSettingsController extends Controller
         return response()->json($this->payload());
     }
 
+    public function retryFailedSynchronization(): JsonResponse
+    {
+        if (! ApplicationSetting::current()->synchronize_playlists_to_files) {
+            throw ValidationException::withMessages([
+                'synchronizePlaylists' => 'Enable playlist synchronization before retrying failed exports.',
+            ]);
+        }
+
+        $this->synchronizationDispatcher->playlists(
+            Playlist::query()
+                ->whereNull('playlist_export_sync_pending_at')
+                ->whereNotNull('playlist_export_sync_error')
+                ->pluck('id'),
+        );
+
+        return response()->json($this->payload(), 202);
+    }
+
     public function storeLocation(
         Request $request,
         LibraryPathGuard $pathGuard,

@@ -98,7 +98,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  array<string, string|list<string>|null>  $textFrames
-     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, string|list<string>|null>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
      * @param  array<string, int|null>  $popularimeterFrames
@@ -179,7 +179,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  array<string, string|list<string>|null>  $textFrames
-     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, string|list<string>|null>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
      * @param  array<string, int|null>  $popularimeterFrames
@@ -347,7 +347,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  array<string, string|list<string>|null>  $textFrames
-     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, string|list<string>|null>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
      * @param  array<string, int|null>  $popularimeterFrames
@@ -626,7 +626,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  array<string, string|list<string>|null>  $textFrames
-     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, string|list<string>|null>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  list<string>  $removedTagKeys
      * @param  array<string, int|null>  $popularimeterFrames
@@ -781,7 +781,7 @@ class Mp3Id3v2TagEditor
 
     /**
      * @param  array<string, string|list<string>|null>  $textFrames
-     * @param  array<string, ?string>  $userTextFrames
+     * @param  array<string, string|list<string>|null>  $userTextFrames
      * @param  array<string, ?string>  $commentFrames
      * @param  array<string, int|null>  $popularimeterFrames
      */
@@ -799,8 +799,12 @@ class Mp3Id3v2TagEditor
             }
         }
         foreach ($userTextFrames as $name => $value) {
-            if ($value !== null) {
-                $frames .= $this->frame($majorVersion, 'TXXX', $this->userTextPayload($majorVersion, $name, $value));
+            foreach ($value === null ? [] : (array) $value as $singleValue) {
+                $frames .= $this->frame(
+                    $majorVersion,
+                    'TXXX',
+                    $this->userTextPayload($majorVersion, $name, $singleValue),
+                );
             }
         }
         foreach ($commentFrames as $frameId => $value) {

@@ -10,3 +10,4 @@
 /audio-intelligence/models/
 /audio-intelligence/__pycache__/
 backend/storage/PsySH/
+/backend/storage/framework/system-backups/

@@ -101,6 +101,32 @@ describe('playlist export settings store', () => {
     expect(store.loading).toBe(false)
     expect(store.settings.synchronization).toEqual(refreshed.synchronization)
   })
+
+  it('queues failed playlist synchronizations for another attempt', async () => {
+    const retried = {
+      defaultFormat: 'm3u8',
+      synchronizePlaylists: true,
+      synchronization: {
+        playlistCount: 13,
+        syncedCount: 12,
+        failedCount: 0,
+        pendingCount: 1,
+      },
+      locations: [],
+    }
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(retried, 202))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = usePlaylistExportSettingsStore()
+
+    await store.retryFailedSynchronization()
+
+    expect(store.retrying).toBe(false)
+    expect(store.settings.synchronization).toEqual(retried.synchronization)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/settings/playlist-exports/synchronization/retry-failed',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
 })
 
 function jsonResponse(body: unknown, status = 200) {

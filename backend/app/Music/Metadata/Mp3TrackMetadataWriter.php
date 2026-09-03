@@ -2,6 +2,9 @@
 
 namespace App\Music\Metadata;
 
+use App\Music\Catalog\ImportedRecordLabel;
+use App\Music\Catalog\RecordLabelNormalizer;
+use App\Music\Catalog\RecordLabelTagReader;
 use App\Music\Scanning\AudioMetadata;
 use App\Music\Scanning\AudioMetadataReader;
 use RuntimeException;
@@ -10,12 +13,20 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
 {
     private readonly AdditionalMetadataTags $additionalTags;
 
+    private readonly RecordLabelTagReader $recordLabelReader;
+
+    private readonly RecordLabelNormalizer $recordLabelNormalizer;
+
     public function __construct(
         private readonly Mp3Id3v2TagEditor $editor,
         private readonly AudioMetadataReader $metadataReader,
         ?AdditionalMetadataTags $additionalTags = null,
+        ?RecordLabelTagReader $recordLabelReader = null,
+        ?RecordLabelNormalizer $recordLabelNormalizer = null,
     ) {
         $this->additionalTags = $additionalTags ?? new AdditionalMetadataTags();
+        $this->recordLabelReader = $recordLabelReader ?? new RecordLabelTagReader();
+        $this->recordLabelNormalizer = $recordLabelNormalizer ?? new RecordLabelNormalizer();
     }
 
     public function supports(string $path): bool
@@ -76,13 +87,24 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
             $frames['TORY'] = $majorVersion === 3 ? $year : null;
             $frames['TDOR'] = $majorVersion === 4 ? $year : null;
         }
+        $userTextFrames = [];
+        if (array_key_exists('recordLabels', $values)) {
+            $frames['TPUB'] = array_column($values['recordLabels'], 'name') ?: null;
+            $catalogNumbers = array_map(
+                static fn (array $recordLabel): string => $recordLabel['catalogNumber'] ?? '',
+                $values['recordLabels'],
+            );
+            $userTextFrames['CATALOGNUMBER'] = collect($catalogNumbers)->contains(
+                static fn (string $catalogNumber): bool => $catalogNumber !== '',
+            ) ? $catalogNumbers : null;
+        }
         $commentFrames = array_key_exists('comment', $values) ? ['COMM' => $values['comment']] : [];
         $verified = null;
 
         $this->editor->write(
             $path,
             $frames,
-            [],
+            $userTextFrames,
             function (string $temporaryPath) use ($values, &$verified): void {
                 $verified = $this->metadataReader->read($temporaryPath);
                 $failedField = $this->failedVerificationField($verified, $values);
@@ -130,6 +152,14 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
             }
         }
 
+        if (array_key_exists('recordLabels', $values)) {
+            $expectedRecordLabels = $this->recordLabelIdentities($values['recordLabels']);
+            $actualRecordLabels = $this->importedRecordLabelIdentities($metadata);
+            if ($expectedRecordLabels !== $actualRecordLabels) {
+                return 'record labels';
+            }
+        }
+
         $remainingTagKeys = $this->additionalTags->keys($metadata->rawMetadata);
         foreach ($values['removedTagKeys'] ?? [] as $removedTagKey) {
             if (in_array($removedTagKey, $remainingTagKeys, true)) {
@@ -138,6 +168,34 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
         }
 
         return null;
+    }
+
+    /** @param list<array{name: string, catalogNumber: ?string}> $recordLabels
+     * @return list<string>
+     */
+    private function recordLabelIdentities(array $recordLabels): array
+    {
+        $identities = array_map(
+            fn (array $recordLabel): string => $this->recordLabelNormalizer->normalizedName($recordLabel['name'])
+                .'|'.$this->recordLabelNormalizer->catalogNumberHash($recordLabel['catalogNumber']),
+            $recordLabels,
+        );
+        sort($identities);
+
+        return array_values(array_unique($identities));
+    }
+
+    /** @return list<string> */
+    private function importedRecordLabelIdentities(AudioMetadata $metadata): array
+    {
+        $identities = array_map(
+            fn (ImportedRecordLabel $recordLabel): string => $this->recordLabelNormalizer->normalizedName($recordLabel->name)
+                .'|'.$this->recordLabelNormalizer->catalogNumberHash($recordLabel->catalogNumber),
+            $this->recordLabelReader->read($metadata->rawMetadata)->items,
+        );
+        sort($identities);
+
+        return array_values(array_unique($identities));
     }
 
     /** @return array{?int, ?int, ?int} */

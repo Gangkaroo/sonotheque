@@ -124,12 +124,12 @@ describe('catalog store', () => {
 
     const store = useCatalogStore()
     await Promise.all([
-      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7, musician: 8, physicalCopy: 'owned', sort: 'year_desc' }),
+      store.loadAlbums({ page: 2, search: 'artist', initial: 'A', year: 1999, genre: 7, label: 9, musician: 8, physicalCopy: 'owned', sort: 'year_desc' }),
       store.loadTracks({ page: 2, genre: 7, musician: 8, playStatus: 'never', physicalCopy: 'not_owned', sort: 'plays' }),
       store.loadGenres({ page: 2 }),
     ])
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7&musician=8&physicalCopy=owned&sort=year_desc', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/catalog/albums?page=2&search=artist&initial=A&year=1999&genre=7&label=9&musician=8&physicalCopy=owned&sort=year_desc', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/tracks?page=2&genre=7&musician=8&playStatus=never&physicalCopy=not_owned&sort=plays', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/catalog/genres?page=2', expect.any(Object))
   })

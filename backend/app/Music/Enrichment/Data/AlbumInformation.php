@@ -4,7 +4,10 @@ namespace App\Music\Enrichment\Data;
 
 final readonly class AlbumInformation
 {
-    /** @param list<string> $tags */
+    /**
+     * @param  list<string>  $tags
+     * @param  list<array{name: string, catalogNumber: ?string}>  $recordLabels
+     */
     public function __construct(
         public string $title,
         public string $artistName,
@@ -17,6 +20,7 @@ final readonly class AlbumInformation
         public ?string $providerReference = null,
         public ?string $matchMethod = null,
         public ?int $matchConfidence = null,
+        public array $recordLabels = [],
     ) {
     }
 
@@ -35,6 +39,7 @@ final readonly class AlbumInformation
             'providerReference' => $this->providerReference,
             'matchMethod' => $this->matchMethod,
             'matchConfidence' => $this->matchConfidence,
+            'recordLabels' => $this->recordLabels,
         ];
     }
 }

@@ -295,8 +295,22 @@ The stop script should stop only the Compose services owned by this project.
 
 ## Backups
 
-The app avoids moving or deleting music files. Manual application-data backup
-and restore commands are available for both runtime modes:
+The app avoids moving or deleting music files. The normal workflow is available
+under Settings > System: choose a destination folder, create a single
+`.sonotheque-backup` archive, or select one of those archives for a guarded
+restore. The UI validates checksums and the encryption key before confirmation,
+creates a safety backup, temporarily enables maintenance mode, restores data,
+runs migrations, and automatically rolls back if the restore fails.
+Backup and restore work is serialized with library scans, so an operation may
+remain queued until the active scan has finished.
+
+Packaged mode exposes the host's `${SONOTHEQUE_BACKUP_DIRECTORY:-./backups}` as
+`/backups`; this is the default folder shown by the Settings picker. Both
+packaged launchers create the default host `backups` folder before starting the
+containers. Set `SONOTHEQUE_BACKUP_DIRECTORY` in `.env.packaged` to expose a
+different host folder. Manual
+application-data backup and restore commands remain available for recovery and
+for importing a backup whose `APP_KEY` differs from the current installation:
 
 ```powershell
 .\scripts\backup.ps1 -Mode Packaged

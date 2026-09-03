@@ -5,6 +5,7 @@ namespace App\Music\Enrichment;
 use App\Enums\OnlineContentStatus;
 use App\Enums\OnlineContentType;
 use App\Jobs\RefreshOnlineEnrichment;
+use App\Models\Album;
 use App\Models\ApplicationSetting;
 use App\Models\OnlineContentCache;
 use App\Models\Track;
@@ -24,7 +25,9 @@ class OnlineEnrichmentManager
 {
     private const LASTFM_CACHE_VARIANT = 'full-description-v1';
 
-    private const MUSICBRAINZ_ALBUM_CACHE_VARIANT = 'punctuation-tolerant-v2';
+    private const MUSICBRAINZ_ALBUM_CACHE_VARIANT = 'punctuation-tolerant-labels-v3';
+
+    private const MUSICBRAINZ_RELEASE_LABEL_CACHE_VARIANT = 'exact-release-labels-v1';
 
     public function __construct(
         private readonly OnlineContentCacheRepository $cache,
@@ -48,6 +51,7 @@ class OnlineEnrichmentManager
         }
 
         $track->loadMissing([
+            'album.musicianEnrichment',
             'album.primaryArtist:id,name',
             'artists:id,name',
             'mediaFile:id,raw_metadata',
@@ -82,27 +86,82 @@ class OnlineEnrichmentManager
             ];
         }
 
+        return [
+            'artist' => $artistResult,
+            'album' => $this->albumIdentityForTrack($track),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function albumIdentityForTrack(Track $track): array
+    {
+        if (! ApplicationSetting::current()->online_information_enabled) {
+            return $this->state('disabled');
+        }
+
+        $track->loadMissing([
+            'album.musicianEnrichment',
+            'album.primaryArtist:id,name',
+            'artists:id,name',
+            'mediaFile:id,raw_metadata',
+        ]);
+        $album = $track->album;
+        $artist = $album?->primaryArtist ?? $track->artists->first();
+        if ($album === null || $artist === null) {
+            return $this->state('not_found', $this->identityProvider->key());
+        }
+
+        $identifiers = $this->musicBrainzTags->read($track->mediaFile?->raw_metadata ?? []);
+        $selectedReleaseIdentifier = $album->musicianEnrichment?->selected_release_id
+            ?? $album->musicianEnrichment?->provider_release_id;
         $albumLookup = new AlbumLookup(
             $album->id,
             $album->title,
             $artist->name,
             $album->original_release_year,
             array_filter([
-                'musicbrainz_release' => $identifiers['release'] ?? null,
+                'musicbrainz_release' => $selectedReleaseIdentifier ?? $identifiers['release'] ?? null,
                 'musicbrainz_release_group' => $identifiers['releaseGroup'] ?? null,
             ]),
             cacheVariant: self::MUSICBRAINZ_ALBUM_CACHE_VARIANT,
         );
 
-        return [
-            'artist' => $artistResult,
-            'album' => $this->resolve(
-                $this->identityProvider->key(),
-                OnlineContentType::Album,
-                $albumLookup,
-                fn () => $this->identityProvider->fetchAlbum($albumLookup),
-            ),
-        ];
+        return $this->resolve(
+            $this->identityProvider->key(),
+            OnlineContentType::Album,
+            $albumLookup,
+            fn () => $this->identityProvider->fetchAlbum($albumLookup),
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function albumIdentityForRelease(Album $album, string $releaseIdentifier): array
+    {
+        if (! ApplicationSetting::current()->online_information_enabled) {
+            return $this->state('disabled');
+        }
+
+        $album->loadMissing('primaryArtist:id,name');
+        $artist = $album->primaryArtist;
+        if ($artist === null) {
+            return $this->state('not_found', $this->identityProvider->key());
+        }
+
+        $albumLookup = new AlbumLookup(
+            $album->id,
+            $album->title,
+            $artist->name,
+            $album->original_release_year,
+            ['musicbrainz_release' => $releaseIdentifier],
+            cacheVariant: self::MUSICBRAINZ_RELEASE_LABEL_CACHE_VARIANT,
+        );
+
+        return $this->resolve(
+            $this->identityProvider->key(),
+            OnlineContentType::Album,
+            $albumLookup,
+            fn () => $this->identityProvider->fetchAlbum($albumLookup),
+        );
     }
 
     /** @return array{artist: array<string, mixed>, album: array<string, mixed>} */

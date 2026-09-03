@@ -30,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'content_fingerprint_version',
     'play_statistics_import_version',
     'rating_tags_import_version',
+    'record_label_tags_import_version',
 ])]
 class MediaFile extends Model
 {
@@ -63,6 +64,7 @@ class MediaFile extends Model
             'content_fingerprint_version' => 'integer',
             'play_statistics_import_version' => 'integer',
             'rating_tags_import_version' => 'integer',
+            'record_label_tags_import_version' => 'integer',
         ];
     }
 }

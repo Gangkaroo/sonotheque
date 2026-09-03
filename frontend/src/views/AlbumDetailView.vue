@@ -54,12 +54,20 @@ const metadataForm = reactive({
   releaseYear: '',
   totalDiscs: '',
   genres: [] as string[],
+  recordLabels: [] as AlbumMetadataRecordLabel[],
   comment: '',
 })
 const metadataCommentEnabled = ref(false)
 const metadataCommentsMixed = ref(false)
 const metadataUpdateTrackArtists = ref(true)
 const metadataRemovedTagKeys = ref<string[]>([])
+const metadataRecordLabelProvenance = ref<RecordLabelProvenance[]>([])
+const recordLabelSuggestions = ref<RecordLabelSuggestion[]>([])
+const recordLabelSuggestionsLoading = ref(false)
+const recordLabelSuggestionsLoaded = ref(false)
+const recordLabelSuggestionsError = ref<string | null>(null)
+const recordLabelSuggestionConfirming = ref<string | null>(null)
+const onlineInformationRevision = ref(0)
 let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectionMode = ref(false)
 const selectedTrackIds = ref<number[]>([])
@@ -76,6 +84,34 @@ const personalForm = reactive({
   notes: '',
 })
 
+interface AlbumMetadataRecordLabel {
+  name: string
+  catalogNumber?: string | null
+}
+
+interface RecordLabelProvenance extends AlbumMetadataRecordLabel {
+  source: 'discogs' | 'musicbrainz'
+  sourceReference: string
+}
+
+interface RecordLabelSuggestion {
+  provider: 'discogs' | 'musicbrainz'
+  providerLabel: string
+  sourceReference: string
+  sourceUrl?: string | null
+  sourceDescription?: string | null
+  sourceTrackCount?: number | null
+  recordLabels: AlbumMetadataRecordLabel[]
+  matchesCurrent: boolean
+  sourceConfirmed: boolean
+}
+
+interface RecordLabelSuggestionPayload {
+  suggestions: RecordLabelSuggestion[]
+  errors: Array<{ provider: string, message: string }>
+  musicianReleaseResolved?: boolean
+}
+
 interface AlbumMetadataValues {
   albumTitle: string
   albumArtist: string
@@ -83,14 +119,16 @@ interface AlbumMetadataValues {
   releaseYear: number | null
   totalDiscs: number | null
   genres: string[]
+  recordLabels: AlbumMetadataRecordLabel[]
+  recordLabelProvenance?: RecordLabelProvenance[]
   comment?: string | null
   removedTagKeys: string[]
 }
 
 interface AlbumMetadataChange {
-  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'comment' | 'removedTagKeys'
-  current: string | number | string[] | null
-  proposed: string | number | string[] | null
+  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'recordLabels' | 'comment' | 'removedTagKeys'
+  current: string | number | string[] | AlbumMetadataRecordLabel[] | null
+  proposed: string | number | string[] | AlbumMetadataRecordLabel[] | null
   fileValuesDiffer?: boolean
 }
 
@@ -280,6 +318,9 @@ const albumDetails = computed(() => {
     ? `${details} · ${t('albums.discCount', { count: album.value.discTotal })}`
     : details
 })
+const recordLabelText = (recordLabel: AlbumMetadataRecordLabel) => recordLabel.catalogNumber
+  ? `${recordLabel.name} · ${recordLabel.catalogNumber}`
+  : recordLabel.name
 const albumPlaybackStats = computed(() => {
   const totalTrackPlays = tracks.value.reduce((total, track) => total + track.playStatistics.playCount, 0)
   if (!totalTrackPlays) return []
@@ -502,17 +543,26 @@ function openMetadataEditor() {
     releaseYear: album.value.originalReleaseYear?.toString() ?? '',
     totalDiscs: album.value.discTotal?.toString() ?? '',
     genres: albumGenres.value.map((genre) => genre.name),
+    recordLabels: album.value.recordLabels.map((recordLabel) => ({
+      name: recordLabel.name,
+      catalogNumber: recordLabel.catalogNumber ?? null,
+    })),
     comment: comments.length === 1 ? comments[0] ?? '' : '',
   })
   metadataCommentEnabled.value = false
   metadataCommentsMixed.value = comments.length > 1
   metadataUpdateTrackArtists.value = true
   metadataRemovedTagKeys.value = []
+  metadataRecordLabelProvenance.value = []
+  recordLabelSuggestions.value = []
+  recordLabelSuggestionsLoaded.value = false
+  recordLabelSuggestionsError.value = null
   metadataStep.value = 'form'
   metadataPreview.value = null
   metadataJob.value = null
   metadataError.value = null
   metadataDialog.value = true
+  void loadRecordLabelSuggestions()
 }
 
 function metadataValues(): AlbumMetadataValues {
@@ -526,11 +576,128 @@ function metadataValues(): AlbumMetadataValues {
     releaseYear: year === '' ? null : Number(year),
     totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
     genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
+    recordLabels: metadataForm.recordLabels
+      .map((recordLabel) => ({
+        name: recordLabel.name.trim(),
+        catalogNumber: recordLabel.catalogNumber?.trim() || null,
+      }))
+      .filter((recordLabel) => recordLabel.name !== ''),
     removedTagKeys: [...metadataRemovedTagKeys.value],
   }
+  const recordLabelIdentities = new Set(values.recordLabels.map(recordLabelIdentity))
+  const provenance = metadataRecordLabelProvenance.value.filter(
+    recordLabel => recordLabelIdentities.has(recordLabelIdentity(recordLabel)),
+  )
+  if (provenance.length) values.recordLabelProvenance = provenance
   if (metadataCommentEnabled.value) values.comment = metadataForm.comment.trim() || null
 
   return values
+}
+
+function recordLabelIdentity(recordLabel: AlbumMetadataRecordLabel) {
+  return `${recordLabel.name.trim().toLocaleLowerCase()}|${recordLabel.catalogNumber?.trim().toLocaleLowerCase() ?? ''}`
+}
+
+function recordLabelSuggestionKey(suggestion: RecordLabelSuggestion) {
+  return `${suggestion.provider}:${suggestion.sourceReference}`
+}
+
+async function loadRecordLabelSuggestions() {
+  if (!album.value) return
+
+  recordLabelSuggestionsLoading.value = true
+  recordLabelSuggestionsError.value = null
+  try {
+    const result = await apiRequest<RecordLabelSuggestionPayload>(
+      `/albums/${album.value.id}/record-label-suggestions`,
+    )
+    recordLabelSuggestions.value = result.suggestions
+    if (result.errors.length) {
+      recordLabelSuggestionsError.value = result.errors.map(error => error.message).join(' ')
+    }
+  } catch (cause) {
+    recordLabelSuggestionsError.value = cause instanceof Error
+      ? cause.message
+      : t('albums.recordLabelSuggestionsFailed')
+  } finally {
+    recordLabelSuggestionsLoading.value = false
+    recordLabelSuggestionsLoaded.value = true
+  }
+}
+
+async function useRecordLabelSuggestion(suggestion: RecordLabelSuggestion) {
+  metadataForm.recordLabels = suggestion.recordLabels.map(recordLabel => ({ ...recordLabel }))
+  metadataRecordLabelProvenance.value = suggestion.recordLabels.map(recordLabel => ({
+    ...recordLabel,
+    source: suggestion.provider,
+    sourceReference: suggestion.sourceReference,
+  }))
+  await selectRecordLabelSuggestion(suggestion)
+}
+
+async function selectRecordLabelSuggestion(suggestion: RecordLabelSuggestion) {
+  if (!album.value) return
+
+  const key = recordLabelSuggestionKey(suggestion)
+  recordLabelSuggestionConfirming.value = key
+  recordLabelSuggestionsError.value = null
+  try {
+    const result = await apiRequest<RecordLabelSuggestionPayload>(
+      `/albums/${album.value.id}/record-label-suggestions/select`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: suggestion.provider,
+          sourceReference: suggestion.sourceReference,
+        }),
+      },
+    )
+    recordLabelSuggestions.value = result.suggestions
+    if (result.musicianReleaseResolved) onlineInformationRevision.value++
+  } catch (cause) {
+    recordLabelSuggestionsError.value = cause instanceof Error
+      ? cause.message
+      : t('albums.recordLabelSuggestionsFailed')
+  } finally {
+    recordLabelSuggestionConfirming.value = null
+  }
+}
+
+async function confirmRecordLabelSource(suggestion: RecordLabelSuggestion) {
+  if (!album.value || !suggestion.matchesCurrent || suggestion.sourceConfirmed) return
+
+  const key = recordLabelSuggestionKey(suggestion)
+  recordLabelSuggestionConfirming.value = key
+  recordLabelSuggestionsError.value = null
+  try {
+    const result = await apiRequest<RecordLabelSuggestionPayload>(
+      `/albums/${album.value.id}/record-label-suggestions/confirm`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          provider: suggestion.provider,
+          sourceReference: suggestion.sourceReference,
+        }),
+      },
+    )
+    recordLabelSuggestions.value = result.suggestions
+    if (result.musicianReleaseResolved) onlineInformationRevision.value++
+  } catch (cause) {
+    recordLabelSuggestionsError.value = cause instanceof Error
+      ? cause.message
+      : t('albums.recordLabelSourceConfirmationFailed')
+  } finally {
+    recordLabelSuggestionConfirming.value = null
+  }
+}
+
+function addMetadataRecordLabel() {
+  if (metadataForm.recordLabels.length >= 20) return
+  metadataForm.recordLabels.push({ name: '', catalogNumber: null })
+}
+
+function removeMetadataRecordLabel(index: number) {
+  metadataForm.recordLabels.splice(index, 1)
 }
 
 async function previewMetadataEdit() {
@@ -605,13 +772,20 @@ function metadataFieldLabel(field: AlbumMetadataChange['field']) {
     releaseYear: t('albums.releaseYear'),
     totalDiscs: t('albums.totalDiscs'),
     genres: t('tracks.genres'),
+    recordLabels: t('albums.recordLabels'),
     comment: t('tracks.comment'),
     removedTagKeys: t('tracks.removeAdditionalTags'),
   }[field]
 }
 
 function metadataValue(value: AlbumMetadataChange['current']) {
-  if (Array.isArray(value)) return value.length ? value.join(', ') : '-'
+  if (Array.isArray(value)) {
+    if (!value.length) return '-'
+    return value.map((item) => {
+      if (typeof item === 'string') return item
+      return item.catalogNumber ? `${item.name} · ${item.catalogNumber}` : item.name
+    }).join(', ')
+  }
   return value === null || value === '' ? '-' : String(value)
 }
 
@@ -737,8 +911,8 @@ onUnmounted(() => {
           <v-card-text class="text-medium-emphasis">
             {{ albumDetails }}<span v-if="albumPlayingTime"> · {{ t('catalog.playingTime', { duration: albumPlayingTime }) }}</span>
             <span v-if="showLibraryRoot && album.libraryRoot"> · {{ album.libraryRoot.name }}</span>
-            <div v-if="albumGenres.length || artistCountry || albumTechnicalChips.length" class="album-classification mt-4">
-              <div v-if="albumGenres.length || artistCountry" class="d-flex flex-wrap ga-2">
+            <div v-if="albumGenres.length || artistCountry || album.recordLabels.length || albumTechnicalChips.length" class="album-classification mt-4">
+              <div v-if="albumGenres.length || artistCountry || album.recordLabels.length" class="d-flex flex-wrap ga-2">
                 <v-chip
                   v-for="genre in albumGenres"
                   :key="genre.id"
@@ -755,6 +929,18 @@ onUnmounted(() => {
                   variant="outlined"
                 >
                   {{ t('player.country') }}: {{ artistCountry }}
+                </v-chip>
+                <v-chip
+                  v-for="recordLabel in album.recordLabels"
+                  :key="`${recordLabel.id}:${recordLabel.catalogNumber ?? ''}`"
+                  class="album-record-label-chip text-medium-emphasis"
+                  prepend-icon="mdi-label-outline"
+                  size="small"
+                  :title="recordLabelText(recordLabel)"
+                  :to="{ name: 'albums', query: { label: recordLabel.id, labelName: recordLabel.name } }"
+                  variant="outlined"
+                >
+                  {{ t('albums.recordLabel') }}: {{ recordLabelText(recordLabel) }}
                 </v-chip>
               </div>
               <div v-if="albumTechnicalChips.length" class="d-flex flex-wrap ga-2">
@@ -1028,6 +1214,7 @@ onUnmounted(() => {
 
     <AlbumOnlineInformation
       v-if="tracks[0]"
+      :key="`album-online-${albumId}-${onlineInformationRevision}`"
       :album-id="albumId"
       class="mt-8"
       :track-id="tracks[0].id"
@@ -1112,6 +1299,147 @@ onUnmounted(() => {
             multiple
             persistent-hint
           />
+          <div class="d-flex align-center justify-space-between mb-2">
+            <div>
+              <div class="text-subtitle-2">{{ t('albums.recordLabels') }}</div>
+              <div class="text-caption text-medium-emphasis">{{ t('albums.metadataRecordLabelsHint') }}</div>
+            </div>
+            <v-btn
+              :disabled="metadataForm.recordLabels.length >= 20"
+              prepend-icon="mdi-plus"
+              size="small"
+              variant="text"
+              @click="addMetadataRecordLabel"
+            >
+              {{ t('albums.addRecordLabel') }}
+            </v-btn>
+          </div>
+          <div v-if="!metadataForm.recordLabels.length" class="text-caption text-medium-emphasis mb-4">
+            {{ t('albums.noRecordLabels') }}
+          </div>
+          <v-row
+            v-for="(recordLabel, index) in metadataForm.recordLabels"
+            :key="index"
+            align="center"
+            class="metadata-record-label-row"
+            dense
+          >
+            <v-col cols="12" sm="7">
+              <v-text-field
+                v-model="recordLabel.name"
+                density="compact"
+                hide-details
+                :label="t('albums.recordLabel')"
+                maxlength="255"
+              />
+            </v-col>
+            <v-col cols="10" sm="4">
+              <v-text-field
+                v-model="recordLabel.catalogNumber"
+                density="compact"
+                hide-details
+                :label="t('albums.catalogNumber')"
+                maxlength="128"
+              />
+            </v-col>
+            <v-col class="d-flex justify-end" cols="2" sm="1">
+              <TooltipIconButton
+                color="error"
+                icon="mdi-delete-outline"
+                size="small"
+                :text="t('albums.removeRecordLabel')"
+                variant="text"
+                @click="removeMetadataRecordLabel(index)"
+              />
+            </v-col>
+          </v-row>
+          <div class="record-label-suggestions mb-4">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <div class="text-subtitle-2">{{ t('albums.recordLabelSuggestions') }}</div>
+              <v-btn
+                v-if="recordLabelSuggestionsLoaded"
+                :disabled="recordLabelSuggestionsLoading"
+                icon="mdi-refresh"
+                size="x-small"
+                :title="t('albums.refreshRecordLabelSuggestions')"
+                variant="text"
+                @click="loadRecordLabelSuggestions"
+              />
+            </div>
+            <v-progress-linear v-if="recordLabelSuggestionsLoading" color="primary" indeterminate rounded />
+            <v-alert v-if="recordLabelSuggestionsError" class="mb-2" density="compact" type="warning" variant="tonal">
+              {{ recordLabelSuggestionsError }}
+            </v-alert>
+            <div v-if="recordLabelSuggestions.length" class="d-flex flex-column ga-2">
+              <v-card
+                v-for="suggestion in recordLabelSuggestions"
+                :key="`${suggestion.provider}:${suggestion.sourceReference}`"
+                border
+                density="compact"
+                variant="tonal"
+              >
+                <v-card-text class="record-label-suggestion">
+                  <div class="min-width-0">
+                    <div class="d-flex flex-wrap align-center ga-2">
+                      <strong>{{ suggestion.providerLabel }}</strong>
+                      <v-chip
+                        :color="suggestion.matchesCurrent ? 'success' : 'primary'"
+                        size="x-small"
+                        variant="tonal"
+                      >
+                        {{ suggestion.matchesCurrent
+                          ? t('albums.recordLabelSuggestionMatches')
+                          : t('albums.recordLabelSuggestionDiffers') }}
+                      </v-chip>
+                    </div>
+                    <div class="text-body-2 text-medium-emphasis mt-1">
+                      {{ suggestion.recordLabels.map(recordLabelText).join(', ') }}
+                    </div>
+                    <div
+                      v-if="suggestion.sourceDescription || suggestion.sourceTrackCount != null"
+                      class="text-caption text-medium-emphasis"
+                    >
+                      <span v-if="suggestion.sourceDescription">{{ suggestion.sourceDescription }}</span>
+                      <span v-if="suggestion.sourceTrackCount != null">
+                        <span v-if="suggestion.sourceDescription"> · </span>{{ t('albums.trackCount', { count: suggestion.sourceTrackCount }) }}
+                      </span>
+                    </div>
+                    <a
+                      v-if="suggestion.sourceUrl"
+                      class="text-caption"
+                      :href="suggestion.sourceUrl"
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      {{ t('albums.openRecordLabelSource') }}
+                    </a>
+                  </div>
+                  <v-btn
+                    color="primary"
+                    :disabled="suggestion.sourceConfirmed"
+                    :loading="recordLabelSuggestionConfirming === recordLabelSuggestionKey(suggestion)"
+                    size="small"
+                    variant="tonal"
+                    @click="suggestion.matchesCurrent
+                      ? confirmRecordLabelSource(suggestion)
+                      : useRecordLabelSuggestion(suggestion)"
+                  >
+                    {{ suggestion.matchesCurrent
+                      ? t(suggestion.sourceConfirmed
+                        ? 'albums.recordLabelSourceConfirmed'
+                        : 'albums.confirmRecordLabelSource')
+                      : t('albums.useRecordLabelSuggestion') }}
+                  </v-btn>
+                </v-card-text>
+              </v-card>
+            </div>
+            <div
+              v-else-if="recordLabelSuggestionsLoaded && !recordLabelSuggestionsLoading && !recordLabelSuggestionsError"
+              class="text-caption text-medium-emphasis"
+            >
+              {{ t('albums.noRecordLabelSuggestions') }}
+            </div>
+          </div>
           <v-switch
             v-model="metadataCommentEnabled"
             color="primary"
@@ -1299,10 +1627,12 @@ onUnmounted(() => {
   gap: 0.5rem 1.5rem;
 }
 
+.album-record-label-chip,
 .album-technical-chip {
-  max-width: 18rem;
+  max-width: 22rem;
 }
 
+.album-record-label-chip :deep(.v-chip__content),
 .album-technical-chip :deep(.v-chip__content) {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1317,6 +1647,20 @@ onUnmounted(() => {
 .metadata-file-list {
   max-height: 320px;
   overflow-y: auto;
+}
+
+.record-label-suggestion {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+@media (max-width: 599px) {
+  .record-label-suggestion {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .album-stat-grid {

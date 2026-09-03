@@ -233,7 +233,9 @@ Physical file information:
 - `artists`
 - `albums`
 - `genres`
-- Track-artist and track-genre pivot tables
+- `record_labels` plus album-label assignments that retain catalog number and
+  source provenance
+- Track-artist, track-genre, and album-label pivot tables
 
 Tracks contain normalized values such as title, duration, year, track number, disc number, and links to the source media file.
 
@@ -770,6 +772,13 @@ Completed:
   embedding and refined scores without mutating playback state. Explicit
   play-now and add-to-queue requests return a verified preview whose playable
   payload stays outside model context and requires browser-side confirmation.
+- Normalized record-label support with catalog-number and source provenance,
+  embedded-tag import, album-level MP3 editing, label-filtered browsing and
+  playback, and explicitly confirmed exact-release provider suggestions.
+  MusicBrainz suggestions reuse exact editions already discovered by musician
+  matching and show date, country, format, and track count. Selecting one
+  edition consistently resolves label provenance, musician credits, and Album
+  information without requiring the same ambiguity to be settled repeatedly.
 
 Open roadmap work:
 
@@ -789,6 +798,10 @@ Open roadmap work:
   default.
 - Optional measured playlist-order refinements such as inspectable transition
   penalties or a Thorough mode, only if they improve accepted previews
+- Optional audio-quality audit for identifying files whose declared bitrate or
+  format appears inconsistent with their spectral content. This is a deferred,
+  low-priority review aid and must not automatically relabel, move, or delete
+  files.
 - Optional remote access with trusted-browser enrollment, explicit local
   approval, revocation, and server-enforced read-only capabilities. Prefer a
   private overlay network; direct Internet exposure requires a production
@@ -1159,6 +1172,24 @@ File writes remain queued and require a preview and explicit confirmation.
 - Optimize padded MP3 tag updates without copying the audio payload, while
   retaining recovery, verification, rollback, and full-copy fallback behavior.
   (Complete)
+- Add normalized record labels rather than treating `PUBLISHER` as an opaque
+  custom field. Keep multiple label/catalog-number pairs per album and preserve
+  provenance. Embedded-tag import recognizes MP3 `TPUB`, Vorbis/FLAC `LABEL`
+  and `ORGANIZATION`, APEv2 `Label`, and custom `PUBLISHER` aliases. Rebuild only
+  scanner-owned assignments from all available files in an affected album so
+  partial scans and conflicting discs do not discard data. Expose the normalized
+  label/catalog-number pairs on album details while retaining every contributing
+  source in the API payload. Album metadata editing supports repeatable
+  label/catalog-number rows, repairs inconsistent files, and exports MP3 values
+  as `TPUB` plus `TXXX:CATALOGNUMBER` with read-back verification. Label chips
+  open the album catalog with a persistent label filter, and random or
+  continuous album playback remains inside that filtered scope. (Schema,
+  scanner import, album-detail display, editing, MP3 export, album filtering,
+  explicitly confirmed exact-release provider suggestions, and provenance-only
+  confirmation for already-matching file tags complete. Exact MusicBrainz
+  candidates are shared with musician matching, include release track counts,
+  and one explicit edition choice also resolves musician and album-information
+  ambiguity.)
 
 ### 5c. Listening History And Scrobbling
 
@@ -1538,6 +1569,30 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
   the private collection. (Ready to implement: explicit feedback and baseline
   evaluation are complete; the first version remains a small local reranker.)
 
+### 5g. Optional Audio Quality Audit
+
+This is a useful collection-maintenance feature but is intentionally deferred
+until higher-priority catalog, packaging, and assistant work is complete.
+
+- Reuse Sonotheque's existing `FFMPEG_BINARY` and `FFPROBE_BINARY`
+  configuration. Local installations use binaries from `PATH` or explicit
+  paths, while packaged installations use FFmpeg already included in the
+  backend image. Do not require Spek, a second service, or a permanently running
+  analysis container.
+- Run audits asynchronously, optionally, and disabled by default. Make large
+  collection runs pausable and resumable, and key results by the audio-content
+  fingerprint and analysis version so unchanged files are not analyzed twice.
+- Compare declared codec and bitrate with conservative signal measurements such
+  as usable frequency range and persistent low-pass cutoffs. Offer an optional
+  spectrogram for manual inspection and summarize inconsistent tracks at album
+  level.
+- Present findings as confidence-rated review candidates, not facts. Encoding
+  choices, mastering, historic recordings, vinyl transfers, and naturally
+  limited source material can resemble a lower-bitrate transcode.
+- Never change metadata, ratings, availability, file paths, or files based on an
+  automated result. Any future corrective action must be an explicit user
+  decision.
+
 ### 6. Settings and Scan Management
 
 - Add and remove library roots. (Complete)
@@ -1600,7 +1655,11 @@ playlist-order strategies are evidence-driven refinements rather than blockers.
   their prior logs; packaged queue services use Docker restart policies.)
 - Add manual backup and restore commands for PostgreSQL data and application
   storage. (Complete with checksummed development and packaged bundles,
-  APP_KEY preservation, safety backups, and Settings status)
+  APP_KEY preservation, safety backups, and Settings status. Settings > System
+  now also creates single-file `.sonotheque-backup` archives asynchronously,
+  validates selectable archives before restore, requires confirmation, enters
+  maintenance mode, and automatically rolls back to a safety backup if the
+  guarded restore fails.)
 
 ## Recommended Next Step
 
@@ -1881,6 +1940,10 @@ The first milestone is complete when:
   MP3 synchronization uses a Sonotheque-owned `POPM` entry for track ratings
   and `TXXX:SONOTHEQUE_ALBUM_RATING` for album ratings; other `POPM` entries are
   preserved.
+- Use **Label** as the catalog term for record labels. Accept format-specific
+  publisher and organization aliases on import, but keep composition-publishing
+  rights as a separate future concept. Exact MusicBrainz and Discogs release
+  labels remain edition-specific suggestions until explicitly applied.
 - Treat the selected library root as session-level query context, with all roots
   as the default, rather than modifying or duplicating catalog records.
 - Keep personal album information separate from scanned metadata so filesystem

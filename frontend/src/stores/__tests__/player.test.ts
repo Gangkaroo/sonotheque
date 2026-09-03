@@ -93,6 +93,7 @@ describe('player store', () => {
       trackCount: tracks.length,
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
+      recordLabels: [],
       technical: emptyAlbumTechnical,
       additionalTags: [],
       tracks,
@@ -115,6 +116,7 @@ describe('player store', () => {
       trackCount: 1,
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
+      recordLabels: [],
       technical: emptyAlbumTechnical,
       additionalTags: [],
       tracks: [nextTrack],
@@ -133,6 +135,7 @@ describe('player store', () => {
       trackCount: tracks.length,
       personalMetadata: { hasPhysicalCopy: false },
       genres: [],
+      recordLabels: [],
       technical: emptyAlbumTechnical,
       additionalTags: [],
       tracks,
@@ -165,6 +168,7 @@ describe('player store', () => {
       trackCount: 1,
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
+      recordLabels: [],
       technical: emptyAlbumTechnical,
       additionalTags: [],
       tracks: [tracks[0]],
@@ -177,6 +181,7 @@ describe('player store', () => {
       trackCount: 1,
       personalMetadata: { hasPhysicalCopy: true },
       genres: [],
+      recordLabels: [],
       technical: emptyAlbumTechnical,
       additionalTags: [],
       tracks: [nextTrack],
@@ -195,6 +200,8 @@ describe('player store', () => {
       year: 2001,
       genreId: 12,
       genreName: 'Rock',
+      labelId: 14,
+      labelName: 'Scoped Label',
       musicianId: null,
       musicianName: '',
       physicalCopy: 'owned',
@@ -208,12 +215,12 @@ describe('player store', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      '/api/catalog/playback/albums/random?libraryRoot=7&search=Alpha+Artist&genre=12&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
+      '/api/catalog/playback/albums/random?libraryRoot=7&search=Alpha+Artist&genre=12&label=14&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
       expect.any(Object),
     )
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      '/api/catalog/playback/albums/random?exclude=10&libraryRoot=7&search=Alpha+Artist&genre=12&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
+      '/api/catalog/playback/albums/random?exclude=10&libraryRoot=7&search=Alpha+Artist&genre=12&label=14&physicalCopy=owned&initial=A&year=2001&sort=year_desc',
       expect.any(Object),
     )
     expect(player.currentTrack?.title).toBe('Scoped next')
