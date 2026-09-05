@@ -147,7 +147,7 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
 
         foreach (['genres', 'artistNames', 'composers', 'performers'] as $field) {
             if (array_key_exists($field, $values)
-                && ! $this->sameNames($values[$field], $this->metadataValues($metadata, $field))) {
+                && ! $this->sameNames($values[$field], $this->metadataValues($metadata, $field), $field === 'artistNames')) {
                 return $field;
             }
         }
@@ -247,10 +247,12 @@ class Mp3TrackMetadataWriter implements TrackMetadataWriter
     /** @param list<string> $left
      * @param  list<string>  $right
      */
-    private function sameNames(array $left, array $right): bool
+    private function sameNames(array $left, array $right, bool $caseSensitive = false): bool
     {
-        $normalize = static function (array $names): array {
-            $names = array_map('mb_strtolower', $names);
+        $normalize = static function (array $names) use ($caseSensitive): array {
+            if (! $caseSensitive) {
+                $names = array_map('mb_strtolower', $names);
+            }
             sort($names);
 
             return $names;

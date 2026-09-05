@@ -140,7 +140,7 @@ class AlbumMetadataApiTest extends TestCase
         Queue::fake();
         $album = $this->createAlbum(['01.mp3', '02.mp3']);
         $album->tracks()->orderBy('track_number')->get()[1]->mediaFile->update([
-            'raw_metadata' => ['comments' => []],
+            'raw_metadata' => ['comments' => ['artist' => ['Artist']]],
         ]);
         $values = [
             'albumTitle' => 'Album',
@@ -244,6 +244,52 @@ class AlbumMetadataApiTest extends TestCase
         );
     }
 
+    public function test_case_only_artist_changes_are_written_to_every_track(): void
+    {
+        Queue::fake();
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $values = [
+            'albumTitle' => 'Album', 'albumArtist' => 'ARTIST', 'updateTrackArtists' => true,
+            'releaseYear' => 2000, 'totalDiscs' => null, 'genres' => [],
+        ];
+
+        $preview = $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('trackArtistsWillChange', true)
+            ->assertJsonPath('files.0.writeValues.artistNames', ['ARTIST'])
+            ->assertJsonPath('files.1.writeValues.artistNames', ['ARTIST'])
+            ->json();
+        $this->postJson("/api/albums/{$album->id}/metadata-edits", [
+            ...$values, 'fingerprint' => $preview['fingerprint'],
+        ])->assertAccepted();
+        foreach (MetadataEditItem::all() as $item) {
+            $this->assertSame(['ARTIST'], $item->requested_changes['artistNames']);
+        }
+    }
+
+    public function test_it_repairs_file_artist_casing_when_catalog_and_album_artist_are_already_correct(): void
+    {
+        $album = $this->createAlbum(['01.mp3', '02.mp3']);
+        $album->mediaFiles()->update(['raw_metadata' => ['comments' => [
+            'album_artist' => ['Artist'], 'artist' => ['ARTIST'],
+        ]]]);
+        $values = [
+            'albumTitle' => 'Album', 'albumArtist' => 'Artist', 'updateTrackArtists' => true,
+            'releaseYear' => 2000, 'totalDiscs' => null, 'genres' => [],
+        ];
+
+        $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
+            ->assertOk()
+            ->assertJsonPath('trackArtistsWillChange', true)
+            ->assertJsonPath('changes.0.fileValuesDiffer', true)
+            ->assertJsonPath('files.0.writeValues.artistNames', ['Artist'])
+            ->assertJsonPath('files.1.writeValues.artistNames', ['Artist']);
+
+        $this->postJson("/api/albums/{$album->id}/metadata/preview", [
+            ...$values, 'updateTrackArtists' => false,
+        ])->assertOk()->assertJsonPath('changes', [])->assertJsonPath('files', []);
+    }
+
     public function test_it_can_repair_record_label_tags_that_are_missing_from_some_album_files(): void
     {
         Queue::fake();
@@ -262,6 +308,7 @@ class AlbumMetadataApiTest extends TestCase
             'raw_metadata' => [
                 'comments' => [
                     'album_artist' => ['Artist'],
+                    'artist' => ['Artist'],
                     'publisher' => ['InsideOut Music'],
                     'catalognumber' => ['IOMCD 123'],
                 ],
@@ -394,6 +441,7 @@ class AlbumMetadataApiTest extends TestCase
         ]];
         $comments = [
             'album_artist' => ['Artist'],
+            'artist' => ['Artist'],
             'source' => [$source],
         ];
         if ($playCount !== null) {
@@ -442,6 +490,7 @@ class AlbumMetadataApiTest extends TestCase
                 'raw_metadata' => [
                     'comments' => [
                         'album_artist' => ['Artist'],
+                        'artist' => ['Artist'],
                     ],
                 ],
             ]);

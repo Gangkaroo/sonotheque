@@ -70,6 +70,21 @@ class AdditionalMetadataTagsTest extends TestCase
         $this->assertFalse(collect($tags)->firstWhere('key', 'TXXX:SOURCE')['playbackStatistic']);
     }
 
+    public function test_it_excludes_managed_label_and_catalogue_fields_from_custom_tag_removal(): void
+    {
+        $metadata = ['id3v2' => [
+            'TPUB' => [['data' => 'Label']],
+            'TXXX' => array_map(
+                static fn (string $name): array => ['description' => $name, 'data' => 'Value'],
+                ['LABEL', 'Publisher', 'ORGANIZATION', 'Record Label', 'CATALOG', 'CATALOGNUMBER',
+                    'Catalog No', 'Catalog_Nr', 'Catalogue Number', 'CatalogueNo', 'SOURCE'],
+            ),
+            'COMM' => [['description' => 'Publisher', 'data' => 'Unrelated described comment']],
+        ]];
+
+        $this->assertSame(['COMM:PUBLISHER', 'TXXX:SOURCE'], (new AdditionalMetadataTags())->keys($metadata));
+    }
+
     public function test_it_identifies_rating_frames(): void
     {
         $metadata = [

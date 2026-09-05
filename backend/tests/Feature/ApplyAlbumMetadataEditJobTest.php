@@ -202,6 +202,10 @@ class ApplyAlbumMetadataEditJobTest extends TestCase
         $preview = $editing->preview($album, $values);
 
         $this->assertSame(['albumArtist'], array_column($preview['changes'], 'field'));
+        $this->assertTrue($preview['trackArtistsWillChange']);
+        foreach ($preview['files'] as $file) {
+            $this->assertSame(['Amen'], $file['writeValues']['artistNames']);
+        }
 
         $edit = $editing->queue($album, $values, $preview['fingerprint']);
         $this->app->call([new ApplyAlbumMetadataEdit($edit->id), 'handle']);

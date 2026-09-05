@@ -255,6 +255,34 @@ class TrackMetadataApiTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_it_rejects_catalogue_number_removal_through_custom_tags(): void
+    {
+        Queue::fake();
+        $track = $this->createTrack('track.mp3');
+        $track->mediaFile->update(['raw_metadata' => ['id3v2' => [
+            'TXXX' => [['description' => 'CATALOGNUMBER', 'data' => 'EX-123']],
+        ]]]);
+
+        $this->getJson("/api/catalog/tracks/{$track->id}")
+            ->assertOk()
+            ->assertJsonPath('mediaFile.additionalTags', []);
+
+        $this->postJson("/api/tracks/{$track->id}/metadata/preview", [
+            'title' => 'Track',
+            'artistNames' => ['Artist'],
+            'composers' => [],
+            'performers' => [],
+            'comment' => null,
+            'genres' => [],
+            'trackNumber' => 1,
+            'discNumber' => 1,
+            'year' => 2000,
+            'removedTagKeys' => ['TXXX:CATALOGNUMBER'],
+        ])->assertUnprocessable()->assertJsonValidationErrors('removedTagKeys');
+
+        Queue::assertNothingPushed();
+    }
+
     private function createTrack(string $filename): Track
     {
         $artist = Artist::create([

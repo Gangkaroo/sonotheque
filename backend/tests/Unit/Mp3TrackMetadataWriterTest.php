@@ -31,6 +31,24 @@ class Mp3TrackMetadataWriterTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_it_preserves_case_only_artist_corrections_in_file_tags(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'track.mp3';
+        $audio = str_repeat("\xFF\xFB\x90\x64", 128);
+        $payload = $this->frame('TPE1', "\0VIRGIN STEELE")
+            .$this->frame('TPE2', "\0Virgin Steele")
+            .str_repeat("\0", 1024);
+        file_put_contents($path, 'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload.$audio);
+
+        $metadata = (new Mp3TrackMetadataWriter(new Mp3Id3v2TagEditor(), new TestId3MetadataReader()))->write($path, [
+            'artistNames' => ['Virgin Steele'],
+        ]);
+
+        $this->assertSame(['Virgin Steele'], $metadata->artists);
+        $this->assertSame('Virgin Steele', $metadata->albumArtist);
+        $this->assertStringEndsWith($audio, file_get_contents($path));
+    }
+
     public function test_it_writes_track_fields_and_preserves_totals_unrelated_frames_and_audio(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'track.mp3';

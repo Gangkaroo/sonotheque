@@ -102,10 +102,8 @@ class AlbumMetadataEditing
         $albumArtistFilesMatch = ! $albumArtistFileValues
             ->contains(fn (?string $artist): bool => $artist !== $values['albumArtist']);
         $trackArtistsMatch = $album->tracks->every(
-            fn ($track): bool => $this->sameNames(
-                $track->artists->pluck('name')->values()->all(),
-                [$values['albumArtist']],
-            ),
+            fn ($track): bool => $track->artists->pluck('name')->values()->all() === [$values['albumArtist']]
+                && $this->fileTrackArtists($track->mediaFile?->raw_metadata ?? []) === [$values['albumArtist']],
         );
         $current = [
             'albumTitle' => $album->title,
@@ -331,6 +329,33 @@ class AlbumMetadataEditing
         };
 
         return $normalize($left) === $normalize($right);
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     * @return list<string>
+     */
+    private function fileTrackArtists(array $metadata): array
+    {
+        foreach ([
+            'comments.artist',
+            'comments.artists',
+            'id3v2.comments.artist',
+            'tags.id3v2.artist',
+            'ffprobe_fallback.format.tags.artist',
+        ] as $path) {
+            $artists = [];
+            foreach ((array) data_get($metadata, $path) as $value) {
+                if (is_scalar($value) && trim((string) $value) !== '') {
+                    $artists[] = trim((string) $value);
+                }
+            }
+            if ($artists !== []) {
+                return array_values(array_unique($artists));
+            }
+        }
+
+        return [];
     }
 
     /** @param array<string, mixed> $metadata */

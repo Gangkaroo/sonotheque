@@ -2,8 +2,14 @@
 
 namespace App\Music\Metadata;
 
+use App\Music\Catalog\RecordLabelTagReader;
+
 final class AdditionalMetadataTags
 {
+    public function __construct(private readonly RecordLabelTagReader $recordLabelReader = new RecordLabelTagReader())
+    {
+    }
+
     /** @var list<string> */
     private const PLAYBACK_STATISTIC_NAMES = [
         'play_count',
@@ -61,6 +67,10 @@ final class AdditionalMetadataTags
 
                 $description = trim((string) ($frame['description'] ?? ''));
                 if ($frameId === 'COMM' && $description === '') {
+                    continue;
+                }
+
+                if ($frameId === 'TXXX' && $this->recordLabelReader->recognizesField($description)) {
                     continue;
                 }
 

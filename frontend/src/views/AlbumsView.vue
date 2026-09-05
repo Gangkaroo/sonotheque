@@ -505,7 +505,24 @@ onUnmounted(() => {
           />
         </div>
         <v-card-item>
-          <template #append>
+          <v-card-title>{{ album.title }}</v-card-title>
+          <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
+        </v-card-item>
+        <v-card-text class="album-card-details pt-0 text-medium-emphasis">
+          <div class="album-card-summary">
+            <span class="album-card-detail-text">
+              {{ albumDetails(album) }}
+              <v-chip
+                v-if="album.personalMetadata.hasPhysicalCopy"
+                class="ms-2"
+                color="primary"
+                prepend-icon="mdi-disc"
+                size="x-small"
+                variant="tonal"
+              >
+                {{ t('albums.physicalCopy') }}
+              </v-chip>
+            </span>
             <CatalogRating
               :entity-id="album.id"
               entity-type="album"
@@ -515,24 +532,7 @@ onUnmounted(() => {
               @click.prevent.stop
               @update:model-value="album.rating = $event"
             />
-          </template>
-          <v-card-title>{{ album.title }}</v-card-title>
-          <v-card-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-card-subtitle>
-        </v-card-item>
-        <v-card-text class="album-card-details pt-0 text-medium-emphasis">
-          <span class="album-card-detail-text">
-            {{ albumDetails(album) }}
-            <v-chip
-              v-if="album.personalMetadata.hasPhysicalCopy"
-              class="ms-2"
-              color="primary"
-              prepend-icon="mdi-disc"
-              size="x-small"
-              variant="tonal"
-            >
-              {{ t('albums.physicalCopy') }}
-            </v-chip>
-          </span>
+          </div>
           <TooltipIconButton
             :text="t('albums.playAlbum')"
             :aria-label="t('albums.playAlbum')"
@@ -598,6 +598,14 @@ onUnmounted(() => {
 }
 
 .album-card-detail-text {
+  min-width: 0;
+}
+
+.album-card-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   min-width: 0;
 }
 </style>

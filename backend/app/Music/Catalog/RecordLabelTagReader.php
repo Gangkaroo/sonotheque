@@ -24,6 +24,11 @@ final class RecordLabelTagReader
         'catalogueno',
     ];
 
+    public function recognizesField(string $name): bool
+    {
+        return in_array($this->normalizedKey($name), [...self::LABEL_KEYS, ...self::CATALOG_NUMBER_KEYS], true);
+    }
+
     /** @param array<string, mixed> $rawMetadata */
     public function read(array $rawMetadata): ImportedRecordLabels
     {
