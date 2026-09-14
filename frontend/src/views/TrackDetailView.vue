@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
-import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTagRemovalList.vue'
 import CatalogDates from '@/components/CatalogDates.vue'
 import CatalogRating from '@/components/CatalogRating.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import TrackMetadataDialog from '@/components/TrackMetadataDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import { apiRequest } from '@/api/client'
-import { useBackgroundJobPolling } from '@/composables/useBackgroundJobPolling'
 import { useCatalogStore, type AdditionalMetadataTag } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore, withLibraryRootScope } from '@/stores/libraryRootScope'
@@ -34,77 +33,14 @@ const addToPlaylistDialog = ref(false)
 const similarTracksDialog = ref(false)
 const recentPlaysPage = ref(1)
 const metadataDialog = ref(false)
-const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
-const metadataLoading = ref(false)
-const metadataError = ref<string | null>(null)
 const metadataSuccess = ref(false)
-const metadataPreview = ref<MetadataPreview | null>(null)
-const metadataRemovedTagKeys = ref<string[]>([])
 const artistNavigation = ref<ArtistTrackNavigation | null>(null)
 const artistNavigationLoading = ref(false)
-const metadataForm = reactive({
-  title: '',
-  artistNames: [] as string[],
-  composers: [] as string[],
-  performers: [] as string[],
-  genres: [] as string[],
-  comment: '',
-  trackNumber: '',
-  discNumber: '',
-  year: '',
-})
 let artistNavigationRequest = 0
 
 interface ArtistTrackNavigation {
   previousTrackId: number | null
   nextTrackId: number | null
-}
-
-interface MetadataChange {
-  field: 'title' | 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year' | 'removedTagKeys'
-  current: string | number | string[] | null
-  proposed: string | number | string[] | null
-}
-
-interface MetadataPreview {
-  trackId: number
-  file: string
-  format: string
-  supported: boolean
-  supportIssue?: string | null
-  fingerprint: string
-  values: MetadataValues
-  changes: MetadataChange[]
-}
-
-interface MetadataValues {
-  title: string
-  artistNames: string[]
-  composers: string[]
-  performers: string[]
-  genres: string[]
-  comment: string | null
-  trackNumber: number | null
-  discNumber: number | null
-  year: number | null
-  removedTagKeys: string[]
-}
-
-interface MetadataEditJob {
-  id: number
-  trackId: number
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  error?: string | null
-  failureReason?: string | null
-  backup?: MetadataBackup | null
-}
-
-interface MetadataBackup {
-  id: number
-  path: string
-  expiresAt: string | null
-  restoredAt: string | null
-  deletedAt: string | null
 }
 
 const trackId = computed(() => Number(route.params.id))
@@ -167,30 +103,6 @@ const backLabel = computed(() => {
   return t('tracks.back')
 })
 const track = computed(() => catalog.trackDetail)
-const {
-  job: metadataJob,
-  start: startMetadataPolling,
-  reset: resetMetadataPolling,
-} = useBackgroundJobPolling<MetadataEditJob>({
-  request: (id, signal) => apiRequest<MetadataEditJob>(`/metadata-edits/${id}`, { signal }),
-  isComplete: job => job.status === 'completed',
-  isTerminal: job => job.status === 'failed',
-  onComplete: async () => {
-    metadataDialog.value = false
-    metadataSuccess.value = true
-    catalog.invalidateCatalog()
-    await catalog.loadTrack(trackId.value)
-    if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
-    if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
-    if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
-  },
-  onTerminal: job => {
-    metadataError.value = job.failureReason ?? job.error ?? t('tracks.metadataEditFailed')
-  },
-  onError: cause => {
-    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
-  },
-})
 const albumNavigationTracks = computed(() => {
   if (!backAlbumId.value || catalog.albumDetail?.id !== backAlbumId.value) return []
 
@@ -279,7 +191,6 @@ const navigationLoading = computed(() => {
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const additionalMetadataTags = computed(() => track.value?.mediaFile?.additionalTags ?? [])
 const isCurrentTrack = computed(() => player.currentTrack?.id === track.value?.id)
-const canEditMetadata = computed(() => track.value?.mediaFile?.relativePath.toLowerCase().endsWith('.mp3') ?? false)
 const artistNames = computed(() => track.value?.artists.map((artist) => artist.name).join(', ') || t('catalog.unknownArtist'))
 const trackDetailRows = computed(() => {
   if (!track.value) return []
@@ -392,110 +303,16 @@ function queueTrack() {
 }
 
 function openMetadataEditor() {
-  if (!track.value) return
-
-  resetMetadataPolling()
-
-  Object.assign(metadataForm, {
-    title: track.value.title,
-    artistNames: track.value.artists.map((artist) => artist.name),
-    composers: [...track.value.composers],
-    performers: [...track.value.performers],
-    genres: track.value.genres.map((genre) => genre.name),
-    comment: track.value.comment ?? '',
-    trackNumber: track.value.trackNumber?.toString() ?? '',
-    discNumber: track.value.discNumber?.toString() ?? '',
-    year: track.value.year?.toString() ?? '',
-  })
-  metadataStep.value = 'form'
-  metadataPreview.value = null
-  metadataError.value = null
-  metadataRemovedTagKeys.value = []
-  metadataDialog.value = true
+  if (track.value) metadataDialog.value = true
 }
 
-function metadataValues(): MetadataValues {
-  return {
-    title: metadataForm.title.trim(),
-    artistNames: cleanNames(metadataForm.artistNames),
-    composers: cleanNames(metadataForm.composers),
-    performers: cleanNames(metadataForm.performers),
-    genres: cleanNames(metadataForm.genres),
-    comment: metadataForm.comment.trim() || null,
-    trackNumber: nullableInteger(metadataForm.trackNumber),
-    discNumber: nullableInteger(metadataForm.discNumber),
-    year: nullableInteger(metadataForm.year),
-    removedTagKeys: [...metadataRemovedTagKeys.value],
-  }
-}
-
-function cleanNames(names: string[]) {
-  return names.map((name) => name.trim()).filter(Boolean)
-}
-
-function nullableInteger(value: string) {
-  const trimmed = value.trim()
-  return trimmed === '' ? null : Number(trimmed)
-}
-
-async function previewMetadataEdit() {
-  if (!track.value) return
-
-  metadataLoading.value = true
-  metadataError.value = null
-  try {
-    metadataPreview.value = await apiRequest<MetadataPreview>(`/tracks/${track.value.id}/metadata/preview`, {
-      method: 'POST',
-      body: JSON.stringify(metadataValues()),
-    })
-    metadataStep.value = 'preview'
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
-  } finally {
-    metadataLoading.value = false
-  }
-}
-
-async function queueMetadataEdit() {
-  if (!track.value || !metadataPreview.value) return
-
-  metadataLoading.value = true
-  metadataError.value = null
-  try {
-    const job = await apiRequest<MetadataEditJob>(`/tracks/${track.value.id}/metadata-edits`, {
-      method: 'POST',
-      body: JSON.stringify({
-        ...metadataPreview.value.values,
-        fingerprint: metadataPreview.value.fingerprint,
-      }),
-    })
-    metadataStep.value = 'queued'
-    startMetadataPolling(job)
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
-  } finally {
-    metadataLoading.value = false
-  }
-}
-
-function metadataFieldLabel(field: MetadataChange['field']) {
-  return {
-    title: t('tracks.metadataTitle'),
-    artistNames: t('tracks.artists'),
-    composers: t('tracks.composers'),
-    performers: t('tracks.performers'),
-    genres: t('tracks.genres'),
-    comment: t('tracks.comment'),
-    trackNumber: t('tracks.trackNumber'),
-    discNumber: t('tracks.discNumber'),
-    year: t('tracks.year'),
-    removedTagKeys: t('tracks.removeAdditionalTags'),
-  }[field]
-}
-
-function metadataValue(value: MetadataChange['current']) {
-  if (Array.isArray(value)) return value.length ? value.join(', ') : '-'
-  return value === null || value === '' ? '-' : String(value)
+async function metadataCompleted() {
+  metadataSuccess.value = true
+  catalog.invalidateCatalog()
+  await catalog.loadTrack(trackId.value)
+  if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
+  if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
+  if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
 }
 
 function toggleTrack() {
@@ -580,7 +397,6 @@ async function loadArtistNavigation() {
 }
 
 watch([trackId, () => libraryRootScope.selectedRootId], ([id]) => {
-  resetMetadataPolling()
   if (!Number.isInteger(id) || id <= 0) return
 
   recentPlaysPage.value = 1
@@ -825,144 +641,12 @@ watch([backArtistId, trackId, () => libraryRootScope.selectedRootId], () => {
   <AddToPlaylistDialog v-model="addToPlaylistDialog" :tracks="playlistTracks" />
   <SimilarTracksDialog v-model="similarTracksDialog" :track-id="track?.id ?? null" />
 
-  <v-dialog v-model="metadataDialog" max-width="680" persistent>
-    <v-card prepend-icon="mdi-tag-edit-outline" :title="t('tracks.editMetadata')">
-      <v-card-text>
-        <v-alert v-if="metadataError" class="mb-4" type="error" variant="tonal">
-          {{ metadataError }}
-        </v-alert>
-
-        <template v-if="metadataStep === 'form'">
-          <v-alert v-if="!canEditMetadata" class="mb-4" type="warning" variant="tonal">
-            {{ t('tracks.metadataMp3Only') }}
-          </v-alert>
-          <v-text-field v-model="metadataForm.title" :label="t('tracks.metadataTitle')" maxlength="512" />
-          <v-combobox
-            v-model="metadataForm.artistNames"
-            chips
-            closable-chips
-            :label="t('tracks.artists')"
-            multiple
-          />
-          <v-combobox
-            v-model="metadataForm.composers"
-            chips
-            closable-chips
-            clearable
-            :label="t('tracks.composers')"
-            multiple
-          />
-          <v-combobox
-            v-model="metadataForm.performers"
-            chips
-            closable-chips
-            clearable
-            :label="t('tracks.performers')"
-            multiple
-          />
-          <v-combobox
-            v-model="metadataForm.genres"
-            chips
-            closable-chips
-            clearable
-            :label="t('tracks.genres')"
-            multiple
-          />
-          <v-textarea v-model="metadataForm.comment" auto-grow :label="t('tracks.comment')" maxlength="10000" rows="2" />
-          <v-row>
-            <v-col cols="12" sm="4">
-              <v-text-field v-model="metadataForm.trackNumber" inputmode="numeric" :label="t('tracks.trackNumber')" />
-            </v-col>
-            <v-col cols="12" sm="4">
-              <v-text-field v-model="metadataForm.discNumber" inputmode="numeric" :label="t('tracks.discNumber')" />
-            </v-col>
-            <v-col cols="12" sm="4">
-              <v-text-field v-model="metadataForm.year" inputmode="numeric" :label="t('tracks.year')" />
-            </v-col>
-          </v-row>
-          <template v-if="additionalMetadataTags.length">
-            <v-divider class="mb-4" />
-            <AdditionalMetadataTagRemovalList
-              v-model="metadataRemovedTagKeys"
-              :hint="t('tracks.removeAdditionalTagsHint')"
-              :tags="additionalMetadataTags"
-              :title="t('tracks.removeAdditionalTags')"
-            />
-          </template>
-          <div class="text-caption text-medium-emphasis">{{ t('tracks.metadataPreviewHint') }}</div>
-        </template>
-
-        <template v-else-if="metadataStep === 'preview' && metadataPreview">
-          <v-alert v-if="!metadataPreview.supported" class="mb-4" type="warning" variant="tonal">
-            {{ metadataPreview.supportIssue
-              ? t(`tracks.metadataSupportIssues.${metadataPreview.supportIssue}`)
-              : t('tracks.metadataMp3Only') }}
-          </v-alert>
-          <div class="text-body-2 text-medium-emphasis mb-3">{{ metadataPreview.file }}</div>
-          <v-list v-if="metadataPreview.changes.length" border rounded>
-            <v-list-item v-for="change in metadataPreview.changes" :key="change.field">
-              <v-list-item-title>{{ metadataFieldLabel(change.field) }}</v-list-item-title>
-              <v-list-item-subtitle class="metadata-change">
-                <span>{{ metadataValue(change.current) }}</span>
-                <v-icon icon="mdi-arrow-right" size="small" />
-                <strong>{{ metadataValue(change.proposed) }}</strong>
-              </v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
-          <v-alert v-else type="info" variant="tonal">{{ t('tracks.metadataNoChanges') }}</v-alert>
-        </template>
-
-        <template v-else-if="metadataStep === 'queued' && metadataJob">
-          <div class="d-flex align-center ga-3">
-            <v-progress-circular v-if="metadataJob.status !== 'failed'" color="primary" indeterminate size="28" />
-            <div>
-              <div class="font-weight-bold">{{ t(`tracks.metadataStatuses.${metadataJob.status}`) }}</div>
-              <div class="text-body-2 text-medium-emphasis">{{ t('tracks.metadataQueuedHint') }}</div>
-            </div>
-          </div>
-          <v-alert v-if="metadataJob.backup" class="mt-4" type="info" variant="tonal">
-            {{ t('settings.metadataBackupRecovery', { id: metadataJob.backup.id, path: metadataJob.backup.path }) }}
-          </v-alert>
-        </template>
-      </v-card-text>
-      <v-card-actions>
-        <v-btn
-          v-if="metadataStep === 'preview'"
-          :disabled="metadataLoading"
-          @click="metadataStep = 'form'"
-        >
-          {{ t('tracks.metadataBack') }}
-        </v-btn>
-        <v-spacer />
-        <v-btn
-          :disabled="metadataLoading || (metadataStep === 'queued' && metadataJob?.status !== 'failed')"
-          @click="metadataDialog = false"
-        >
-          {{ t('settings.cancel') }}
-        </v-btn>
-        <v-btn
-          v-if="metadataStep === 'form'"
-          color="primary"
-          :disabled="!canEditMetadata || !metadataForm.title.trim() || !cleanNames(metadataForm.artistNames).length"
-          :loading="metadataLoading"
-          variant="flat"
-          @click="previewMetadataEdit"
-        >
-          {{ t('tracks.metadataReview') }}
-        </v-btn>
-        <v-btn
-          v-else-if="metadataStep === 'preview'"
-          color="primary"
-          :disabled="!metadataPreview?.supported || !metadataPreview?.changes.length"
-          :loading="metadataLoading"
-          variant="flat"
-          @click="queueMetadataEdit"
-        >
-          {{ t('tracks.metadataApply') }}
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+  <TrackMetadataDialog
+    v-if="track"
+    v-model="metadataDialog"
+    :track="track"
+    @completed="metadataCompleted"
+  />
 
   <v-snackbar v-model="metadataSuccess" color="success" timeout="3000">
     {{ t('tracks.metadataCompleted') }}
@@ -996,12 +680,6 @@ watch([backArtistId, trackId, () => libraryRootScope.selectedRootId], () => {
   gap: 12px;
   height: 100%;
   padding: 12px;
-}
-
-.metadata-change {
-  align-items: center;
-  display: flex;
-  gap: 8px;
 }
 
 .track-actions {
