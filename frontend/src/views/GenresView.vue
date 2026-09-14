@@ -1,50 +1,26 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { toRefs } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
+import { useCatalogFilters, queryPage, querySearch } from '@/composables/useCatalogFilters'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 
 const { t } = useI18n()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const search = ref('')
-const page = ref(1)
-const resultsTop = ref<HTMLElement | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
-function load() {
-  void catalog.loadGenres({ page: page.value, search: search.value })
-}
-
-function changePage(value: number) {
-  if (value === page.value) return
-
-  page.value = value
-  void nextTick(() => {
-    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
-  })
-}
-
-useCachedViewActivation(load)
-
-watch([page, () => libraryRootScope.selectedRootId], load, { immediate: true })
-watch(search, () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  if (page.value !== 1) {
-    page.value = 1
-    return
-  }
-  searchTimer = setTimeout(load, 300)
+const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+  routeName: 'genres',
+  storageKey: 'sonotheque:genre-filters',
+  scope: () => libraryRootScope.selectedRootId,
+  parse: input => ({ page: queryPage(input.page), search: querySearch(input.search) }),
+  load: value => { void catalog.loadGenres(value) },
 })
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
+const { page } = toRefs(filters)
 </script>
 
 <template>

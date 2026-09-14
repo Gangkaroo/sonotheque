@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, toRefs, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
@@ -10,7 +9,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
+import { useCatalogFilters, queryNumber, queryPage, querySearch } from '@/composables/useCatalogFilters'
 import type { Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
@@ -19,7 +18,6 @@ import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { usePlayerStore, type TrackPlaybackScope } from '@/stores/player'
 import { usePlaylistsStore } from '@/stores/playlists'
 import { formatDateTime, formatDuration } from '@/utils/formatters'
-import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface TrackFilters {
   page: number
@@ -37,32 +35,38 @@ type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
 type TrackSort = 'album' | 'title' | 'year_asc' | 'year_desc' | 'plays' | 'last_played' | 'added'
 
 const { locale, t } = useI18n()
-const route = useRoute()
-const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
-const storageKey = 'sonotheque:track-filters'
-const restoredFilters = initialFilters()
-const search = ref(restoredFilters.search)
-const searchInput = ref(restoredFilters.search)
-const genre = ref(restoredFilters.genre)
-const genreName = ref(restoredFilters.genreName)
-const musician = ref(restoredFilters.musician)
-const musicianName = ref(restoredFilters.musicianName)
-const playStatus = ref<'all' | 'never'>(restoredFilters.playStatus)
-const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
-const sort = ref<TrackSort>(restoredFilters.sort)
-const page = ref(restoredFilters.page)
-const resultsTop = ref<HTMLElement | null>(null)
+const { filters, searchInput, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch } = useCatalogFilters<TrackFilters>({
+  routeName: 'tracks',
+  storageKey: 'sonotheque:track-filters',
+  scope: () => libraryRootScope.selectedRootId,
+  parse: input => ({
+    page: queryPage(input.page),
+    search: querySearch(input.search),
+    genre: queryNumber(input.genre),
+    genreName: querySearch(input.genreName),
+    musician: queryNumber(input.musician),
+    musicianName: querySearch(input.musicianName),
+    playStatus: queryPlayStatus(input.playStatus),
+    physicalCopy: queryPhysicalCopy(input.physicalCopy),
+    sort: queryTrackSort(input.sort),
+  }),
+  load: value => {
+    void catalog.loadTracks({
+      ...value,
+      playStatus: value.playStatus === 'never' ? 'never' : null,
+      physicalCopy: value.physicalCopy === 'all' ? null : value.physicalCopy,
+    })
+  },
+})
+const { page, genre, genreName, musician, musicianName, playStatus, physicalCopy, sort } = toRefs(filters)
 const addToPlaylistDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
-let applyingRouteFilters = false
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-const routeQuerySyncGuard = createRouteQuerySyncGuard()
 const physicalCopyOptions = computed(() => [
   { title: t('albums.physicalCopyAll'), value: 'all' },
   { title: t('albums.physicalCopyOwned'), value: 'owned' },
@@ -77,165 +81,6 @@ const sortOptions = computed(() => [
   { title: t('tracks.sortLastPlayed'), value: 'last_played' },
   { title: t('tracks.sortRecentlyAdded'), value: 'added' },
 ])
-
-function currentFilters(): TrackFilters {
-  return {
-    page: page.value,
-    search: querySearch(search.value),
-    genre: genre.value,
-    genreName: genreName.value,
-    musician: musician.value,
-    musicianName: musicianName.value,
-    playStatus: playStatus.value,
-    physicalCopy: physicalCopy.value,
-    sort: sort.value,
-  }
-}
-
-function defaultFilters(): TrackFilters {
-  return {
-    page: 1,
-    search: '',
-    genre: null,
-    genreName: '',
-    musician: null,
-    musicianName: '',
-    playStatus: 'all',
-    physicalCopy: 'all',
-    sort: 'album',
-  }
-}
-
-function initialFilters(): TrackFilters {
-  const routeFilters = filtersFromQuery()
-
-  if (routeFilters) return routeFilters
-
-  return filtersFromStorage() ?? defaultFilters()
-}
-
-function filtersFromQuery(): TrackFilters | null {
-  if (!hasFilterQuery()) return null
-
-  return {
-    page: queryPage(route.query.page),
-    search: querySearch(route.query.search),
-    genre: queryNumber(route.query.genre),
-    genreName: querySearch(route.query.genreName),
-    musician: queryNumber(route.query.musician),
-    musicianName: querySearch(route.query.musicianName),
-    playStatus: queryPlayStatus(route.query.playStatus),
-    physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
-    sort: queryTrackSort(route.query.sort),
-  }
-}
-
-function hasFilterQuery() {
-  return ['page', 'search', 'genre', 'genreName', 'musician', 'musicianName', 'playStatus', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
-}
-
-function filtersFromStorage(): TrackFilters | null {
-  try {
-    const stored = window.sessionStorage.getItem(storageKey)
-    if (!stored) return null
-
-    const parsed = JSON.parse(stored) as Partial<TrackFilters>
-
-    return {
-      page: queryPage(parsed.page),
-      search: typeof parsed.search === 'string' ? parsed.search : '',
-      genre: typeof parsed.genre === 'number' ? parsed.genre : null,
-      genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
-      musician: typeof parsed.musician === 'number' ? parsed.musician : null,
-      musicianName: typeof parsed.musicianName === 'string' ? parsed.musicianName : '',
-      playStatus: queryPlayStatus(parsed.playStatus),
-      physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
-      sort: queryTrackSort(parsed.sort),
-    }
-  } catch {
-    return null
-  }
-}
-
-function saveFilters() {
-  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
-}
-
-function syncFiltersToRoute() {
-  if (route.name !== 'tracks') return
-
-  const query = filterQuery(currentFilters())
-
-  if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
-
-  const pendingSync = routeQuerySyncGuard.mark(query)
-
-  void router.replace({ name: 'tracks', query }).finally(() => {
-    routeQuerySyncGuard.release(pendingSync)
-  })
-}
-
-function applyFilters(filters: TrackFilters) {
-  applyingRouteFilters = true
-  page.value = filters.page
-  search.value = filters.search
-  searchInput.value = filters.search
-  genre.value = filters.genre
-  genreName.value = filters.genreName
-  musician.value = filters.musician
-  musicianName.value = filters.musicianName
-  playStatus.value = filters.playStatus
-  physicalCopy.value = filters.physicalCopy
-  sort.value = filters.sort
-  applyingRouteFilters = false
-  saveFilters()
-}
-
-function filterQuery(filters: TrackFilters) {
-  const query: Record<string, string> = {}
-
-  if (filters.page > 1) query.page = String(filters.page)
-  if (filters.search.trim()) query.search = filters.search.trim()
-  if (filters.genre) query.genre = String(filters.genre)
-  if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
-  if (filters.musician) query.musician = String(filters.musician)
-  if (filters.musicianName.trim()) query.musicianName = filters.musicianName.trim()
-  if (filters.playStatus === 'never') query.playStatus = filters.playStatus
-  if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
-  if (filters.sort !== 'album') query.sort = filters.sort
-
-  return query
-}
-
-function normalizedFilterQuery(query: typeof route.query) {
-  return filterQuery({
-    page: queryPage(query.page),
-    search: querySearch(query.search),
-    genre: queryNumber(query.genre),
-    genreName: querySearch(query.genreName),
-    musician: queryNumber(query.musician),
-    musicianName: querySearch(query.musicianName),
-    playStatus: queryPlayStatus(query.playStatus),
-    physicalCopy: queryPhysicalCopy(query.physicalCopy),
-    sort: queryTrackSort(query.sort),
-  })
-}
-
-function querySearch(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
-
-function queryPage(value: unknown) {
-  const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
-}
-
-function queryNumber(value: unknown) {
-  const parsed = typeof value === 'string' ? Number(value) : NaN
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-}
 
 function queryPlayStatus(value: unknown): 'all' | 'never' {
   return value === 'never' ? 'never' : 'all'
@@ -254,24 +99,11 @@ function queryTrackSort(value: unknown): TrackSort {
 function clearGenreFilter() {
   genre.value = null
   genreName.value = ''
-  page.value = 1
 }
 
 function clearMusicianFilter() {
   musician.value = null
   musicianName.value = ''
-  page.value = 1
-}
-
-function changePage(value: number) {
-  if (value === page.value) return
-
-  page.value = value
-  saveFilters()
-  syncFiltersToRoute()
-  void nextTick(() => {
-    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
-  })
 }
 
 function formatDate(value?: string | null) {
@@ -288,36 +120,6 @@ function playCountTooltip(track: Track) {
     t('tracks.firstPlayedAtTooltip', { value: formatDate(track.playStatistics.firstPlayedAt) }),
     t('tracks.lastPlayedAtTooltip', { value: formatDate(track.playStatistics.lastPlayedAt) }),
   ]
-}
-
-function load() {
-  void catalog.loadTracks({
-    page: page.value,
-    search: querySearch(search.value),
-    genre: genre.value,
-    musician: musician.value,
-    playStatus: playStatus.value === 'never' ? playStatus.value : null,
-    physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
-    sort: sort.value,
-  })
-}
-
-function applySearch() {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-    searchTimer = null
-  }
-  const nextSearch = searchInput.value.trim()
-
-  page.value = 1
-  search.value = nextSearch
-  saveFilters()
-  syncFiltersToRoute()
-}
-
-function clearSearch() {
-  searchInput.value = ''
-  applySearch()
 }
 
 function playRandomTrack() {
@@ -364,46 +166,12 @@ function openAddToPlaylist(track: Track) {
   addToPlaylistDialog.value = true
 }
 
-saveFilters()
-useCachedViewActivation(load)
-
-watch(() => route.query, () => {
-  if (route.name !== 'tracks') return
-
-  const normalizedQuery = normalizedFilterQuery(route.query)
-  if (routeQuerySyncGuard.consume(normalizedQuery)) return
-
-  const routeFilters = filtersFromQuery()
-  if (routeFilters) {
-    applyFilters(routeFilters)
-    return
-  }
-
-  syncFiltersToRoute()
-})
-watch([genre, genreName, musician, musicianName, playStatus, physicalCopy, sort], () => {
-  if (applyingRouteFilters) return
-
-  page.value = 1
-  saveFilters()
-  syncFiltersToRoute()
-})
-watch(searchInput, () => {
-  if (applyingRouteFilters) return
-  if (searchTimer) clearTimeout(searchTimer)
-
-  searchTimer = setTimeout(applySearch, 300)
-}, { flush: 'sync' })
-watch([page, search, genre, musician, playStatus, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
 watch([
-  () => catalog.tracks.items.map((track) => track.id),
-  () => libraryRootScope.selectedRootId,
-], ([trackIds]) => {
-  if (trackIds.length) void playlists.loadMemberships(trackIds)
+  isActive,
+  () => catalog.tracks.items.map(track => track.id),
+], ([active, trackIds]) => {
+  if (active && trackIds.length) void playlists.loadMemberships(trackIds)
 }, { immediate: true })
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
 </script>
 
 <template>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddToPlaylistDialog from '@/components/AddToPlaylistDialog.vue'
-import AdditionalMetadataTagRemovalList from '@/components/AdditionalMetadataTagRemovalList.vue'
+import AlbumMetadataDialog from '@/components/AlbumMetadataDialog.vue'
 import AlbumOnlineInformation from '@/components/AlbumOnlineInformation.vue'
 import AlbumPlaylistExportDialog from '@/components/AlbumPlaylistExportDialog.vue'
 import CatalogDates from '@/components/CatalogDates.vue'
@@ -16,8 +16,7 @@ import RichTextEditor from '@/components/RichTextEditor.vue'
 import TrackBatchMetadataDialog from '@/components/TrackBatchMetadataDialog.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import { apiRequest } from '@/api/client'
-import type { AlbumPersonalMetadata, Track } from '@/stores/catalog'
+import type { AlbumPersonalMetadata, AlbumRecordLabel, Track } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
@@ -42,33 +41,8 @@ const addToPlaylistDialog = ref(false)
 const playlistExportDialog = ref(false)
 const playlistTracks = ref<Track[]>([])
 const metadataDialog = ref(false)
-const metadataStep = ref<'form' | 'preview' | 'queued'>('form')
-const metadataLoading = ref(false)
-const metadataError = ref<string | null>(null)
 const metadataSuccess = ref(false)
-const metadataPreview = ref<AlbumMetadataPreview | null>(null)
-const metadataJob = ref<AlbumMetadataJob | null>(null)
-const metadataForm = reactive({
-  albumTitle: '',
-  albumArtist: '',
-  releaseYear: '',
-  totalDiscs: '',
-  genres: [] as string[],
-  recordLabels: [] as AlbumMetadataRecordLabel[],
-  comment: '',
-})
-const metadataCommentEnabled = ref(false)
-const metadataCommentsMixed = ref(false)
-const metadataUpdateTrackArtists = ref(true)
-const metadataRemovedTagKeys = ref<string[]>([])
-const metadataRecordLabelProvenance = ref<RecordLabelProvenance[]>([])
-const recordLabelSuggestions = ref<RecordLabelSuggestion[]>([])
-const recordLabelSuggestionsLoading = ref(false)
-const recordLabelSuggestionsLoaded = ref(false)
-const recordLabelSuggestionsError = ref<string | null>(null)
-const recordLabelSuggestionConfirming = ref<string | null>(null)
 const onlineInformationRevision = ref(0)
-let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 const selectionMode = ref(false)
 const selectedTrackIds = ref<number[]>([])
 const selectionMessage = ref('')
@@ -83,104 +57,6 @@ const artistCountry = ref<string | null>(null)
 const personalForm = reactive({
   notes: '',
 })
-
-interface AlbumMetadataRecordLabel {
-  name: string
-  catalogNumber?: string | null
-}
-
-interface RecordLabelProvenance extends AlbumMetadataRecordLabel {
-  source: 'discogs' | 'musicbrainz'
-  sourceReference: string
-}
-
-interface RecordLabelSuggestion {
-  provider: 'discogs' | 'musicbrainz'
-  providerLabel: string
-  sourceReference: string
-  sourceUrl?: string | null
-  sourceDescription?: string | null
-  sourceTrackCount?: number | null
-  recordLabels: AlbumMetadataRecordLabel[]
-  matchesCurrent: boolean
-  sourceConfirmed: boolean
-}
-
-interface RecordLabelSuggestionPayload {
-  suggestions: RecordLabelSuggestion[]
-  errors: Array<{ provider: string, message: string }>
-  musicianReleaseResolved?: boolean
-}
-
-interface AlbumMetadataValues {
-  albumTitle: string
-  albumArtist: string
-  updateTrackArtists: boolean
-  releaseYear: number | null
-  totalDiscs: number | null
-  genres: string[]
-  recordLabels: AlbumMetadataRecordLabel[]
-  recordLabelProvenance?: RecordLabelProvenance[]
-  comment?: string | null
-  removedTagKeys: string[]
-}
-
-interface AlbumMetadataChange {
-  field: 'albumTitle' | 'albumArtist' | 'releaseYear' | 'totalDiscs' | 'genres' | 'recordLabels' | 'comment' | 'removedTagKeys'
-  current: string | number | string[] | AlbumMetadataRecordLabel[] | null
-  proposed: string | number | string[] | AlbumMetadataRecordLabel[] | null
-  fileValuesDiffer?: boolean
-}
-
-interface AlbumMetadataFile {
-  trackId: number
-  trackTitle: string
-  file: string | null
-  format: string | null
-  supported: boolean
-  supportIssue?: string | null
-}
-
-interface AlbumMetadataPreview {
-  albumId: number
-  fingerprint: string
-  values: AlbumMetadataValues
-  changes: AlbumMetadataChange[]
-  trackArtistsWillChange: boolean
-  files: AlbumMetadataFile[]
-  supportedFiles: number
-  unsupportedFiles: number
-}
-
-interface AlbumMetadataJobItem {
-  id: number
-  trackId: number
-  status: string
-  file?: string | null
-  trackTitle?: string | null
-  error?: string | null
-  backup?: MetadataBackup | null
-}
-
-interface MetadataBackup {
-  id: number
-  path: string
-  expiresAt: string | null
-  restoredAt: string | null
-  deletedAt: string | null
-}
-
-interface AlbumMetadataJob {
-  id: number
-  status: 'pending' | 'running' | 'completed' | 'partial' | 'failed'
-  totalItems: number
-  processedItems: number
-  succeededItems: number
-  failedItems: number
-  items: AlbumMetadataJobItem[]
-  error?: string | null
-  failureReason?: string | null
-}
 
 const albumId = computed(() => Number(route.params.id))
 const backArtistId = computed(() => {
@@ -253,7 +129,6 @@ function positiveQueryPage(value: unknown, key: 'albumPage' | 'trackPage') {
 }
 const allTracksSelected = computed(() => tracks.value.length > 0 && selectedTrackIds.value.length === tracks.value.length)
 const albumGenres = computed(() => album.value?.genres ?? [])
-const albumAdditionalTags = computed(() => album.value?.additionalTags ?? [])
 const albumTechnicalChips = computed(() => {
   const technical = album.value?.technical
   if (!technical) return []
@@ -318,7 +193,7 @@ const albumDetails = computed(() => {
     ? `${details} · ${t('albums.discCount', { count: album.value.discTotal })}`
     : details
 })
-const recordLabelText = (recordLabel: AlbumMetadataRecordLabel) => recordLabel.catalogNumber
+const recordLabelText = (recordLabel: AlbumRecordLabel) => recordLabel.catalogNumber
   ? `${recordLabel.name} · ${recordLabel.catalogNumber}`
   : recordLabel.name
 const albumPlaybackStats = computed(() => {
@@ -534,279 +409,18 @@ async function batchMetadataCompleted(count: number) {
 }
 
 function openMetadataEditor() {
-  if (!album.value) return
-
-  const comments = [...new Set(tracks.value.map((track) => track.comment ?? null))]
-  Object.assign(metadataForm, {
-    albumTitle: album.value.title,
-    albumArtist: album.value.primaryArtist?.name ?? '',
-    releaseYear: album.value.originalReleaseYear?.toString() ?? '',
-    totalDiscs: album.value.discTotal?.toString() ?? '',
-    genres: albumGenres.value.map((genre) => genre.name),
-    recordLabels: album.value.recordLabels.map((recordLabel) => ({
-      name: recordLabel.name,
-      catalogNumber: recordLabel.catalogNumber ?? null,
-    })),
-    comment: comments.length === 1 ? comments[0] ?? '' : '',
-  })
-  metadataCommentEnabled.value = false
-  metadataCommentsMixed.value = comments.length > 1
-  metadataUpdateTrackArtists.value = true
-  metadataRemovedTagKeys.value = []
-  metadataRecordLabelProvenance.value = []
-  recordLabelSuggestions.value = []
-  recordLabelSuggestionsLoaded.value = false
-  recordLabelSuggestionsError.value = null
-  metadataStep.value = 'form'
-  metadataPreview.value = null
-  metadataJob.value = null
-  metadataError.value = null
-  metadataDialog.value = true
-  void loadRecordLabelSuggestions()
+  if (album.value) metadataDialog.value = true
 }
 
-function metadataValues(): AlbumMetadataValues {
-  const year = metadataForm.releaseYear.trim()
-  const totalDiscs = metadataForm.totalDiscs.trim()
-
-  const values: AlbumMetadataValues = {
-    albumTitle: metadataForm.albumTitle.trim(),
-    albumArtist: metadataForm.albumArtist.trim(),
-    updateTrackArtists: metadataUpdateTrackArtists.value,
-    releaseYear: year === '' ? null : Number(year),
-    totalDiscs: totalDiscs === '' ? null : Number(totalDiscs),
-    genres: metadataForm.genres.map((genre) => genre.trim()).filter(Boolean),
-    recordLabels: metadataForm.recordLabels
-      .map((recordLabel) => ({
-        name: recordLabel.name.trim(),
-        catalogNumber: recordLabel.catalogNumber?.trim() || null,
-      }))
-      .filter((recordLabel) => recordLabel.name !== ''),
-    removedTagKeys: [...metadataRemovedTagKeys.value],
-  }
-  const recordLabelIdentities = new Set(values.recordLabels.map(recordLabelIdentity))
-  const provenance = metadataRecordLabelProvenance.value.filter(
-    recordLabel => recordLabelIdentities.has(recordLabelIdentity(recordLabel)),
-  )
-  if (provenance.length) values.recordLabelProvenance = provenance
-  if (metadataCommentEnabled.value) values.comment = metadataForm.comment.trim() || null
-
-  return values
+async function metadataCompleted() {
+  metadataSuccess.value = true
+  catalog.invalidateCatalog()
+  await catalog.loadAlbum(albumId.value)
+  if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
 }
 
-function recordLabelIdentity(recordLabel: AlbumMetadataRecordLabel) {
-  return `${recordLabel.name.trim().toLocaleLowerCase()}|${recordLabel.catalogNumber?.trim().toLocaleLowerCase() ?? ''}`
-}
-
-function recordLabelSuggestionKey(suggestion: RecordLabelSuggestion) {
-  return `${suggestion.provider}:${suggestion.sourceReference}`
-}
-
-async function loadRecordLabelSuggestions() {
-  if (!album.value) return
-
-  recordLabelSuggestionsLoading.value = true
-  recordLabelSuggestionsError.value = null
-  try {
-    const result = await apiRequest<RecordLabelSuggestionPayload>(
-      `/albums/${album.value.id}/record-label-suggestions`,
-    )
-    recordLabelSuggestions.value = result.suggestions
-    if (result.errors.length) {
-      recordLabelSuggestionsError.value = result.errors.map(error => error.message).join(' ')
-    }
-  } catch (cause) {
-    recordLabelSuggestionsError.value = cause instanceof Error
-      ? cause.message
-      : t('albums.recordLabelSuggestionsFailed')
-  } finally {
-    recordLabelSuggestionsLoading.value = false
-    recordLabelSuggestionsLoaded.value = true
-  }
-}
-
-async function useRecordLabelSuggestion(suggestion: RecordLabelSuggestion) {
-  metadataForm.recordLabels = suggestion.recordLabels.map(recordLabel => ({ ...recordLabel }))
-  metadataRecordLabelProvenance.value = suggestion.recordLabels.map(recordLabel => ({
-    ...recordLabel,
-    source: suggestion.provider,
-    sourceReference: suggestion.sourceReference,
-  }))
-  await selectRecordLabelSuggestion(suggestion)
-}
-
-async function selectRecordLabelSuggestion(suggestion: RecordLabelSuggestion) {
-  if (!album.value) return
-
-  const key = recordLabelSuggestionKey(suggestion)
-  recordLabelSuggestionConfirming.value = key
-  recordLabelSuggestionsError.value = null
-  try {
-    const result = await apiRequest<RecordLabelSuggestionPayload>(
-      `/albums/${album.value.id}/record-label-suggestions/select`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          provider: suggestion.provider,
-          sourceReference: suggestion.sourceReference,
-        }),
-      },
-    )
-    recordLabelSuggestions.value = result.suggestions
-    if (result.musicianReleaseResolved) onlineInformationRevision.value++
-  } catch (cause) {
-    recordLabelSuggestionsError.value = cause instanceof Error
-      ? cause.message
-      : t('albums.recordLabelSuggestionsFailed')
-  } finally {
-    recordLabelSuggestionConfirming.value = null
-  }
-}
-
-async function confirmRecordLabelSource(suggestion: RecordLabelSuggestion) {
-  if (!album.value || !suggestion.matchesCurrent || suggestion.sourceConfirmed) return
-
-  const key = recordLabelSuggestionKey(suggestion)
-  recordLabelSuggestionConfirming.value = key
-  recordLabelSuggestionsError.value = null
-  try {
-    const result = await apiRequest<RecordLabelSuggestionPayload>(
-      `/albums/${album.value.id}/record-label-suggestions/confirm`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          provider: suggestion.provider,
-          sourceReference: suggestion.sourceReference,
-        }),
-      },
-    )
-    recordLabelSuggestions.value = result.suggestions
-    if (result.musicianReleaseResolved) onlineInformationRevision.value++
-  } catch (cause) {
-    recordLabelSuggestionsError.value = cause instanceof Error
-      ? cause.message
-      : t('albums.recordLabelSourceConfirmationFailed')
-  } finally {
-    recordLabelSuggestionConfirming.value = null
-  }
-}
-
-function addMetadataRecordLabel() {
-  if (metadataForm.recordLabels.length >= 20) return
-  metadataForm.recordLabels.push({ name: '', catalogNumber: null })
-}
-
-function removeMetadataRecordLabel(index: number) {
-  metadataForm.recordLabels.splice(index, 1)
-}
-
-async function previewMetadataEdit() {
-  if (!album.value) return
-
-  metadataLoading.value = true
-  metadataError.value = null
-  try {
-    metadataPreview.value = await apiRequest<AlbumMetadataPreview>(`/albums/${album.value.id}/metadata/preview`, {
-      method: 'POST',
-      body: JSON.stringify(metadataValues()),
-    })
-    metadataStep.value = 'preview'
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
-  } finally {
-    metadataLoading.value = false
-  }
-}
-
-async function queueMetadataEdit() {
-  if (!album.value || !metadataPreview.value) return
-
-  metadataLoading.value = true
-  metadataError.value = null
-  try {
-    metadataJob.value = await apiRequest<AlbumMetadataJob>(`/albums/${album.value.id}/metadata-edits`, {
-      method: 'POST',
-      body: JSON.stringify({
-        ...metadataPreview.value.values,
-        fingerprint: metadataPreview.value.fingerprint,
-      }),
-    })
-    metadataStep.value = 'queued'
-    scheduleMetadataPoll()
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
-  } finally {
-    metadataLoading.value = false
-  }
-}
-
-function scheduleMetadataPoll() {
-  if (metadataPollTimer) clearTimeout(metadataPollTimer)
-  metadataPollTimer = setTimeout(pollMetadataEdit, 1000)
-}
-
-async function pollMetadataEdit() {
-  if (!metadataJob.value) return
-
-  try {
-    metadataJob.value = await apiRequest<AlbumMetadataJob>(`/metadata-edits/${metadataJob.value.id}`)
-    if (metadataJob.value.status === 'completed') {
-      metadataDialog.value = false
-      metadataSuccess.value = true
-      catalog.invalidateCatalog()
-      await catalog.loadAlbum(albumId.value)
-      if (catalog.albumDetail) player.refreshQueuedTracks(catalog.albumDetail.tracks)
-      return
-    }
-    if (['partial', 'failed'].includes(metadataJob.value.status)) return
-    scheduleMetadataPoll()
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('albums.metadataEditFailed')
-  }
-}
-
-function metadataFieldLabel(field: AlbumMetadataChange['field']) {
-  return {
-    albumTitle: t('albums.metadataAlbumTitle'),
-    albumArtist: t('albums.metadataAlbumArtist'),
-    releaseYear: t('albums.releaseYear'),
-    totalDiscs: t('albums.totalDiscs'),
-    genres: t('tracks.genres'),
-    recordLabels: t('albums.recordLabels'),
-    comment: t('tracks.comment'),
-    removedTagKeys: t('tracks.removeAdditionalTags'),
-  }[field]
-}
-
-function metadataValue(value: AlbumMetadataChange['current']) {
-  if (Array.isArray(value)) {
-    if (!value.length) return '-'
-    return value.map((item) => {
-      if (typeof item === 'string') return item
-      return item.catalogNumber ? `${item.name} · ${item.catalogNumber}` : item.name
-    }).join(', ')
-  }
-  return value === null || value === '' ? '-' : String(value)
-}
-
-function metadataProgress() {
-  if (!metadataJob.value?.totalItems) return 0
-  return Math.round((metadataJob.value.processedItems / metadataJob.value.totalItems) * 100)
-}
-
-function metadataUnsupportedSummary() {
-  const unsupportedFiles = metadataPreview.value?.files.filter((file) => !file.supported) ?? []
-  const issues = unsupportedFiles.map((file) => file.supportIssue)
-  const count = unsupportedFiles.length
-
-  if (issues.every((issue) => issue?.startsWith('id3v2_'))) {
-    return t('albums.metadataUnsupportedTagFiles', { count })
-  }
-  if (issues.every((issue) => issue === 'unsupported_format')) {
-    return t('albums.metadataUnsupportedFiles', { count })
-  }
-
-  return t('albums.metadataUnsupportedMixedFiles', { count })
+function metadataReleaseResolved() {
+  onlineInformationRevision.value++
 }
 
 function openArtwork() {
@@ -844,9 +458,6 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   void router.replace({ name: 'album-detail', params: { id }, query: route.query })
 })
 
-onUnmounted(() => {
-  if (metadataPollTimer) clearTimeout(metadataPollTimer)
-})
 </script>
 
 <template>
@@ -1266,327 +877,13 @@ onUnmounted(() => {
     </v-card>
   </v-dialog>
 
-  <v-dialog v-model="metadataDialog" max-width="760" persistent scrollable>
-    <v-card prepend-icon="mdi-tag-edit-outline" :title="t('albums.editMetadata')">
-      <v-card-text>
-        <v-alert v-if="metadataError" class="mb-4" type="error" variant="tonal">
-          {{ metadataError }}
-        </v-alert>
-
-        <template v-if="metadataStep === 'form'">
-          <v-text-field v-model="metadataForm.albumTitle" :label="t('albums.metadataAlbumTitle')" maxlength="512" />
-          <v-text-field v-model="metadataForm.albumArtist" :label="t('albums.metadataAlbumArtist')" maxlength="512" />
-          <v-switch
-            v-model="metadataUpdateTrackArtists"
-            class="mt-n2"
-            color="primary"
-            density="compact"
-            hide-details
-            :label="t('albums.metadataUpdateTrackArtists')"
-          />
-          <div class="text-caption text-medium-emphasis mb-3">
-            {{ t('albums.metadataUpdateTrackArtistsHint') }}
-          </div>
-          <v-text-field v-model="metadataForm.releaseYear" inputmode="numeric" :label="t('albums.releaseYear')" />
-          <v-text-field v-model="metadataForm.totalDiscs" inputmode="numeric" :label="t('albums.totalDiscs')" />
-          <v-combobox
-            v-model="metadataForm.genres"
-            chips
-            closable-chips
-            clearable
-            :hint="t('albums.metadataGenresHint')"
-            :label="t('tracks.genres')"
-            multiple
-            persistent-hint
-          />
-          <div class="d-flex align-center justify-space-between mb-2">
-            <div>
-              <div class="text-subtitle-2">{{ t('albums.recordLabels') }}</div>
-              <div class="text-caption text-medium-emphasis">{{ t('albums.metadataRecordLabelsHint') }}</div>
-            </div>
-            <v-btn
-              :disabled="metadataForm.recordLabels.length >= 20"
-              prepend-icon="mdi-plus"
-              size="small"
-              variant="text"
-              @click="addMetadataRecordLabel"
-            >
-              {{ t('albums.addRecordLabel') }}
-            </v-btn>
-          </div>
-          <div v-if="!metadataForm.recordLabels.length" class="text-caption text-medium-emphasis mb-4">
-            {{ t('albums.noRecordLabels') }}
-          </div>
-          <v-row
-            v-for="(recordLabel, index) in metadataForm.recordLabels"
-            :key="index"
-            align="center"
-            class="metadata-record-label-row"
-            dense
-          >
-            <v-col cols="12" sm="7">
-              <v-text-field
-                v-model="recordLabel.name"
-                density="compact"
-                hide-details
-                :label="t('albums.recordLabel')"
-                maxlength="255"
-              />
-            </v-col>
-            <v-col cols="10" sm="4">
-              <v-text-field
-                v-model="recordLabel.catalogNumber"
-                density="compact"
-                hide-details
-                :label="t('albums.catalogNumber')"
-                maxlength="128"
-              />
-            </v-col>
-            <v-col class="d-flex justify-end" cols="2" sm="1">
-              <TooltipIconButton
-                color="error"
-                icon="mdi-delete-outline"
-                size="small"
-                :text="t('albums.removeRecordLabel')"
-                variant="text"
-                @click="removeMetadataRecordLabel(index)"
-              />
-            </v-col>
-          </v-row>
-          <div class="record-label-suggestions mb-4">
-            <div class="d-flex align-center justify-space-between mb-2">
-              <div class="text-subtitle-2">{{ t('albums.recordLabelSuggestions') }}</div>
-              <v-btn
-                v-if="recordLabelSuggestionsLoaded"
-                :disabled="recordLabelSuggestionsLoading"
-                icon="mdi-refresh"
-                size="x-small"
-                :title="t('albums.refreshRecordLabelSuggestions')"
-                variant="text"
-                @click="loadRecordLabelSuggestions"
-              />
-            </div>
-            <v-progress-linear v-if="recordLabelSuggestionsLoading" color="primary" indeterminate rounded />
-            <v-alert v-if="recordLabelSuggestionsError" class="mb-2" density="compact" type="warning" variant="tonal">
-              {{ recordLabelSuggestionsError }}
-            </v-alert>
-            <div v-if="recordLabelSuggestions.length" class="d-flex flex-column ga-2">
-              <v-card
-                v-for="suggestion in recordLabelSuggestions"
-                :key="`${suggestion.provider}:${suggestion.sourceReference}`"
-                border
-                density="compact"
-                variant="tonal"
-              >
-                <v-card-text class="record-label-suggestion">
-                  <div class="min-width-0">
-                    <div class="d-flex flex-wrap align-center ga-2">
-                      <strong>{{ suggestion.providerLabel }}</strong>
-                      <v-chip
-                        :color="suggestion.matchesCurrent ? 'success' : 'primary'"
-                        size="x-small"
-                        variant="tonal"
-                      >
-                        {{ suggestion.matchesCurrent
-                          ? t('albums.recordLabelSuggestionMatches')
-                          : t('albums.recordLabelSuggestionDiffers') }}
-                      </v-chip>
-                    </div>
-                    <div class="text-body-2 text-medium-emphasis mt-1">
-                      {{ suggestion.recordLabels.map(recordLabelText).join(', ') }}
-                    </div>
-                    <div
-                      v-if="suggestion.sourceDescription || suggestion.sourceTrackCount != null"
-                      class="text-caption text-medium-emphasis"
-                    >
-                      <span v-if="suggestion.sourceDescription">{{ suggestion.sourceDescription }}</span>
-                      <span v-if="suggestion.sourceTrackCount != null">
-                        <span v-if="suggestion.sourceDescription"> · </span>{{ t('albums.trackCount', { count: suggestion.sourceTrackCount }) }}
-                      </span>
-                    </div>
-                    <a
-                      v-if="suggestion.sourceUrl"
-                      class="text-caption"
-                      :href="suggestion.sourceUrl"
-                      rel="noopener noreferrer"
-                      target="_blank"
-                    >
-                      {{ t('albums.openRecordLabelSource') }}
-                    </a>
-                  </div>
-                  <v-btn
-                    color="primary"
-                    :disabled="suggestion.sourceConfirmed"
-                    :loading="recordLabelSuggestionConfirming === recordLabelSuggestionKey(suggestion)"
-                    size="small"
-                    variant="tonal"
-                    @click="suggestion.matchesCurrent
-                      ? confirmRecordLabelSource(suggestion)
-                      : useRecordLabelSuggestion(suggestion)"
-                  >
-                    {{ suggestion.matchesCurrent
-                      ? t(suggestion.sourceConfirmed
-                        ? 'albums.recordLabelSourceConfirmed'
-                        : 'albums.confirmRecordLabelSource')
-                      : t('albums.useRecordLabelSuggestion') }}
-                  </v-btn>
-                </v-card-text>
-              </v-card>
-            </div>
-            <div
-              v-else-if="recordLabelSuggestionsLoaded && !recordLabelSuggestionsLoading && !recordLabelSuggestionsError"
-              class="text-caption text-medium-emphasis"
-            >
-              {{ t('albums.noRecordLabelSuggestions') }}
-            </div>
-          </div>
-          <v-switch
-            v-model="metadataCommentEnabled"
-            color="primary"
-            density="compact"
-            hide-details
-            :label="t('albums.metadataChangeComment')"
-          />
-          <v-textarea
-            v-model="metadataForm.comment"
-            clearable
-            :disabled="!metadataCommentEnabled"
-            :hint="metadataCommentsMixed ? t('albums.metadataCommentMixedHint') : t('albums.metadataCommentHint')"
-            :label="t('tracks.comment')"
-            maxlength="10000"
-            persistent-hint
-            rows="3"
-          />
-          <template v-if="albumAdditionalTags.length">
-            <v-divider class="mb-4" />
-            <AdditionalMetadataTagRemovalList
-              v-model="metadataRemovedTagKeys"
-              :hint="t('albums.removeAdditionalTagsHint')"
-              :tags="albumAdditionalTags"
-              :title="t('tracks.removeAdditionalTags')"
-              :total-track-count="album?.trackCount"
-            />
-          </template>
-          <div class="text-caption text-medium-emphasis">{{ t('albums.metadataPreviewHint') }}</div>
-        </template>
-
-        <template v-else-if="metadataStep === 'preview' && metadataPreview">
-          <v-alert v-if="metadataPreview.trackArtistsWillChange" class="mb-4" type="info" variant="tonal">
-            {{ t('albums.metadataTrackArtistsWillChange') }}
-          </v-alert>
-          <v-alert v-if="metadataPreview.unsupportedFiles" class="mb-4" type="warning" variant="tonal">
-            {{ metadataUnsupportedSummary() }}
-          </v-alert>
-          <v-list v-if="metadataPreview.changes.length" border rounded class="mb-4">
-            <v-list-item v-for="change in metadataPreview.changes" :key="change.field">
-              <v-list-item-title>{{ metadataFieldLabel(change.field) }}</v-list-item-title>
-              <v-list-item-subtitle class="metadata-change">
-                <span>{{ metadataValue(change.current) }}</span>
-                <v-icon icon="mdi-arrow-right" size="small" />
-                <strong>{{ metadataValue(change.proposed) }}</strong>
-              </v-list-item-subtitle>
-              <v-list-item-subtitle v-if="change.fileValuesDiffer" class="text-medium-emphasis">
-                {{ t('albums.metadataFileValuesDiffer') }}
-              </v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
-          <v-alert v-else class="mb-4" type="info" variant="tonal">{{ t('albums.metadataNoChanges') }}</v-alert>
-
-          <div class="text-subtitle-2 mb-2">{{ t('albums.metadataAffectedFiles', { count: metadataPreview.files.length }) }}</div>
-          <v-list border rounded class="metadata-file-list" density="compact">
-            <v-list-item
-              v-for="file in metadataPreview.files"
-              :key="file.trackId"
-              :prepend-icon="file.supported ? 'mdi-file-music-outline' : 'mdi-alert-outline'"
-              :title="file.trackTitle"
-            >
-              <v-list-item-subtitle>
-                <div>{{ file.file ?? '-' }}</div>
-                <div v-if="file.supportIssue" class="text-warning">
-                  {{ t(`tracks.metadataSupportIssues.${file.supportIssue}`) }}
-                </div>
-              </v-list-item-subtitle>
-              <template #append>
-                <v-chip :color="file.supported ? 'success' : 'warning'" size="x-small" variant="tonal">
-                  {{ file.format ?? '-' }}
-                </v-chip>
-              </template>
-            </v-list-item>
-          </v-list>
-        </template>
-
-        <template v-else-if="metadataStep === 'queued' && metadataJob">
-          <div class="font-weight-bold mb-2">{{ t(`albums.metadataStatuses.${metadataJob.status}`) }}</div>
-          <v-progress-linear
-            class="mb-2"
-            color="primary"
-            :model-value="metadataProgress()"
-            rounded
-          />
-          <div class="text-body-2 text-medium-emphasis mb-4">
-            {{ t('albums.metadataProgress', {
-              processed: metadataJob.processedItems,
-              total: metadataJob.totalItems,
-              failed: metadataJob.failedItems,
-            }) }}
-          </div>
-          <v-alert
-            v-if="['partial', 'failed'].includes(metadataJob.status)"
-            class="mb-4"
-            type="error"
-            variant="tonal"
-          >
-            {{ metadataJob.failureReason ?? metadataJob.error ?? t('albums.metadataEditFailed') }}
-          </v-alert>
-          <v-list v-if="metadataJob.items.some((item) => item.status === 'failed')" border rounded class="metadata-file-list" density="compact">
-            <v-list-item
-              v-for="item in metadataJob.items.filter((entry) => entry.status === 'failed')"
-              :key="item.id"
-              prepend-icon="mdi-alert-circle-outline"
-              :title="item.trackTitle ?? item.file ?? String(item.trackId)"
-            >
-              <v-list-item-subtitle>{{ item.error ?? t('albums.metadataEditFailed') }}</v-list-item-subtitle>
-              <v-list-item-subtitle v-if="item.backup">
-                {{ t('settings.metadataBackupRecovery', { id: item.backup.id, path: item.backup.path }) }}
-              </v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
-        </template>
-      </v-card-text>
-      <v-card-actions>
-        <v-btn v-if="metadataStep === 'preview'" :disabled="metadataLoading" @click="metadataStep = 'form'">
-          {{ t('tracks.metadataBack') }}
-        </v-btn>
-        <v-spacer />
-        <v-btn
-          :disabled="metadataLoading || (metadataStep === 'queued' && !['partial', 'failed'].includes(metadataJob?.status ?? ''))"
-          @click="metadataDialog = false"
-        >
-          {{ t('settings.cancel') }}
-        </v-btn>
-        <v-btn
-          v-if="metadataStep === 'form'"
-          color="primary"
-          :disabled="!metadataForm.albumTitle.trim() || !metadataForm.albumArtist.trim()"
-          :loading="metadataLoading"
-          variant="flat"
-          @click="previewMetadataEdit"
-        >
-          {{ t('tracks.metadataReview') }}
-        </v-btn>
-        <v-btn
-          v-else-if="metadataStep === 'preview'"
-          color="primary"
-          :disabled="!metadataPreview?.changes.length || Boolean(metadataPreview?.unsupportedFiles)"
-          :loading="metadataLoading"
-          variant="flat"
-          @click="queueMetadataEdit"
-        >
-          {{ t('tracks.metadataApply') }}
-        </v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+  <AlbumMetadataDialog
+    v-if="album"
+    v-model="metadataDialog"
+    :album="album"
+    @completed="metadataCompleted"
+    @release-resolved="metadataReleaseResolved"
+  />
 
   <TrackBatchMetadataDialog
     v-model="batchMetadataDialog"
@@ -1636,31 +933,6 @@ onUnmounted(() => {
 .album-technical-chip :deep(.v-chip__content) {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.metadata-change {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-}
-
-.metadata-file-list {
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.record-label-suggestion {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-
-@media (max-width: 599px) {
-  .record-label-suggestion {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 
 .album-stat-grid {

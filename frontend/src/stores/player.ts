@@ -47,7 +47,8 @@ export interface TrackPlaybackScope {
 
 export type CatalogPlaybackScope = AlbumPlaybackScope | TrackPlaybackScope
 
-const STORAGE_KEY = 'sonotheque.player'
+const PLAYER_STORAGE_KEY = 'sonotheque.player'
+const PLAYBACK_PROGRESS_STORAGE_KEY = 'sonotheque.player.progress'
 const MAX_PERSISTED_LISTENING_OVERFLOW_MS = 5000
 const ALBUM_PLAYBACK_SORTS: AlbumPlaybackSort[] = [
   'artist',
@@ -78,12 +79,18 @@ interface PersistedPlayerState {
   visualizerEnabled?: boolean
   playbackContext?: PlaybackContext
   playbackScope?: CatalogPlaybackScope | null
+}
+
+interface PersistedPlaybackProgress {
+  trackId?: number | null
   playbackPosition?: number
   playbackSessionKey?: string | null
   countedPlaySessionKey?: string | null
   listenedPlaybackMs?: number
   playbackStartedAt?: string | null
 }
+
+type RestoredPlayerState = PersistedPlayerState & PersistedPlaybackProgress
 
 export const usePlayerStore = defineStore('player', () => {
   const persistedState = readPersistedState()
@@ -465,14 +472,22 @@ export const usePlayerStore = defineStore('player', () => {
       visualizerEnabled: visualizerEnabled.value,
       playbackContext: playbackContext.value,
       playbackScope: playbackScope.value,
+    }),
+    persistPlayerState,
+    { deep: true, flush: 'sync' },
+  )
+
+  watch(
+    () => ({
+      trackId: currentTrack.value?.id ?? null,
       playbackPosition: playbackPosition.value,
       playbackSessionKey: playbackSessionKey.value,
       countedPlaySessionKey: countedPlaySessionKey.value,
       listenedPlaybackMs: listenedPlaybackMs.value,
       playbackStartedAt: playbackStartedAt.value,
     }),
-    persistState,
-    { deep: true, flush: 'sync' },
+    persistPlaybackProgress,
+    { flush: 'sync' },
   )
 
   return {
@@ -531,44 +546,48 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Playback could not continue.'
 }
 
-function readPersistedState(): PersistedPlayerState {
+function readPersistedState(): RestoredPlayerState {
   try {
-    const rawState = localStorage.getItem(STORAGE_KEY)
-    if (!rawState) return {}
-
-    const parsedState = JSON.parse(rawState) as PersistedPlayerState
-    const listenedPlaybackMs = normalizeListenedPlaybackMs(parsedState.listenedPlaybackMs)
-    const playbackStartedAt = typeof parsedState.playbackStartedAt === 'string'
-      && Number.isFinite(Date.parse(parsedState.playbackStartedAt))
-      ? parsedState.playbackStartedAt
+    const playerState = readStorage<PersistedPlayerState>(PLAYER_STORAGE_KEY)
+    const progress = readStorage<PersistedPlaybackProgress>(PLAYBACK_PROGRESS_STORAGE_KEY)
+    const currentIndex = normalizeCurrentIndex(playerState.currentIndex, playerState.queue ?? [])
+    const progressMatchesTrack = currentIndex >= 0
+      && progress.trackId === playerState.queue?.[currentIndex]?.id
+    const listenedPlaybackMs = normalizeListenedPlaybackMs(progress.listenedPlaybackMs)
+    const playbackStartedAt = typeof progress.playbackStartedAt === 'string'
+      && Number.isFinite(Date.parse(progress.playbackStartedAt))
+      ? progress.playbackStartedAt
       : null
     const elapsedSessionMs = playbackStartedAt === null
       ? null
       : Math.max(0, Date.now() - Date.parse(playbackStartedAt))
-    const listeningStateValid = listenedPlaybackMs === 0
-      || (
-        elapsedSessionMs !== null
-        && listenedPlaybackMs <= elapsedSessionMs + MAX_PERSISTED_LISTENING_OVERFLOW_MS
+    const listeningStateValid = progressMatchesTrack
+      && (
+        listenedPlaybackMs === 0
+        || (
+          elapsedSessionMs !== null
+          && listenedPlaybackMs <= elapsedSessionMs + MAX_PERSISTED_LISTENING_OVERFLOW_MS
+        )
       )
 
     return {
-      queue: Array.isArray(parsedState.queue) ? parsedState.queue : [],
-      currentIndex: parsedState.currentIndex,
-      isPlaying: parsedState.isPlaying === true,
-      volume: parsedState.volume,
-      continuousPlay: parsedState.continuousPlay,
-      randomPlay: parsedState.randomPlay,
-      visualizerEnabled: parsedState.visualizerEnabled,
-      playbackContext: parsedState.playbackContext === 'album' || parsedState.playbackContext === 'track-list'
-        ? parsedState.playbackContext
+      queue: Array.isArray(playerState.queue) ? playerState.queue : [],
+      currentIndex,
+      isPlaying: playerState.isPlaying === true,
+      volume: playerState.volume,
+      continuousPlay: playerState.continuousPlay,
+      randomPlay: playerState.randomPlay,
+      visualizerEnabled: playerState.visualizerEnabled,
+      playbackContext: playerState.playbackContext === 'album' || playerState.playbackContext === 'track-list'
+        ? playerState.playbackContext
         : null,
-      playbackScope: normalizePlaybackScope(parsedState.playbackScope),
-      playbackPosition: parsedState.playbackPosition,
-      playbackSessionKey: listeningStateValid && typeof parsedState.playbackSessionKey === 'string'
-        ? parsedState.playbackSessionKey
+      playbackScope: normalizePlaybackScope(playerState.playbackScope),
+      playbackPosition: progressMatchesTrack ? progress.playbackPosition : 0,
+      playbackSessionKey: listeningStateValid && typeof progress.playbackSessionKey === 'string'
+        ? progress.playbackSessionKey
         : null,
-      countedPlaySessionKey: listeningStateValid && typeof parsedState.countedPlaySessionKey === 'string'
-        ? parsedState.countedPlaySessionKey
+      countedPlaySessionKey: listeningStateValid && typeof progress.countedPlaySessionKey === 'string'
+        ? progress.countedPlaySessionKey
         : null,
       listenedPlaybackMs: listeningStateValid ? listenedPlaybackMs : 0,
       playbackStartedAt: listeningStateValid ? playbackStartedAt : null,
@@ -578,9 +597,18 @@ function readPersistedState(): PersistedPlayerState {
   }
 }
 
-function persistState(state: PersistedPlayerState) {
+function readStorage<T extends object>(key: string): T {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    const value = localStorage.getItem(key)
+    return value ? JSON.parse(value) as T : {} as T
+  } catch {
+    return {} as T
+  }
+}
+
+function persistPlayerState(state: PersistedPlayerState) {
+  try {
+    localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({
       queue: state.queue ?? [],
       currentIndex: normalizeCurrentIndex(state.currentIndex, state.queue ?? []),
       isPlaying: state.isPlaying === true && normalizeCurrentIndex(state.currentIndex, state.queue ?? []) >= 0,
@@ -590,11 +618,21 @@ function persistState(state: PersistedPlayerState) {
       visualizerEnabled: state.visualizerEnabled ?? true,
       playbackContext: state.playbackContext ?? null,
       playbackScope: normalizePlaybackScope(state.playbackScope),
-      playbackPosition: normalizePlaybackPosition(state.playbackPosition),
-      playbackSessionKey: state.playbackSessionKey ?? null,
-      countedPlaySessionKey: state.countedPlaySessionKey ?? null,
-      listenedPlaybackMs: normalizeListenedPlaybackMs(state.listenedPlaybackMs),
-      playbackStartedAt: state.playbackStartedAt ?? null,
+    }))
+  } catch {
+    // Persistence is a convenience. Playback should keep working when storage is unavailable.
+  }
+}
+
+function persistPlaybackProgress(progress: PersistedPlaybackProgress) {
+  try {
+    localStorage.setItem(PLAYBACK_PROGRESS_STORAGE_KEY, JSON.stringify({
+      trackId: progress.trackId ?? null,
+      playbackPosition: normalizePlaybackPosition(progress.playbackPosition),
+      playbackSessionKey: progress.playbackSessionKey ?? null,
+      countedPlaySessionKey: progress.countedPlaySessionKey ?? null,
+      listenedPlaybackMs: normalizeListenedPlaybackMs(progress.listenedPlaybackMs),
+      playbackStartedAt: progress.playbackStartedAt ?? null,
     }))
   } catch {
     // Persistence is a convenience. Playback should keep working when storage is unavailable.

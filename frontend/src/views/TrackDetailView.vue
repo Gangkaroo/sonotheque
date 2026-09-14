@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -12,6 +12,7 @@ import SimilarTracksDialog from '@/components/SimilarTracksDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
 import TrackPlaylistMembershipMenu from '@/components/TrackPlaylistMembershipMenu.vue'
 import { apiRequest } from '@/api/client'
+import { useBackgroundJobPolling } from '@/composables/useBackgroundJobPolling'
 import { useCatalogStore, type AdditionalMetadataTag } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore, withLibraryRootScope } from '@/stores/libraryRootScope'
@@ -38,7 +39,6 @@ const metadataLoading = ref(false)
 const metadataError = ref<string | null>(null)
 const metadataSuccess = ref(false)
 const metadataPreview = ref<MetadataPreview | null>(null)
-const metadataJob = ref<MetadataEditJob | null>(null)
 const metadataRemovedTagKeys = ref<string[]>([])
 const artistNavigation = ref<ArtistTrackNavigation | null>(null)
 const artistNavigationLoading = ref(false)
@@ -53,7 +53,6 @@ const metadataForm = reactive({
   discNumber: '',
   year: '',
 })
-let metadataPollTimer: ReturnType<typeof setTimeout> | null = null
 let artistNavigationRequest = 0
 
 interface ArtistTrackNavigation {
@@ -168,6 +167,30 @@ const backLabel = computed(() => {
   return t('tracks.back')
 })
 const track = computed(() => catalog.trackDetail)
+const {
+  job: metadataJob,
+  start: startMetadataPolling,
+  reset: resetMetadataPolling,
+} = useBackgroundJobPolling<MetadataEditJob>({
+  request: (id, signal) => apiRequest<MetadataEditJob>(`/metadata-edits/${id}`, { signal }),
+  isComplete: job => job.status === 'completed',
+  isTerminal: job => job.status === 'failed',
+  onComplete: async () => {
+    metadataDialog.value = false
+    metadataSuccess.value = true
+    catalog.invalidateCatalog()
+    await catalog.loadTrack(trackId.value)
+    if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
+    if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
+    if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
+  },
+  onTerminal: job => {
+    metadataError.value = job.failureReason ?? job.error ?? t('tracks.metadataEditFailed')
+  },
+  onError: cause => {
+    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
+  },
+})
 const albumNavigationTracks = computed(() => {
   if (!backAlbumId.value || catalog.albumDetail?.id !== backAlbumId.value) return []
 
@@ -371,6 +394,8 @@ function queueTrack() {
 function openMetadataEditor() {
   if (!track.value) return
 
+  resetMetadataPolling()
+
   Object.assign(metadataForm, {
     title: track.value.title,
     artistNames: track.value.artists.map((artist) => artist.name),
@@ -384,7 +409,6 @@ function openMetadataEditor() {
   })
   metadataStep.value = 'form'
   metadataPreview.value = null
-  metadataJob.value = null
   metadataError.value = null
   metadataRemovedTagKeys.value = []
   metadataDialog.value = true
@@ -438,7 +462,7 @@ async function queueMetadataEdit() {
   metadataLoading.value = true
   metadataError.value = null
   try {
-    metadataJob.value = await apiRequest<MetadataEditJob>(`/tracks/${track.value.id}/metadata-edits`, {
+    const job = await apiRequest<MetadataEditJob>(`/tracks/${track.value.id}/metadata-edits`, {
       method: 'POST',
       body: JSON.stringify({
         ...metadataPreview.value.values,
@@ -446,41 +470,11 @@ async function queueMetadataEdit() {
       }),
     })
     metadataStep.value = 'queued'
-    scheduleMetadataPoll()
+    startMetadataPolling(job)
   } catch (cause) {
     metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
   } finally {
     metadataLoading.value = false
-  }
-}
-
-function scheduleMetadataPoll() {
-  if (metadataPollTimer) clearTimeout(metadataPollTimer)
-  metadataPollTimer = setTimeout(pollMetadataEdit, 1000)
-}
-
-async function pollMetadataEdit() {
-  if (!metadataJob.value) return
-
-  try {
-    metadataJob.value = await apiRequest<MetadataEditJob>(`/metadata-edits/${metadataJob.value.id}`)
-    if (metadataJob.value.status === 'completed') {
-      metadataDialog.value = false
-      metadataSuccess.value = true
-      catalog.invalidateCatalog()
-      await catalog.loadTrack(trackId.value)
-      if (backAlbumId.value) await catalog.loadAlbum(backAlbumId.value)
-      if (backPlaylistId.value) await playlists.loadPlaylist(backPlaylistId.value)
-      if (catalog.trackDetail) player.refreshQueuedTracks([catalog.trackDetail])
-      return
-    }
-    if (metadataJob.value.status === 'failed') {
-      metadataError.value = metadataJob.value.failureReason ?? metadataJob.value.error ?? t('tracks.metadataEditFailed')
-      return
-    }
-    scheduleMetadataPoll()
-  } catch (cause) {
-    metadataError.value = cause instanceof Error ? cause.message : t('tracks.metadataEditFailed')
   }
 }
 
@@ -586,6 +580,7 @@ async function loadArtistNavigation() {
 }
 
 watch([trackId, () => libraryRootScope.selectedRootId], ([id]) => {
+  resetMetadataPolling()
   if (!Number.isInteger(id) || id <= 0) return
 
   recentPlaysPage.value = 1
@@ -610,9 +605,6 @@ watch([backArtistId, trackId, () => libraryRootScope.selectedRootId], () => {
   void loadArtistNavigation()
 }, { immediate: true })
 
-onUnmounted(() => {
-  if (metadataPollTimer) clearTimeout(metadataPollTimer)
-})
 </script>
 
 <template>

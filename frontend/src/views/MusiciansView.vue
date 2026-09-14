@@ -1,187 +1,34 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { toRefs } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
 
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
+import { useCatalogFilters, queryInitial, queryPage, querySearch } from '@/composables/useCatalogFilters'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
-import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
-
-interface MusicianFilters {
-  page: number
-  search: string
-  initial: string | null
-}
 
 const { t } = useI18n()
-const route = useRoute()
-const router = useRouter()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const storageKey = 'sonotheque:musician-filters'
-const restoredFilters = initialFilters()
-const page = ref(restoredFilters.page)
-const search = ref(restoredFilters.search)
-const initial = ref(restoredFilters.initial)
-const resultsTop = ref<HTMLElement | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-let applyingRouteFilters = false
-const routeQuerySyncGuard = createRouteQuerySyncGuard()
-
-function load() {
-  void catalog.loadMusicians({ page: page.value, search: search.value, initial: initial.value })
-}
-
-function currentFilters(): MusicianFilters {
-  return { page: page.value, search: querySearch(search.value), initial: initial.value }
-}
-
-function initialFilters(): MusicianFilters {
-  return filtersFromQuery() ?? filtersFromStorage() ?? { page: 1, search: '', initial: null }
-}
-
-function filtersFromQuery(): MusicianFilters | null {
-  if (!['page', 'search', 'initial'].some(key => route.query[key] !== undefined)) return null
-
-  return {
-    page: queryPage(route.query.page),
-    search: querySearch(route.query.search),
-    initial: queryInitial(route.query.initial),
-  }
-}
-
-function filtersFromStorage(): MusicianFilters | null {
-  try {
-    const stored = window.sessionStorage.getItem(storageKey)
-    if (!stored) return null
-
-    const parsed = JSON.parse(stored) as Partial<MusicianFilters>
-
-    return {
-      page: queryPage(parsed.page),
-      search: querySearch(parsed.search),
-      initial: queryInitial(parsed.initial),
-    }
-  } catch {
-    return null
-  }
-}
-
-function saveFilters() {
-  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
-}
-
-function filterQuery(filters: MusicianFilters) {
-  const query: Record<string, string> = {}
-  if (filters.page > 1) query.page = String(filters.page)
-  if (filters.search.trim()) query.search = filters.search.trim()
-  if (filters.initial) query.initial = filters.initial
-
-  return query
-}
-
-function syncFiltersToRoute() {
-  if (route.name !== 'musicians') return
-
-  const query = filterQuery(currentFilters())
-  if (JSON.stringify(filterQuery({
-    page: queryPage(route.query.page),
-    search: querySearch(route.query.search),
-    initial: queryInitial(route.query.initial),
-  })) === JSON.stringify(query)) return
-
-  const pendingSync = routeQuerySyncGuard.mark(query)
-  void router.replace({ name: 'musicians', query }).finally(() => routeQuerySyncGuard.release(pendingSync))
-}
-
-function applyFilters(filters: MusicianFilters) {
-  applyingRouteFilters = true
-  page.value = filters.page
-  search.value = filters.search
-  initial.value = filters.initial
-  applyingRouteFilters = false
-  saveFilters()
-}
+const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+  routeName: 'musicians',
+  storageKey: 'sonotheque:musician-filters',
+  scope: () => libraryRootScope.selectedRootId,
+  parse: input => ({
+    page: queryPage(input.page),
+    search: querySearch(input.search),
+    initial: queryInitial(input.initial),
+  }),
+  load: value => { void catalog.loadMusicians(value) },
+})
+const { page, initial } = toRefs(filters)
 
 function selectInitial(value: string | null) {
-  page.value = 1
   initial.value = value
 }
-
-function changePage(value: number) {
-  if (value === page.value) return
-
-  page.value = value
-  saveFilters()
-  syncFiltersToRoute()
-  void nextTick(() => resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' }))
-}
-
-function queryPage(value: unknown) {
-  const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
-}
-
-function querySearch(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
-
-function queryInitial(value: unknown) {
-  if (typeof value !== 'string') return null
-  if (value === '#') return value
-
-  const normalized = value.toUpperCase()
-
-  return /^[A-Z]$/.test(normalized) ? normalized : null
-}
-
-saveFilters()
-useCachedViewActivation(load)
-
-watch(() => route.query, () => {
-  if (route.name !== 'musicians') return
-
-  const normalizedQuery = filterQuery({
-    page: queryPage(route.query.page),
-    search: querySearch(route.query.search),
-    initial: queryInitial(route.query.initial),
-  })
-  if (routeQuerySyncGuard.consume(normalizedQuery)) return
-
-  const filters = filtersFromQuery()
-  if (filters) applyFilters(filters)
-  else syncFiltersToRoute()
-})
-watch([page, initial, () => libraryRootScope.selectedRootId], load, { immediate: true })
-watch(initial, () => {
-  if (applyingRouteFilters) return
-  page.value = 1
-  saveFilters()
-  syncFiltersToRoute()
-})
-watch(search, () => {
-  const wasNotFirstPage = page.value !== 1
-  if (searchTimer) clearTimeout(searchTimer)
-  if (!applyingRouteFilters) {
-    page.value = 1
-    saveFilters()
-  }
-  if (wasNotFirstPage) return
-
-  searchTimer = setTimeout(() => {
-    syncFiltersToRoute()
-    load()
-  }, 300)
-})
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
 </script>
 
 <template>

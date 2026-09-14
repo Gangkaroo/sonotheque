@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { apiRequest } from '@/api/client'
+import { createCatalogPageLoader } from '@/api/catalogPageLoader'
 import { withLibraryRootScope } from '@/stores/libraryRootScope'
 
 export interface Artist {
@@ -318,11 +319,6 @@ export interface CatalogPage<T> {
   lastPage: number
 }
 
-interface CatalogCacheEntry<T> {
-  value: T
-  expiresAt: number
-}
-
 export interface MusicianCatalogPage extends CatalogPage<Musician> {
   coverage: MusicianCoverage
 }
@@ -370,32 +366,6 @@ function queryPath(path: string, query: CatalogQuery): string {
   return withLibraryRootScope(`${path}?${parameters}`)
 }
 
-const CATALOG_CACHE_TTL_MS = 10 * 60 * 1000
-const MAX_CACHED_PAGES = 40
-
-function readCachedPage<T>(cache: Map<string, CatalogCacheEntry<T>>, key: string): T | null {
-  const entry = cache.get(key)
-  if (!entry) return null
-  if (entry.expiresAt <= Date.now()) {
-    cache.delete(key)
-    return null
-  }
-
-  cache.delete(key)
-  cache.set(key, entry)
-
-  return entry.value
-}
-
-function rememberPage<T>(cache: Map<string, CatalogCacheEntry<T>>, key: string, value: T) {
-  cache.delete(key)
-  cache.set(key, { value, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS })
-  if (cache.size <= MAX_CACHED_PAGES) return
-
-  const oldestKey = cache.keys().next().value
-  if (oldestKey) cache.delete(oldestKey)
-}
-
 export const useCatalogStore = defineStore('catalog', () => {
   const artists = ref<CatalogPage<Artist>>(emptyPage())
   const musicians = ref<MusicianCatalogPage>({
@@ -432,22 +402,15 @@ export const useCatalogStore = defineStore('catalog', () => {
   const metricsLoaded = ref(false)
   const metricsError = ref<string | null>(null)
   let metricsRequest = 0
-  let artistsRequest = 0
-  let musiciansRequest = 0
   let musicianDetailRequest = 0
   let artistDetailRequest = 0
-  let albumsRequest = 0
   let albumDetailRequest = 0
-  let tracksRequest = 0
   let trackDetailRequest = 0
-  let genresRequest = 0
-  let albumsAbortController: AbortController | null = null
-  let tracksAbortController: AbortController | null = null
-  const artistPages = new Map<string, CatalogCacheEntry<CatalogPage<Artist>>>()
-  const musicianPages = new Map<string, CatalogCacheEntry<MusicianCatalogPage>>()
-  const albumPages = new Map<string, CatalogCacheEntry<CatalogPage<Album>>>()
-  const trackPages = new Map<string, CatalogCacheEntry<CatalogPage<Track>>>()
-  const genrePages = new Map<string, CatalogCacheEntry<CatalogPage<Genre>>>()
+  const artistsLoader = createCatalogPageLoader(artists, artistsLoading, artistsError)
+  const musiciansLoader = createCatalogPageLoader(musicians, musiciansLoading, musiciansError)
+  const albumsLoader = createCatalogPageLoader(albums, albumsLoading, albumsError)
+  const tracksLoader = createCatalogPageLoader(tracks, tracksLoading, tracksError)
+  const genresLoader = createCatalogPageLoader(genres, genresLoading, genresError)
 
   const metricsHaveCatalog = computed(() => metrics.value.albums > 0 || metrics.value.tracks > 0)
 
@@ -474,14 +437,16 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   function invalidateMetrics() {
     metricsLoaded.value = false
+    metricsRequest++
+    if (metricsLoading.value) void loadMetrics(true)
   }
 
   function invalidateBrowseCache() {
-    artistPages.clear()
-    musicianPages.clear()
-    albumPages.clear()
-    trackPages.clear()
-    genrePages.clear()
+    artistsLoader.invalidate()
+    musiciansLoader.invalidate()
+    albumsLoader.invalidate()
+    tracksLoader.invalidate()
+    genresLoader.invalidate()
   }
 
   function invalidateCatalog() {
@@ -490,55 +455,11 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   async function loadArtists(query: CatalogQuery = {}) {
-    const request = ++artistsRequest
-    const path = queryPath('/catalog/artists', query)
-    const cached = readCachedPage(artistPages, path)
-    if (cached) {
-      artists.value = cached
-      artistsLoading.value = false
-      artistsError.value = null
-      return
-    }
-
-    artistsLoading.value = true
-    artistsError.value = null
-    try {
-      const result = await apiRequest<CatalogPage<Artist>>(path)
-      if (request === artistsRequest) {
-        rememberPage(artistPages, path, result)
-        artists.value = result
-      }
-    } catch (cause) {
-      if (request === artistsRequest) artistsError.value = errorMessage(cause)
-    } finally {
-      if (request === artistsRequest) artistsLoading.value = false
-    }
+    await artistsLoader.load(queryPath('/catalog/artists', query))
   }
 
   async function loadMusicians(query: CatalogQuery = {}) {
-    const request = ++musiciansRequest
-    const path = queryPath('/catalog/musicians', query)
-    const cached = readCachedPage(musicianPages, path)
-    if (cached) {
-      musicians.value = cached
-      musiciansLoading.value = false
-      musiciansError.value = null
-      return
-    }
-
-    musiciansLoading.value = true
-    musiciansError.value = null
-    try {
-      const result = await apiRequest<MusicianCatalogPage>(path)
-      if (request === musiciansRequest) {
-        rememberPage(musicianPages, path, result)
-        musicians.value = result
-      }
-    } catch (cause) {
-      if (request === musiciansRequest) musiciansError.value = errorMessage(cause)
-    } finally {
-      if (request === musiciansRequest) musiciansLoading.value = false
-    }
+    await musiciansLoader.load(queryPath('/catalog/musicians', query))
   }
 
   async function loadMusician(id: number) {
@@ -584,38 +505,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   async function loadAlbums(query: CatalogQuery = {}) {
-    const request = ++albumsRequest
-    const path = queryPath('/catalog/albums', query)
-    albumsAbortController?.abort()
-    const cached = readCachedPage(albumPages, path)
-    if (cached) {
-      albums.value = cached
-      albumsLoading.value = false
-      albumsError.value = null
-      albumsAbortController = null
-      return
-    }
-
-    albumsAbortController = new AbortController()
-    albumsLoading.value = true
-    albumsError.value = null
-    try {
-      const result = await apiRequest<CatalogPage<Album>>(path, {
-        signal: albumsAbortController.signal,
-      })
-      if (request === albumsRequest) {
-        rememberPage(albumPages, path, result)
-        albums.value = result
-      }
-    } catch (cause) {
-      if (isAbortError(cause)) return
-      if (request === albumsRequest) albumsError.value = errorMessage(cause)
-    } finally {
-      if (request === albumsRequest) {
-        albumsLoading.value = false
-        albumsAbortController = null
-      }
-    }
+    await albumsLoader.load(queryPath('/catalog/albums', query))
   }
 
   async function loadAlbum(id: number) {
@@ -634,38 +524,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   async function loadTracks(query: CatalogQuery = {}) {
-    const request = ++tracksRequest
-    const path = queryPath('/catalog/tracks', query)
-    tracksAbortController?.abort()
-    const cached = readCachedPage(trackPages, path)
-    if (cached) {
-      tracks.value = cached
-      tracksLoading.value = false
-      tracksError.value = null
-      tracksAbortController = null
-      return
-    }
-
-    tracksAbortController = new AbortController()
-    tracksLoading.value = true
-    tracksError.value = null
-    try {
-      const result = await apiRequest<CatalogPage<Track>>(path, {
-        signal: tracksAbortController.signal,
-      })
-      if (request === tracksRequest) {
-        rememberPage(trackPages, path, result)
-        tracks.value = result
-      }
-    } catch (cause) {
-      if (isAbortError(cause)) return
-      if (request === tracksRequest) tracksError.value = errorMessage(cause)
-    } finally {
-      if (request === tracksRequest) {
-        tracksLoading.value = false
-        tracksAbortController = null
-      }
-    }
+    await tracksLoader.load(queryPath('/catalog/tracks', query))
   }
 
   async function loadTrack(id: number) {
@@ -842,29 +701,7 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   async function loadGenres(query: CatalogQuery = {}) {
-    const request = ++genresRequest
-    const path = queryPath('/catalog/genres', query)
-    const cached = readCachedPage(genrePages, path)
-    if (cached) {
-      genres.value = cached
-      genresLoading.value = false
-      genresError.value = null
-      return
-    }
-
-    genresLoading.value = true
-    genresError.value = null
-    try {
-      const result = await apiRequest<CatalogPage<Genre>>(path)
-      if (request === genresRequest) {
-        rememberPage(genrePages, path, result)
-        genres.value = result
-      }
-    } catch (cause) {
-      if (request === genresRequest) genresError.value = errorMessage(cause)
-    } finally {
-      if (request === genresRequest) genresLoading.value = false
-    }
+    await genresLoader.load(queryPath('/catalog/genres', query))
   }
 
   function updateTrackPlayStatistics(trackId: number, statistics: TrackPlayStatistics) {
@@ -954,8 +791,4 @@ export const useCatalogStore = defineStore('catalog', () => {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Unable to load the music catalog.'
-}
-
-function isAbortError(cause: unknown): boolean {
-  return cause instanceof DOMException && cause.name === 'AbortError'
 }

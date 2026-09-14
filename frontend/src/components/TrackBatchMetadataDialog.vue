@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { apiRequest } from '@/api/client'
+import { useBackgroundJobPolling } from '@/composables/useBackgroundJobPolling'
 import type { Track } from '@/stores/catalog'
 
 const props = defineProps<{
@@ -25,7 +26,6 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const initial = ref<TrackBatchMetadataPreview | null>(null)
 const preview = ref<TrackBatchMetadataPreview | null>(null)
-const job = ref<MetadataJob | null>(null)
 const enabled = reactive<Record<TrackBatchMetadataField, boolean>>({
   artistNames: false,
   composers: false,
@@ -46,7 +46,6 @@ const form = reactive({
   discNumber: '',
   year: '',
 })
-let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 type TrackBatchMetadataField = 'artistNames' | 'composers' | 'performers' | 'genres' | 'comment' | 'trackNumber' | 'discNumber' | 'year'
 type MetadataValue = string[] | string | number | null
@@ -111,6 +110,21 @@ interface MetadataJob {
   failureReason?: string | null
 }
 
+const {
+  job,
+  start: startPolling,
+  reset: resetPolling,
+} = useBackgroundJobPolling<MetadataJob>({
+  request: (id, signal) => apiRequest<MetadataJob>(`/metadata-edits/${id}`, { signal }),
+  isComplete: job => job.status === 'completed',
+  isTerminal: job => ['partial', 'failed'].includes(job.status),
+  onComplete: completedJob => {
+    dialogOpen.value = false
+    emit('completed', completedJob.succeededItems)
+  },
+  onError: cause => { error.value = errorMessage(cause) },
+})
+
 const hasChanges = computed(() => Object.values(enabled).some(Boolean))
 const formValid = computed(() => {
   if (!hasChanges.value) return false
@@ -118,12 +132,12 @@ const formValid = computed(() => {
 })
 
 async function initialize() {
+  resetPolling()
   step.value = 'form'
   loading.value = true
   error.value = null
   initial.value = null
   preview.value = null
-  job.value = null
   Object.keys(enabled).forEach((field) => {
     enabled[field as TrackBatchMetadataField] = false
   })
@@ -211,7 +225,7 @@ async function apply() {
   loading.value = true
   error.value = null
   try {
-    job.value = await apiRequest<MetadataJob>(`/albums/${props.albumId}/tracks/metadata-edits`, {
+    const queuedJob = await apiRequest<MetadataJob>(`/albums/${props.albumId}/tracks/metadata-edits`, {
       method: 'POST',
       body: JSON.stringify({
         trackIds: props.tracks.map((track) => track.id),
@@ -220,33 +234,11 @@ async function apply() {
       }),
     })
     step.value = 'queued'
-    schedulePoll()
+    startPolling(queuedJob)
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
     loading.value = false
-  }
-}
-
-function schedulePoll() {
-  if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = setTimeout(poll, 1000)
-}
-
-async function poll() {
-  if (!job.value) return
-
-  try {
-    job.value = await apiRequest<MetadataJob>(`/metadata-edits/${job.value.id}`)
-    if (job.value.status === 'completed') {
-      dialogOpen.value = false
-      emit('completed', job.value.succeededItems)
-      return
-    }
-    if (['partial', 'failed'].includes(job.value.status)) return
-    schedulePoll()
-  } catch (cause) {
-    error.value = errorMessage(cause)
   }
 }
 
@@ -287,10 +279,7 @@ function errorMessage(cause: unknown) {
 
 watch(dialogOpen, (open) => {
   if (open) void initialize()
-})
-
-onUnmounted(() => {
-  if (pollTimer) clearTimeout(pollTimer)
+  else resetPolling()
 })
 </script>
 

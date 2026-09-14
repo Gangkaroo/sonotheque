@@ -1,160 +1,33 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { toRefs } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
 
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
+import { useCatalogFilters, queryInitial, queryPage, querySearch } from '@/composables/useCatalogFilters'
 import { useCatalogStore } from '@/stores/catalog'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { formatDateTime } from '@/utils/formatters'
-import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
-
-interface ArtistFilters {
-  search: string
-  initial: string | null
-}
 
 const { locale, t } = useI18n()
-const route = useRoute()
-const router = useRouter()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const storageKey = 'sonotheque:artist-filters'
-const restoredFilters = initialFilters()
-const initial = ref<string | null>(restoredFilters.initial)
-const search = ref(restoredFilters.search)
-const page = ref(1)
-const resultsTop = ref<HTMLElement | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-let applyingRouteFilters = false
-const routeQuerySyncGuard = createRouteQuerySyncGuard()
-
-function load() {
-  void catalog.loadArtists({ page: page.value, search: querySearch(search.value), initial: initial.value })
-}
+const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+  routeName: 'artists',
+  storageKey: 'sonotheque:artist-filters',
+  scope: () => libraryRootScope.selectedRootId,
+  parse: input => ({
+    page: queryPage(input.page),
+    search: querySearch(input.search),
+    initial: queryInitial(input.initial),
+  }),
+  load: value => { void catalog.loadArtists(value) },
+})
+const { page, initial } = toRefs(filters)
 
 function selectInitial(value: string | null) {
-  page.value = 1
   initial.value = value
-}
-
-function changePage(value: number) {
-  if (value === page.value) return
-
-  page.value = value
-  void nextTick(() => {
-    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
-  })
-}
-
-function currentFilters(): ArtistFilters {
-  return {
-    search: querySearch(search.value),
-    initial: initial.value,
-  }
-}
-
-function defaultFilters(): ArtistFilters {
-  return {
-    search: '',
-    initial: null,
-  }
-}
-
-function initialFilters(): ArtistFilters {
-  const routeFilters = filtersFromQuery()
-
-  if (routeFilters) return routeFilters
-
-  return filtersFromStorage() ?? defaultFilters()
-}
-
-function filtersFromQuery(): ArtistFilters | null {
-  if (!hasFilterQuery()) return null
-
-  return {
-    search: querySearch(route.query.search),
-    initial: queryInitial(route.query.initial),
-  }
-}
-
-function hasFilterQuery() {
-  return ['search', 'initial'].some((key) => route.query[key] !== undefined)
-}
-
-function filtersFromStorage(): ArtistFilters | null {
-  try {
-    const stored = window.sessionStorage.getItem(storageKey)
-    if (!stored) return null
-
-    const parsed = JSON.parse(stored) as Partial<ArtistFilters>
-
-    return {
-      search: typeof parsed.search === 'string' ? parsed.search : '',
-      initial: queryInitial(parsed.initial),
-    }
-  } catch {
-    return null
-  }
-}
-
-function saveFilters() {
-  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
-}
-
-function syncFiltersToRoute() {
-  if (route.name !== 'artists') return
-
-  const query = filterQuery(currentFilters())
-
-  if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
-
-  const pendingSync = routeQuerySyncGuard.mark(query)
-
-  void router.replace({ name: 'artists', query }).finally(() => {
-    routeQuerySyncGuard.release(pendingSync)
-  })
-}
-
-function applyFilters(filters: ArtistFilters) {
-  applyingRouteFilters = true
-  search.value = filters.search
-  initial.value = filters.initial
-  page.value = 1
-  applyingRouteFilters = false
-  saveFilters()
-}
-
-function filterQuery(filters: ArtistFilters) {
-  const query: Record<string, string> = {}
-
-  if (filters.search.trim()) query.search = filters.search.trim()
-  if (filters.initial) query.initial = filters.initial
-
-  return query
-}
-
-function normalizedFilterQuery(query: typeof route.query) {
-  return filterQuery({
-    search: querySearch(query.search),
-    initial: queryInitial(query.initial),
-  })
-}
-
-function querySearch(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
-
-function queryInitial(value: unknown) {
-  if (typeof value !== 'string') return null
-  if (value === '#') return value
-
-  const normalized = value.toUpperCase()
-
-  return /^[A-Z]$/.test(normalized) ? normalized : null
 }
 
 function formatDate(value?: string | null) {
@@ -172,52 +45,6 @@ function playCountTooltip(artist: typeof catalog.artists.items[number]) {
   ]
 }
 
-saveFilters()
-useCachedViewActivation(load)
-
-watch(() => route.query, () => {
-  if (route.name !== 'artists') return
-
-  const normalizedQuery = normalizedFilterQuery(route.query)
-  if (routeQuerySyncGuard.consume(normalizedQuery)) return
-
-  const routeFilters = filtersFromQuery()
-  if (routeFilters) {
-    applyFilters(routeFilters)
-    return
-  }
-
-  syncFiltersToRoute()
-})
-watch(initial, () => {
-  if (applyingRouteFilters) return
-
-  page.value = 1
-  saveFilters()
-  syncFiltersToRoute()
-})
-watch([page, initial, () => libraryRootScope.selectedRootId], load, { immediate: true })
-watch(search, () => {
-  const wasNotFirstPage = page.value !== 1
-  if (searchTimer) clearTimeout(searchTimer)
-
-  if (!applyingRouteFilters) {
-    page.value = 1
-    saveFilters()
-  } else if (wasNotFirstPage) {
-    page.value = 1
-  }
-
-  if (wasNotFirstPage) return
-
-  searchTimer = setTimeout(() => {
-    syncFiltersToRoute()
-    load()
-  }, 300)
-})
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
 </script>
 
 <template>

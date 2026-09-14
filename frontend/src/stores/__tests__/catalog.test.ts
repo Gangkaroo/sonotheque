@@ -158,6 +158,51 @@ describe('catalog store', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
+  it.each(['Artists', 'Musicians', 'Albums', 'Tracks', 'Genres'] as const)(
+    'replaces pending %s reads on invalidation and ignores their late responses', async (kind) => {
+      let resolveOld!: (response: Response) => void
+      let oldSignal: AbortSignal | null | undefined
+      const fresh = { items: [], total: 20, page: 1, perPage: 24, lastPage: 1 }
+      const fetchMock = vi.fn()
+        .mockImplementationOnce((_url: string, options: RequestInit) => {
+          oldSignal = options.signal
+          return new Promise<Response>(resolve => { resolveOld = resolve })
+        })
+        .mockResolvedValue(new Response(JSON.stringify(fresh), { status: 200 }))
+      vi.stubGlobal('fetch', fetchMock)
+      const store = useCatalogStore()
+      const load = store[`load${kind}`]
+      const old = load()
+      store.invalidateBrowseCache()
+      expect(oldSignal?.aborted).toBe(true)
+      resolveOld(new Response(JSON.stringify({ ...fresh, total: 100 }), { status: 200 }))
+      await old
+      // The replacement read is independent of the cancelled caller.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await load()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      const key = kind.toLowerCase() as 'artists' | 'musicians' | 'albums' | 'tracks' | 'genres'
+      expect(store[key].total).toBe(20)
+    },
+  )
+
+  it('does not restore invalidated metrics from an older pending response', async () => {
+    let resolveOld!: (response: Response) => void
+    const fresh = { artists: 1, musicians: 2, albums: 3, tracks: 4, genres: 5, playedAlbums: 0, playedTracks: 0 }
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>(resolve => { resolveOld = resolve }))
+      .mockResolvedValue(new Response(JSON.stringify(fresh), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCatalogStore()
+    const pending = store.loadMetrics()
+    store.invalidateMetrics()
+    resolveOld(new Response(JSON.stringify({ ...fresh, tracks: 999 }), { status: 200 }))
+    await pending
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(store.metrics).toEqual(fresh)
+    expect(store.metricsLoaded).toBe(true)
+  })
+
   it('saves album personal metadata', async () => {
     const personalMetadata = {
       purchaseSource: 'Local store',

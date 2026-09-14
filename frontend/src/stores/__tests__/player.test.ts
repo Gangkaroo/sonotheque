@@ -486,6 +486,23 @@ describe('player store', () => {
     expect(restoredPlayer.playbackState).toBe('loading')
   })
 
+  it('persists playback progress without rewriting the queue', () => {
+    const player = usePlayerStore()
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    player.playTrack(tracks[0], tracks, 'album')
+    setItem.mockClear()
+
+    player.setPlaybackPosition(12)
+    player.setListenedPlaybackMs(10_000)
+    player.setPlaybackPosition(13)
+
+    expect(setItem).toHaveBeenCalled()
+    expect(setItem.mock.calls.every(([key]) => key === 'sonotheque.player.progress')).toBe(true)
+    const progress = JSON.parse(localStorage.getItem('sonotheque.player.progress') ?? '{}')
+    expect(progress).toMatchObject({ trackId: 1, playbackPosition: 13, listenedPlaybackMs: 10_000 })
+    expect(progress).not.toHaveProperty('queue')
+  })
+
   it('preserves accumulated listening across multiple page refreshes', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-28T12:00:00Z'))
@@ -554,6 +571,9 @@ describe('player store', () => {
       queue: tracks,
       currentIndex: 0,
       isPlaying: true,
+    }))
+    localStorage.setItem('sonotheque.player.progress', JSON.stringify({
+      trackId: 1,
       playbackSessionKey: 'corrupted-session',
       countedPlaySessionKey: 'corrupted-session',
       listenedPlaybackMs: 9_000_000,
@@ -566,6 +586,44 @@ describe('player store', () => {
     expect(player.listenedPlaybackMs).toBe(0)
     expect(player.playbackSessionKey).not.toBe('corrupted-session')
     expect(player.countedPlaySessionKey).toBeNull()
+  })
+
+  it('does not restore progress saved for another track', () => {
+    localStorage.setItem('sonotheque.player', JSON.stringify({
+      queue: tracks,
+      currentIndex: 1,
+      isPlaying: false,
+    }))
+    localStorage.setItem('sonotheque.player.progress', JSON.stringify({
+      trackId: 1,
+      playbackPosition: 73,
+      playbackSessionKey: 'stale-session',
+      listenedPlaybackMs: 30_000,
+      playbackStartedAt: new Date(Date.now() - 60_000).toISOString(),
+    }))
+
+    const player = usePlayerStore()
+
+    expect(player.currentTrack?.id).toBe(2)
+    expect(player.playbackPosition).toBe(0)
+    expect(player.listenedPlaybackMs).toBe(0)
+    expect(player.playbackSessionKey).not.toBe('stale-session')
+  })
+
+  it('keeps the saved queue when the progress record is invalid', () => {
+    localStorage.setItem('sonotheque.player', JSON.stringify({
+      queue: tracks,
+      currentIndex: 1,
+      isPlaying: false,
+      volume: 0.4,
+    }))
+    localStorage.setItem('sonotheque.player.progress', '{invalid')
+
+    const player = usePlayerStore()
+
+    expect(player.currentTrack?.id).toBe(2)
+    expect(player.volume).toBe(0.4)
+    expect(player.playbackPosition).toBe(0)
   })
 
   it('clears the persisted queue on stop without resetting player settings', () => {

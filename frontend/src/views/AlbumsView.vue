@@ -1,21 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, toRefs } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import CatalogPagination from '@/components/CatalogPagination.vue'
 import CatalogRating from '@/components/CatalogRating.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
-import { useCachedViewActivation } from '@/composables/useCachedViewActivation'
+import { useCatalogFilters, queryInitial, queryNumber, queryPage, querySearch } from '@/composables/useCatalogFilters'
 import type { Album } from '@/stores/catalog'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 import { useLibraryRootsStore } from '@/stores/libraryRoots'
 import { usePlayerStore, type AlbumPlaybackScope } from '@/stores/player'
-import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 interface AlbumFilters {
   page: number
@@ -36,31 +34,37 @@ type PhysicalCopyFilter = 'all' | 'owned' | 'not_owned'
 type AlbumSort = 'artist' | 'title' | 'year_asc' | 'year_desc' | 'plays' | 'last_played' | 'added'
 
 const { t } = useI18n()
-const route = useRoute()
-const router = useRouter()
 const catalog = useCatalogStore()
 const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
-const storageKey = 'sonotheque:album-filters'
-const restoredFilters = initialFilters()
-const initial = ref<string | null>(restoredFilters.initial)
-const search = ref(restoredFilters.search)
-const genre = ref(restoredFilters.genre)
-const genreName = ref(restoredFilters.genreName)
-const label = ref(restoredFilters.label)
-const labelName = ref(restoredFilters.labelName)
-const musician = ref(restoredFilters.musician)
-const musicianName = ref(restoredFilters.musicianName)
-const year = ref<number | null>(restoredFilters.year)
-const physicalCopy = ref<PhysicalCopyFilter>(restoredFilters.physicalCopy)
-const sort = ref<AlbumSort>(restoredFilters.sort)
-const page = ref(restoredFilters.page)
-const resultsTop = ref<HTMLElement | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-let applyingRouteFilters = false
-const routeQuerySyncGuard = createRouteQuerySyncGuard()
+const { filters, searchInput: search, resultsTop, currentFilters, changePage } = useCatalogFilters<AlbumFilters>({
+  routeName: 'albums',
+  storageKey: 'sonotheque:album-filters',
+  scope: () => libraryRootScope.selectedRootId,
+  parse: input => ({
+    page: queryPage(input.page),
+    search: querySearch(input.search),
+    initial: queryInitial(input.initial),
+    year: queryNumber(input.year),
+    genre: queryNumber(input.genre),
+    genreName: querySearch(input.genreName),
+    label: queryNumber(input.label),
+    labelName: querySearch(input.labelName),
+    musician: queryNumber(input.musician),
+    musicianName: querySearch(input.musicianName),
+    physicalCopy: queryPhysicalCopy(input.physicalCopy),
+    sort: queryAlbumSort(input.sort),
+  }),
+  load: value => {
+    void catalog.loadAlbums({
+      ...value,
+      physicalCopy: value.physicalCopy === 'all' ? null : value.physicalCopy,
+    })
+  },
+})
+const { page, initial, year, genre, genreName, label, labelName, musician, musicianName, physicalCopy, sort } = toRefs(filters)
 const releaseYears = computed(() => {
   const currentYear = new Date().getFullYear()
 
@@ -80,20 +84,6 @@ const sortOptions = computed(() => [
   { title: t('albums.sortLastPlayed'), value: 'last_played' },
   { title: t('albums.sortRecentlyAdded'), value: 'added' },
 ])
-
-function load() {
-  void catalog.loadAlbums({
-    page: page.value,
-    search: querySearch(search.value),
-    initial: initial.value,
-    year: year.value,
-    genre: genre.value,
-    label: label.value,
-    musician: musician.value,
-    physicalCopy: physicalCopy.value === 'all' ? null : physicalCopy.value,
-    sort: sort.value,
-  })
-}
 
 function playRandomAlbum() {
   const filters = currentFilters()
@@ -119,196 +109,7 @@ function playRandomAlbum() {
 }
 
 function selectInitial(value: string | null) {
-  page.value = 1
   initial.value = value
-}
-
-function currentFilters(): AlbumFilters {
-  return {
-    page: page.value,
-    search: querySearch(search.value),
-    initial: initial.value,
-    year: year.value,
-    genre: genre.value,
-    genreName: genreName.value,
-    label: label.value,
-    labelName: labelName.value,
-    musician: musician.value,
-    musicianName: musicianName.value,
-    physicalCopy: physicalCopy.value,
-    sort: sort.value,
-  }
-}
-
-function defaultFilters(): AlbumFilters {
-  return {
-    page: 1,
-    search: '',
-    initial: null,
-    year: null,
-    genre: null,
-    genreName: '',
-    label: null,
-    labelName: '',
-    musician: null,
-    musicianName: '',
-    physicalCopy: 'all',
-    sort: 'artist',
-  }
-}
-
-function initialFilters(): AlbumFilters {
-  const routeFilters = filtersFromQuery()
-
-  if (routeFilters) return routeFilters
-
-  return filtersFromStorage() ?? defaultFilters()
-}
-
-function filtersFromQuery(): AlbumFilters | null {
-  if (!hasFilterQuery()) return null
-
-  return {
-    page: queryPage(route.query.page),
-    search: querySearch(route.query.search),
-    initial: queryInitial(route.query.initial),
-    year: queryNumber(route.query.year),
-    genre: queryNumber(route.query.genre),
-    genreName: querySearch(route.query.genreName),
-    label: queryNumber(route.query.label),
-    labelName: querySearch(route.query.labelName),
-    musician: queryNumber(route.query.musician),
-    musicianName: querySearch(route.query.musicianName),
-    physicalCopy: queryPhysicalCopy(route.query.physicalCopy),
-    sort: queryAlbumSort(route.query.sort),
-  }
-}
-
-function hasFilterQuery() {
-  return ['page', 'search', 'initial', 'year', 'genre', 'genreName', 'label', 'labelName', 'musician', 'musicianName', 'physicalCopy', 'sort'].some((key) => route.query[key] !== undefined)
-}
-
-function filtersFromStorage(): AlbumFilters | null {
-  try {
-    const stored = window.sessionStorage.getItem(storageKey)
-    if (!stored) return null
-
-    const parsed = JSON.parse(stored) as Partial<AlbumFilters>
-
-    return {
-      page: queryPage(parsed.page),
-      search: typeof parsed.search === 'string' ? parsed.search : '',
-      initial: queryInitial(parsed.initial),
-      year: typeof parsed.year === 'number' ? parsed.year : null,
-      genre: typeof parsed.genre === 'number' ? parsed.genre : null,
-      genreName: typeof parsed.genreName === 'string' ? parsed.genreName : '',
-      label: typeof parsed.label === 'number' ? parsed.label : null,
-      labelName: typeof parsed.labelName === 'string' ? parsed.labelName : '',
-      musician: typeof parsed.musician === 'number' ? parsed.musician : null,
-      musicianName: typeof parsed.musicianName === 'string' ? parsed.musicianName : '',
-      physicalCopy: queryPhysicalCopy(parsed.physicalCopy),
-      sort: queryAlbumSort(parsed.sort),
-    }
-  } catch {
-    return null
-  }
-}
-
-function saveFilters() {
-  window.sessionStorage.setItem(storageKey, JSON.stringify(currentFilters()))
-}
-
-function syncFiltersToRoute() {
-  if (route.name !== 'albums') return
-
-  const query = filterQuery(currentFilters())
-
-  if (JSON.stringify(normalizedFilterQuery(route.query)) === JSON.stringify(query)) return
-
-  const pendingSync = routeQuerySyncGuard.mark(query)
-
-  void router.replace({ name: 'albums', query }).finally(() => {
-    routeQuerySyncGuard.release(pendingSync)
-  })
-}
-
-function applyFilters(filters: AlbumFilters) {
-  applyingRouteFilters = true
-  page.value = filters.page
-  search.value = filters.search
-  initial.value = filters.initial
-  year.value = filters.year
-  genre.value = filters.genre
-  genreName.value = filters.genreName
-  label.value = filters.label
-  labelName.value = filters.labelName
-  musician.value = filters.musician
-  musicianName.value = filters.musicianName
-  physicalCopy.value = filters.physicalCopy
-  sort.value = filters.sort
-  applyingRouteFilters = false
-  saveFilters()
-}
-
-function filterQuery(filters: AlbumFilters) {
-  const query: Record<string, string> = {}
-
-  if (filters.page > 1) query.page = String(filters.page)
-  if (filters.search.trim()) query.search = filters.search.trim()
-  if (filters.initial) query.initial = filters.initial
-  if (filters.year) query.year = String(filters.year)
-  if (filters.genre) query.genre = String(filters.genre)
-  if (filters.genreName.trim()) query.genreName = filters.genreName.trim()
-  if (filters.label) query.label = String(filters.label)
-  if (filters.labelName.trim()) query.labelName = filters.labelName.trim()
-  if (filters.musician) query.musician = String(filters.musician)
-  if (filters.musicianName.trim()) query.musicianName = filters.musicianName.trim()
-  if (filters.physicalCopy !== 'all') query.physicalCopy = filters.physicalCopy
-  if (filters.sort !== 'artist') query.sort = filters.sort
-
-  return query
-}
-
-function normalizedFilterQuery(query: typeof route.query) {
-  return filterQuery({
-    page: queryPage(query.page),
-    search: querySearch(query.search),
-    initial: queryInitial(query.initial),
-    year: queryNumber(query.year),
-    genre: queryNumber(query.genre),
-    genreName: querySearch(query.genreName),
-    label: queryNumber(query.label),
-    labelName: querySearch(query.labelName),
-    musician: queryNumber(query.musician),
-    musicianName: querySearch(query.musicianName),
-    physicalCopy: queryPhysicalCopy(query.physicalCopy),
-    sort: queryAlbumSort(query.sort),
-  })
-}
-
-function querySearch(value: unknown) {
-  return typeof value === 'string' ? value : ''
-}
-
-function queryPage(value: unknown) {
-  const parsed = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1
-}
-
-function queryInitial(value: unknown) {
-  if (typeof value !== 'string') return null
-  if (value === '#') return value
-
-  const normalized = value.toUpperCase()
-
-  return /^[A-Z]$/.test(normalized) ? normalized : null
-}
-
-function queryNumber(value: unknown) {
-  const parsed = typeof value === 'string' ? Number(value) : NaN
-
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
 function queryPhysicalCopy(value: unknown): PhysicalCopyFilter {
@@ -324,30 +125,16 @@ function queryAlbumSort(value: unknown): AlbumSort {
 function clearGenreFilter() {
   genre.value = null
   genreName.value = ''
-  page.value = 1
 }
 
 function clearMusicianFilter() {
   musician.value = null
   musicianName.value = ''
-  page.value = 1
 }
 
 function clearLabelFilter() {
   label.value = null
   labelName.value = ''
-  page.value = 1
-}
-
-function changePage(value: number) {
-  if (value === page.value) return
-
-  page.value = value
-  saveFilters()
-  syncFiltersToRoute()
-  void nextTick(() => {
-    resultsTop.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
-  })
 }
 
 function albumDetails(album: Album) {
@@ -358,52 +145,6 @@ function albumDetails(album: Album) {
   return t('albums.details', { year: album.originalReleaseYear, count: album.trackCount })
 }
 
-saveFilters()
-useCachedViewActivation(load)
-
-watch(() => route.query, () => {
-  if (route.name !== 'albums') return
-
-  const normalizedQuery = normalizedFilterQuery(route.query)
-  if (routeQuerySyncGuard.consume(normalizedQuery)) return
-
-  const routeFilters = filtersFromQuery()
-  if (routeFilters) {
-    applyFilters(routeFilters)
-    return
-  }
-
-  syncFiltersToRoute()
-})
-watch([initial, year, genre, genreName, label, labelName, musician, musicianName, physicalCopy, sort], () => {
-  if (applyingRouteFilters) return
-
-  page.value = 1
-  saveFilters()
-  syncFiltersToRoute()
-})
-watch([page, initial, year, genre, label, musician, physicalCopy, sort, () => libraryRootScope.selectedRootId], load, { immediate: true })
-watch(search, () => {
-  const wasNotFirstPage = page.value !== 1
-  if (searchTimer) clearTimeout(searchTimer)
-
-  if (!applyingRouteFilters) {
-    page.value = 1
-    saveFilters()
-  } else if (wasNotFirstPage) {
-    page.value = 1
-  }
-
-  if (wasNotFirstPage) return
-
-  searchTimer = setTimeout(() => {
-    syncFiltersToRoute()
-    load()
-  }, 300)
-})
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
-})
 </script>
 
 <template>

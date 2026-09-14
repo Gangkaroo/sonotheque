@@ -167,10 +167,13 @@ describe('AppPlayer playback reporting', () => {
       queue: tracks,
       currentIndex: 0,
       isPlaying: true,
+      visualizerEnabled: false,
+    }))
+    localStorage.setItem('sonotheque.player.progress', JSON.stringify({
+      trackId: 1,
       playbackPosition: 73,
       playbackSessionKey: 'restored-session',
       playbackStartedAt: new Date().toISOString(),
-      visualizerEnabled: false,
     }))
     const { player, wrapper } = await mountPlayer(false)
     const media = currentMedia(wrapper)
