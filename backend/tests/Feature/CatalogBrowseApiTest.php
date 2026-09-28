@@ -16,6 +16,7 @@ use App\Models\RecordLabel;
 use App\Models\Track;
 use App\Models\TrackPlayStatistic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CatalogBrowseApiTest extends TestCase
@@ -478,25 +479,35 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('mediaFile.channels', 2);
     }
 
-    public function test_lame_extreme_preset_is_presented_as_v0(): void
+    public function test_lame_named_presets_are_presented_as_v_levels_without_losing_other_settings(): void
     {
         [, $album, $track] = $this->createCatalog();
-        $track->mediaFile->update([
-            'raw_metadata' => [
-                'audio' => [
-                    'bitrate_mode' => 'vbr',
-                    'encoder_options' => '--preset fast extreme -b32 --resample 48000',
+
+        foreach ([
+            '--preset fast extreme -b32 --resample 48000' => 'V0 -b32 --resample 48000',
+            '--preset extreme' => 'V0',
+            '--preset fast standard -b32 --lowpass 18600' => 'V2 -b32 --lowpass 18600',
+            '--preset standard' => 'V2',
+            '--preset fast medium' => 'V5',
+            '--preset insane' => '--preset insane',
+        ] as $options => $expected) {
+            $track->mediaFile->update([
+                'raw_metadata' => [
+                    'audio' => [
+                        'bitrate_mode' => 'vbr',
+                        'encoder_options' => $options,
+                    ],
                 ],
-            ],
-        ]);
+            ]);
 
-        $this->getJson("/api/catalog/albums/{$album->id}")
-            ->assertOk()
-            ->assertJsonPath('technical.encoderSettings.0', 'V0');
+            $this->getJson("/api/catalog/albums/{$album->id}")
+                ->assertOk()
+                ->assertJsonPath('technical.encoderSettings.0', $expected);
 
-        $this->getJson("/api/catalog/tracks/{$track->id}")
-            ->assertOk()
-            ->assertJsonPath('mediaFile.encoderSettings', 'V0');
+            $this->getJson("/api/catalog/tracks/{$track->id}")
+                ->assertOk()
+                ->assertJsonPath('mediaFile.encoderSettings', $expected);
+        }
     }
 
     public function test_tracks_can_be_filtered_to_never_played(): void
@@ -843,6 +854,59 @@ class CatalogBrowseApiTest extends TestCase
         $this->getJson("/api/catalog/playback/tracks/{$alphaTrack->id}/next?".http_build_query($trackScope))
             ->assertOk()
             ->assertJsonPath('id', $alphaTrack->id);
+    }
+
+    public function test_random_playback_uses_indexed_candidates_without_sorting_the_catalog(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+
+        DB::enableQueryLog();
+        try {
+            $this->getJson('/api/catalog/playback/albums/random')
+                ->assertOk()
+                ->assertJsonPath('id', $album->id)
+                ->assertJsonPath('tracks.0.id', $track->id);
+            $this->getJson('/api/catalog/playback/tracks/random')
+                ->assertOk()
+                ->assertJsonPath('id', $track->id);
+
+            foreach (DB::getQueryLog() as $query) {
+                $this->assertStringNotContainsString('random()', strtolower($query['query']));
+            }
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+        }
+    }
+
+    public function test_random_playback_does_not_escape_filters_when_only_the_excluded_item_remains(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+
+        $this->getJson("/api/catalog/playback/albums/random?exclude={$album->id}")
+            ->assertOk()->assertJsonPath('id', $album->id);
+        $this->getJson("/api/catalog/playback/tracks/random?exclude={$track->id}")
+            ->assertOk()->assertJsonPath('id', $track->id);
+
+        $this->getJson("/api/catalog/playback/albums/random?exclude={$album->id}&year=1900")
+            ->assertNotFound();
+        $this->getJson("/api/catalog/playback/tracks/random?exclude={$track->id}&search=nonexistent")
+            ->assertNotFound();
+
+        $track->mediaFile->update(['status' => MediaFileStatus::Missing]);
+        $this->getJson("/api/catalog/playback/albums/random?exclude={$album->id}")->assertNotFound();
+        $this->getJson("/api/catalog/playback/tracks/random?exclude={$track->id}")->assertNotFound();
+
+        $track->mediaFile->update(['status' => MediaFileStatus::Available]);
+        $album->libraryRoot->update(['enabled' => false]);
+        $this->getJson('/api/catalog/playback/albums/random')->assertNotFound();
+        $this->getJson('/api/catalog/playback/tracks/random')->assertNotFound();
+    }
+
+    public function test_random_playback_returns_not_found_for_an_empty_catalog(): void
+    {
+        $this->getJson('/api/catalog/playback/albums/random')->assertNotFound();
+        $this->getJson('/api/catalog/playback/tracks/random')->assertNotFound();
     }
 
     /** @return array{Artist, Album, Track, Genre} */

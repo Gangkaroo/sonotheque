@@ -28,6 +28,9 @@ const onlineInformationRevision = ref(0)
 const playlistExportMessage = ref('')
 const playlistExportMessageVisible = ref(false)
 const artistCountry = ref<string | null>(null)
+const showOriginalArtwork = ref(false)
+const thumbnailArtworkFailed = ref(false)
+const originalArtworkFailed = ref(false)
 
 const albumId = computed(() => Number(route.params.id))
 const backArtistId = computed(() => {
@@ -89,6 +92,13 @@ function positiveQueryPage(value: unknown, key: 'albumPage' | 'trackPage') {
   return Number.isInteger(parsed) && parsed > 1 ? { [key]: String(parsed) } : {}
 }
 const artworkUrl = computed(() => album.value?.artworkUrl ?? album.value?.artworkThumbnailUrl ?? null)
+const artworkDisplayUrl = computed(() => (
+  showOriginalArtwork.value && !originalArtworkFailed.value
+    ? artworkUrl.value
+    : !thumbnailArtworkFailed.value && album.value?.artworkThumbnailUrl
+      ? album.value.artworkThumbnailUrl
+      : originalArtworkFailed.value ? null : artworkUrl.value
+))
 const artworkStyle = computed(() => ({
   maxWidth: `${album.value?.artworkWidth ?? 1200}px`,
   maxHeight: `min(92vh, ${album.value?.artworkHeight ?? 1200}px)`,
@@ -146,13 +156,31 @@ function metadataReleaseResolved() {
 }
 
 function openArtwork() {
-  if (!artworkUrl.value) return
+  if (!artworkDisplayUrl.value) return
 
   artworkDialog.value = true
 }
 
+function artworkLoaded() {
+  if (!showOriginalArtwork.value && album.value?.artworkUrl && !originalArtworkFailed.value) {
+    showOriginalArtwork.value = true
+  }
+}
+
+function artworkLoadFailed() {
+  if (!showOriginalArtwork.value && album.value?.artworkThumbnailUrl) {
+    thumbnailArtworkFailed.value = true
+    showOriginalArtwork.value = true
+  } else {
+    originalArtworkFailed.value = true
+  }
+}
+
 watch(albumId, (id) => {
   artistCountry.value = null
+  showOriginalArtwork.value = false
+  thumbnailArtworkFailed.value = false
+  originalArtworkFailed.value = false
   if (Number.isInteger(id) && id > 0) void catalog.loadAlbum(id)
 }, { immediate: true })
 
@@ -179,13 +207,33 @@ watch(() => player.currentTrack?.album?.id, (id) => {
     <v-row class="mb-8">
       <v-col cols="12" md="4" lg="3">
         <v-card
-          v-if="artworkUrl"
+          v-if="artworkDisplayUrl"
           border
           rounded="xl"
           class="overflow-hidden album-cover-card"
           @click="openArtwork"
         >
-          <v-img :src="artworkUrl" aspect-ratio="1" cover />
+          <v-img
+            :key="album.id"
+            :alt="album.title"
+            :src="artworkDisplayUrl"
+            :lazy-src="showOriginalArtwork ? album.artworkThumbnailUrl ?? undefined : undefined"
+            aspect-ratio="1"
+            cover
+            @error="artworkLoadFailed"
+            @load="artworkLoaded"
+          >
+            <template #placeholder>
+              <div class="album-cover-loading">
+                <v-progress-linear color="primary" height="3" indeterminate />
+              </div>
+            </template>
+            <template #error>
+              <div class="d-flex align-center justify-center bg-surface-bright album-cover-placeholder">
+                <v-icon icon="mdi-album" size="88" color="medium-emphasis" />
+              </div>
+            </template>
+          </v-img>
         </v-card>
         <v-card v-else border rounded="xl" class="overflow-hidden">
           <div class="d-flex align-center justify-center bg-surface-bright album-cover-placeholder">
@@ -228,11 +276,18 @@ watch(() => player.currentTrack?.album?.id, (id) => {
   <v-dialog v-model="artworkDialog" class="album-artwork-dialog" max-width="none">
     <div class="album-artwork-overlay" @click="artworkDialog = false">
       <v-img
-        v-if="artworkUrl"
-        :src="artworkUrl"
+        v-if="artworkDisplayUrl"
+        :src="artworkDisplayUrl"
+        :lazy-src="showOriginalArtwork ? album?.artworkThumbnailUrl ?? undefined : undefined"
         :style="artworkStyle"
         class="album-artwork-full"
-      />
+      >
+        <template #placeholder>
+          <div class="album-cover-loading">
+            <v-progress-linear color="primary" height="3" indeterminate />
+          </div>
+        </template>
+      </v-img>
     </div>
   </v-dialog>
 
@@ -267,6 +322,13 @@ watch(() => player.currentTrack?.album?.id, (id) => {
 
 .album-cover-placeholder {
   aspect-ratio: 1;
+}
+
+.album-cover-loading {
+  align-items: flex-end;
+  display: flex;
+  height: 100%;
+  pointer-events: none;
 }
 
 .album-artwork-overlay {

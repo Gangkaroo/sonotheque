@@ -185,9 +185,7 @@ function formatAlbumBitrate(
 }
 
 function formatEncoderSettings(value: string) {
-  const quality = value.match(/(?:^|\s)-?V\s*(\d+(?:\.\d+)?)(?:\s|$)/i)
-
-  return quality ? `V${quality[1]}` : value
+  return value.replace(/(^|\s)-?V\s*(\d+(?:\.\d+)?)(?=\s|$)/i, '$1V$2')
 }
 
 function isRedundantCbrSetting(

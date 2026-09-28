@@ -77,6 +77,34 @@ describe('AlbumSummaryCard', () => {
 
     expect(wrapper.emitted('play')).toHaveLength(1)
   })
+
+  it('keeps encoder options visible after the VBR quality level', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', name: 'home', component: { template: '<div />' } },
+        { path: '/albums', name: 'albums', component: { template: '<div />' } },
+        { path: '/artists/:id', name: 'artist-detail', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(AlbumSummaryCard, {
+      props: {
+        album: {
+          ...album,
+          technical: {
+            ...album.technical,
+            encoderSettings: ['V2 -b32 --lowpass 18600', '-V1 -b32'],
+          },
+        },
+      },
+      global: { plugins: [createPinia(), router, i18n, vuetify] },
+    })
+
+    expect(wrapper.text()).toContain('V2 -b32 --lowpass 18600 / V1 -b32')
+  })
 })
 
 function findButton(element: Element, label: string) {

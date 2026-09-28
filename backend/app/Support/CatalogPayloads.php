@@ -464,10 +464,14 @@ class CatalogPayloads
             return null;
         }
 
-        if (preg_match('/(?:^|\s)--preset\s+(?:fast\s+)?extreme(?:\s|$)/i', $settings) === 1) {
-            return 'V0';
-        }
-
-        return $settings;
+        return preg_replace_callback(
+            '/(^|\s)--preset\s+(?:fast\s+)?(extreme|standard|medium)(?=\s|$)/i',
+            static fn (array $matches): string => $matches[1].match (strtolower($matches[2])) {
+                'extreme' => 'V0',
+                'standard' => 'V2',
+                'medium' => 'V5',
+            },
+            $settings,
+        ) ?? $settings;
     }
 }

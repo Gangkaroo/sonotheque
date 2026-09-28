@@ -536,8 +536,34 @@ class CatalogBrowseController extends Controller
             $candidateQuery->whereKeyNot($excludeId);
         }
 
-        return $candidateQuery->inRandomOrder()->first()
-            ?? $query->inRandomOrder()->firstOrFail();
+        $model = $query->getModel();
+        $key = $model->getQualifiedKeyName();
+        $minimum = $model->newQuery()->min($key);
+        $maximum = $model->newQuery()->max($key);
+
+        if ($minimum !== null && $maximum !== null) {
+            // Uniform ID sampling avoids checking the entire catalog for broad scopes.
+            // Gaps are rejected, so albums next to deleted IDs gain no extra weight.
+            $sample = [];
+            for ($index = 0; $index < 32; $index++) {
+                $sample[] = random_int((int) $minimum, (int) $maximum);
+            }
+            $ids = (clone $candidateQuery)->whereKey(array_unique($sample))->pluck($key)->all();
+            if ($ids !== []) {
+                return (clone $candidateQuery)->whereKey($ids[array_rand($ids)])->firstOrFail();
+            }
+        }
+
+        // Select only an ID when restrictive filters or sparse IDs need a full search.
+        $id = (clone $candidateQuery)->reorder()->inRandomOrder()->value($key);
+        if ($id !== null) {
+            return (clone $candidateQuery)->whereKey($id)->firstOrFail();
+        }
+
+        // Repeat the current item only when it is the sole eligible result.
+        abort_if($excludeId === null, 404);
+
+        return (clone $query)->whereKey($excludeId)->firstOrFail();
     }
 
     private function albumSearchIds(string $term): QueryBuilder
