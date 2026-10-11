@@ -183,6 +183,13 @@ function scheduleRunPoll() {
               </v-btn>
             </v-btn-toggle>
           </div>
+          <div class="text-body-2 mt-3">
+            {{ t('settings.audioBenchmarkCurrentConfiguration', {
+              method: benchmarkMethod(audioIntelligence.settings.analyzerSelection.selected),
+              workers: audioIntelligence.settings.analyzerSelection.preparationWorkers,
+              chunk: audioIntelligence.settings.analyzerSelection.chunkSize,
+            }) }}
+          </div>
           <div class="d-flex flex-wrap ga-2 mt-3">
             <v-chip
               v-for="accelerator in ACCELERATORS"

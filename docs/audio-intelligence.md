@@ -205,14 +205,54 @@ CPU works without CUDA and is the default. CUDA requires a compatible NVIDIA
 GPU, a functioning Docker GPU runtime, and the separately built CUDA image.
 Sonotheque never silently falls back from the selected method.
 
+The optional CUDA image uses NVIDIA TensorFlow 25.02 with CUDA 12.8, including
+Blackwell support (such as the RTX 50 series). It requires NVIDIA driver 570 or
+newer. This is not universal support for older cards: NVIDIA discontinued Volta
+support in this release, and older GPUs must pass the analyzer check rather
+than be assumed compatible. CPU analysis remains available without an NVIDIA
+GPU. See the [NVIDIA runtime requirements](https://docs.nvidia.com/deeplearning/frameworks/tensorflow-release-notes/rel-25-02.html).
+
+CUDA startup executes a full model batch and validates its output before it
+reports readiness. Merely exposing a GPU to Docker is not enough. Both starting
+and resuming analysis check readiness; a failed check leaves the run and its
+completed work unchanged. Rebuild the CUDA image using the command above after
+updating Sonotheque's analyzer runtime. The existing persistent service detects
+the changed image and is recreated automatically. TensorFlow allocates GPU
+memory as needed rather than reserving nearly all available VRAM at startup.
+
+The first CUDA startup can take longer while libraries and GPU kernels are
+initialized. The default startup allowance is three minutes, configurable with
+`AUDIO_INTELLIGENCE_STARTUP_TIMEOUT_SECONDS`; the standalone analyzer check uses
+the same allowance. Persistent mode avoids repeating initialization for every
+analysis chunk.
+
+Analyzer checks temporarily extend PHP's request execution limit to cover this
+bounded startup allowance (or the packaged worker response allowance), then
+restore the original limit. This prevents a slow GPU startup from interrupting
+start or resume requests on Windows without relaxing ordinary API limits.
+
 Under **Advanced diagnostics**, run the CPU/CUDA benchmark after provisioning
 both images. It uses a small fixed set of tracks, verifies that CPU and CUDA
 produce equivalent results, records throughput, and recommends the faster
 available method. The benchmark does not write analysis artifacts or advance a
 collection run.
 
-Apply the preferred method in the normal Audio Intelligence settings. The
-selection affects future chunks only. If persistent mode is enabled in the
+Rerun the benchmark after changing GPU hardware or the analyzer image; previous
+measurements do not describe the new hardware. A CUDA runtime update using the
+same Essentia version and model does not require reprocessing completed tracks.
+
+After the benchmark completes, select **Apply recommended configuration** below
+its recommendation. This saves the execution method, preparation-worker count,
+and batch size together. Pause any active analysis first, then resume it after
+applying. The current configuration is displayed beside the analysis-method
+selector, even with Advanced diagnostics collapsed, and the
+button indicates when the recommendation is already applied. No application
+restart or reprocessing of completed tracks is needed.
+
+These tuning values are stored in the database; environment settings remain
+the defaults until a recommendation is applied. You can still change the
+execution method separately in the normal Audio Intelligence settings. If
+persistent mode is enabled in the
 environment, the model remains loaded between chunks during a run and is
 released when the run stops, pauses, fails, or completes.
 
@@ -285,6 +325,13 @@ Check **Settings > System** for the Audio analysis worker. A healthy worker is
 either ready or busy. Restart Sonotheque if its heartbeat is missing. A stale
 run becomes resumable after the configured safety interval, ten minutes by
 default.
+
+If a worker log reports `Allowed memory size ... exhausted`, PHP's own memory
+limit was reached. Laravel's `--memory=512` option only recycles the worker
+between jobs; it does not raise PHP's limit. The Windows launcher explicitly
+uses `php -d memory_limit=512M` for queue workers. Analysis loads only the file
+paths, audio fingerprints, and durations it needs, excluding large raw tags
+and embedded artwork. Completed analysis remains reusable after recovery.
 
 ### Disk Full
 

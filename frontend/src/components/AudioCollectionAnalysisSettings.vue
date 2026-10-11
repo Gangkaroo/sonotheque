@@ -128,22 +128,6 @@ function prepareCollection() {
             ? t('settings.audioAnalysisPausing')
             : t('settings.pauseAudioAnalysis') }}
         </v-btn>
-        <v-btn
-          v-if="collectionRun
-            && ['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(
-              collectionRun.status,
-            )"
-          color="error"
-          :disabled="collectionRun.cancelRequestedAt !== null"
-          :loading="audioIntelligence.cancellingRun"
-          prepend-icon="mdi-stop-circle-outline"
-          variant="tonal"
-          @click="audioIntelligence.cancelRun(collectionRun.id)"
-        >
-          {{ collectionRun.cancelRequestedAt
-            ? t('settings.audioAnalysisCancelling')
-            : t('settings.cancelAudioAnalysis') }}
-        </v-btn>
         <v-tooltip
           v-if="collectionRun?.resumable"
           location="top"
@@ -167,6 +151,22 @@ function prepareCollection() {
             </span>
           </template>
         </v-tooltip>
+        <v-btn
+          v-if="collectionRun
+            && ['fingerprinting', 'prepared', 'queued', 'running', 'paused'].includes(
+              collectionRun.status,
+            )"
+          color="error"
+          :disabled="collectionRun.cancelRequestedAt !== null"
+          :loading="audioIntelligence.cancellingRun"
+          prepend-icon="mdi-stop-circle-outline"
+          variant="tonal"
+          @click="audioIntelligence.cancelRun(collectionRun.id)"
+        >
+          {{ collectionRun.cancelRequestedAt
+            ? t('settings.audioAnalysisCancelling')
+            : t('settings.cancelAudioAnalysis') }}
+        </v-btn>
       </div>
     </div>
     <v-alert

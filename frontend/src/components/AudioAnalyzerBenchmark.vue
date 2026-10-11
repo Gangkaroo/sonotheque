@@ -16,6 +16,26 @@ const analysisWorkerActive = computed(() => (
     audioIntelligence.settings.activeRun?.status ?? '',
   )
 ))
+const recommendationApplied = computed(() => {
+  const recommendation = benchmark.value?.recommendation
+  const selection = audioIntelligence.settings.analyzerSelection
+
+  return recommendation !== null && recommendation !== undefined
+    && selection.tuningConfigured
+    && selection.selected === recommendation.accelerator
+    && selection.preparationWorkers === recommendation.preparationWorkers
+    && selection.chunkSize === recommendation.chunkSize
+})
+
+async function applyRecommendation() {
+  if (!benchmark.value) return
+
+  try {
+    await audioIntelligence.applyBenchmarkRecommendation(benchmark.value.id)
+  } catch {
+    // The settings page displays the store's error.
+  }
+}
 
 function analyzerColor() {
   return audioIntelligence.settings.analyzerStatus === 'ready' ? 'success' : 'warning'
@@ -191,6 +211,25 @@ function benchmarkDuration(value: number | undefined) {
                   speedup: benchmarkRate(benchmark.recommendation.speedupVsCpu),
                 }) }}
               </span>
+              <div v-if="['completed', 'partial'].includes(benchmark.status)" class="mt-3">
+                <v-btn
+                  color="primary"
+                  :disabled="analysisWorkerActive || benchmarkActive
+                    || audioIntelligence.saving || recommendationApplied"
+                  :loading="audioIntelligence.saving"
+                  prepend-icon="mdi-check"
+                  size="small"
+                  variant="tonal"
+                  @click="applyRecommendation"
+                >
+                  {{ t(recommendationApplied
+                    ? 'settings.audioBenchmarkConfigurationApplied'
+                    : 'settings.applyAudioBenchmarkConfiguration') }}
+                </v-btn>
+                <div class="text-caption mt-2">
+                  {{ t('settings.audioBenchmarkApplyHint') }}
+                </div>
+              </div>
             </div>
           </v-alert>
   

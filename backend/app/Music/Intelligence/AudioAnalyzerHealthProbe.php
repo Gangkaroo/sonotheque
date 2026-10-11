@@ -14,6 +14,30 @@ class AudioAnalyzerHealthProbe
 
     public function check(): AudioAnalyzerHealth
     {
+        $previousLimit = (int) ini_get('max_execution_time');
+        $queued = config('sonotheque.audio_intelligence.health_via_queue')
+            && config('sonotheque.audio_intelligence.driver') !== 'none';
+        $timeout = $queued
+            ? max(10, (int) config('sonotheque.audio_intelligence.health_queue_timeout_seconds', 210))
+            : max(60, (int) config('sonotheque.audio_intelligence.persistent_startup_timeout_seconds', 180));
+        $extended = $previousLimit > 0 && $previousLimit < $timeout + 30;
+
+        // On Windows, PHP's request limit also counts time waiting for Docker.
+        if ($extended) {
+            set_time_limit($timeout + 30);
+        }
+
+        try {
+            return $this->checkAnalyzer();
+        } finally {
+            if ($extended) {
+                set_time_limit($previousLimit);
+            }
+        }
+    }
+
+    private function checkAnalyzer(): AudioAnalyzerHealth
+    {
         if (! config('sonotheque.audio_intelligence.health_via_queue')
             || config('sonotheque.audio_intelligence.driver') === 'none') {
             return $this->analyzer->health();
@@ -23,7 +47,7 @@ class AudioAnalyzerHealthProbe
         CheckAudioAnalyzerHealth::dispatch($requestId);
         $deadline = microtime(true) + max(
             10,
-            (int) config('sonotheque.audio_intelligence.health_queue_timeout_seconds', 120),
+            (int) config('sonotheque.audio_intelligence.health_queue_timeout_seconds', 210),
         );
 
         do {

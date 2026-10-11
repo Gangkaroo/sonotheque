@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useListSearchFocus } from '@/composables/useListSearchFocus'
 import { useCatalogStore } from '@/stores/catalog'
 import { useFavoritesStore } from '@/stores/favorites'
 import { usePlayerStore } from '@/stores/player'
@@ -18,6 +19,7 @@ const player = usePlayerStore()
 const trash = useTrashStore()
 const page = ref(1)
 const searchInput = ref('')
+const searchField = useListSearchFocus()
 const appliedSearch = ref('')
 const selectionMode = ref(false)
 const selectedIds = ref<number[]>([])
@@ -138,6 +140,7 @@ function markedMissingAt(track: TrashTrack) {
   <v-card border rounded="xl">
     <v-card-text class="trash-toolbar">
       <v-text-field
+        ref="searchField"
         v-model="searchInput"
         clearable
         density="compact"
@@ -147,6 +150,7 @@ function markedMissingAt(track: TrashTrack) {
         variant="outlined"
         @click:clear="clearSearch"
         @keyup.enter="applySearch"
+        @keydown.esc.prevent.stop="clearSearch"
       />
       <v-btn color="primary" variant="tonal" @click="applySearch">{{ t('trash.searchAction') }}</v-btn>
       <v-btn

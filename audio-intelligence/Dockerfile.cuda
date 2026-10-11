@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:2.17.0-gpu
+FROM nvcr.io/nvidia/tensorflow:25.02-tf2-py3
 
 ENV SONOTHEQUE_AUDIO_ACCELERATOR=cuda
 

@@ -3,6 +3,7 @@
 namespace App\Music\Scanning;
 
 use App\Music\Artwork\EmbeddedArtwork;
+use App\Music\Catalog\RecordLabelTagReader;
 use RuntimeException;
 use Throwable;
 
@@ -50,6 +51,7 @@ class GetId3MetadataReader implements AudioMetadataReader
         $year = $this->year($this->first($comments, ['year', 'date']));
         $originalReleaseYear = $this->year($this->first($comments, ['original_release_date', 'originaldate', 'original_year'])) ?? $year;
         $rawMetadata = $this->withoutArtwork($information);
+        $this->retainRecordLabelFrameText($rawMetadata);
 
         if ($fallback !== null) {
             $rawMetadata['ffprobe_fallback'] = $fallback->rawMetadata;
@@ -98,6 +100,32 @@ class GetId3MetadataReader implements AudioMetadataReader
         \getid3_lib::CopyTagsToComments($information);
 
         return $information;
+    }
+
+    /** @param array<string, mixed> $rawMetadata */
+    private function retainRecordLabelFrameText(array &$rawMetadata): void
+    {
+        $reader = new RecordLabelTagReader();
+        foreach (['TPUB', 'TXXX'] as $frameId) {
+            $frames = $rawMetadata['id3v2'][$frameId] ?? null;
+            if (! is_array($frames)) {
+                continue;
+            }
+            foreach ($frames as $index => $frame) {
+                if (! is_array($frame) || ! is_string($frame['data'] ?? null)) {
+                    continue;
+                }
+                if ($frameId === 'TXXX' && ! $reader->recognizesField((string) ($frame['description'] ?? ''))) {
+                    continue;
+                }
+
+                $rawMetadata['id3v2'][$frameId][$index]['decoded_text'] = \getid3_lib::iconv_fallback(
+                    (string) ($frame['encoding'] ?? 'ISO-8859-1'),
+                    'UTF-8',
+                    $frame['data'],
+                );
+            }
+        }
     }
 
     /** @param array<string, mixed> $comments */

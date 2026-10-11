@@ -314,6 +314,44 @@ class AudioIntelligenceSettingsController extends Controller
         ));
     }
 
+    public function applyBenchmark(AudioAnalyzerBenchmark $audioAnalyzerBenchmark): JsonResponse
+    {
+        $this->abortIfAnalysisIsRunning();
+        $this->abortIfBenchmarkActive();
+        $recommendation = $audioAnalyzerBenchmark->recommendation;
+        abort_unless(
+            in_array($audioAnalyzerBenchmark->status, ['completed', 'partial'], true)
+                && is_array($recommendation)
+                && in_array($recommendation['accelerator'] ?? null, ['cpu', 'cuda'], true)
+                && is_int($recommendation['preparationWorkers'] ?? null)
+                && $recommendation['preparationWorkers'] >= 1
+                && $recommendation['preparationWorkers'] <= 4
+                && is_int($recommendation['chunkSize'] ?? null)
+                && $recommendation['chunkSize'] >= 1
+                && $recommendation['chunkSize'] <= 25,
+            409,
+            'This benchmark has no valid configuration recommendation.',
+        );
+        $verified = collect($audioAnalyzerBenchmark->results ?? [])->contains(
+            fn (array $result): bool => ($result['status'] ?? null) === 'completed'
+                && ($result['equivalent'] ?? false) === true
+                && ($result['accelerator'] ?? null) === $recommendation['accelerator']
+                && ($result['preparationWorkers'] ?? null) === $recommendation['preparationWorkers']
+                && ($result['chunkSize'] ?? null) === $recommendation['chunkSize'],
+        );
+        abort_unless($verified, 409, 'The recommended configuration did not pass equivalence checks.');
+
+        $settings = ApplicationSetting::current();
+        $settings->update([
+            'audio_intelligence_accelerator' => $recommendation['accelerator'],
+            'audio_intelligence_preparation_workers' => $recommendation['preparationWorkers'],
+            'audio_intelligence_chunk_size' => $recommendation['chunkSize'],
+        ]);
+        Cache::forget(self::ANALYZER_HEALTH_CACHE_KEY);
+
+        return response()->json($this->payload($settings));
+    }
+
     public function startRun(AudioAnalysisRun $audioAnalysisRun): JsonResponse
     {
         $settings = ApplicationSetting::current();
@@ -331,14 +369,7 @@ class AudioIntelligenceSettingsController extends Controller
         );
         $this->abortIfBenchmarkActive();
 
-        $health = $this->analyzerHealthProbe->check();
-        $this->cacheAnalyzerHealth($health);
-        abort_unless(
-            $health->ready(),
-            409,
-            $health->message ?? 'The audio analyzer is not ready.',
-        );
-
+        $health = $this->requireReadyAnalyzer();
         $profile = $this->profileRegistry->resolve($health->profile);
         abort_if(
             $audioAnalysisRun->audio_analysis_profile_id !== null
@@ -443,6 +474,13 @@ class AudioIntelligenceSettingsController extends Controller
                 ]);
             $status = 'fingerprinting';
         } else {
+            $health = $this->requireReadyAnalyzer();
+            $profile = $this->profileRegistry->resolve($health->profile);
+            abort_unless(
+                $audioAnalysisRun->audio_analysis_profile_id === $profile->id,
+                409,
+                'The analysis run belongs to a different analyzer profile.',
+            );
             unset($summary['analysisError']);
             $audioAnalysisRun->items()
                 ->whereIn('status', ['failed', 'cancelled', 'running'])
@@ -578,6 +616,10 @@ class AudioIntelligenceSettingsController extends Controller
 
         return [
             'selected' => $selected,
+            'preparationWorkers' => $settings->audioIntelligencePreparationWorkers(),
+            'chunkSize' => $settings->audioIntelligenceChunkSize(),
+            'tuningConfigured' => $settings->audio_intelligence_preparation_workers !== null
+                && $settings->audio_intelligence_chunk_size !== null,
             'recommended' => is_array($benchmark?->recommendation)
                 && in_array($benchmark->recommendation['accelerator'] ?? null, ['cpu', 'cuda'], true)
                     ? $benchmark->recommendation['accelerator']
@@ -642,6 +684,19 @@ class AudioIntelligenceSettingsController extends Controller
             status: 'unchecked',
             message: 'Run the analyzer check to verify the configured model.',
         )->toArray();
+    }
+
+    private function requireReadyAnalyzer(): AudioAnalyzerHealth
+    {
+        $health = $this->analyzerHealthProbe->check();
+        $this->cacheAnalyzerHealth($health);
+        abort_unless(
+            $health->ready(),
+            409,
+            $health->message ?? 'The audio analyzer is not ready.',
+        );
+
+        return $health;
     }
 
     private function cacheAnalyzerHealth(AudioAnalyzerHealth $health): void
@@ -758,7 +813,7 @@ class AudioIntelligenceSettingsController extends Controller
                 ->whereIn('status', ['fingerprinting', 'queued', 'running'])
                 ->exists(),
             409,
-            'Pause or finish the active audio analysis before starting a benchmark.',
+            'Pause or finish the active audio analysis before changing its configuration or starting a benchmark.',
         );
     }
 

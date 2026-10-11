@@ -621,6 +621,8 @@ function Start-QueueWorker {
         -Name $Definition.Name `
         -FilePath $PhpPath `
         -ArgumentList @(
+            '-d',
+            'memory_limit=512M',
             'artisan',
             'queue:work',
             "--queue=$($Definition.Queue)",

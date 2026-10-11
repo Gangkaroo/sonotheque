@@ -13,7 +13,7 @@ import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 const { t } = useI18n()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+const { filters, searchInput: search, searchField, resultsTop, changePage, clearSearch } = useCatalogFilters({
   routeName: 'genres',
   storageKey: 'sonotheque:genre-filters',
   scope: () => libraryRootScope.selectedRootId,
@@ -30,7 +30,16 @@ const { page } = toRefs(filters)
     :description="t('genres.description')"
     icon="mdi-tag-multiple-outline"
   />
-  <v-text-field v-model="search" class="mb-6" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('genres.search')" />
+  <v-text-field
+    ref="searchField"
+    v-model="search"
+    class="mb-6"
+    clearable
+    hide-details
+    prepend-inner-icon="mdi-magnify"
+    :label="t('genres.search')"
+    @keydown.esc.prevent.stop="clearSearch"
+  />
   <div ref="resultsTop" class="catalog-results-anchor" />
   <CatalogPagination class="mb-4" :model-value="page" :length="catalog.genres.lastPage" @update:model-value="changePage" />
   <v-alert v-if="catalog.genresError" type="error" variant="tonal">{{ catalog.genresError }}</v-alert>

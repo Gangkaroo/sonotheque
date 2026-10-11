@@ -10,6 +10,39 @@ use Tests\TestCase;
 
 class EssentiaDockerAudioAnalyzerTest extends TestCase
 {
+    public function test_health_check_uses_the_configured_model_startup_allowance(): void
+    {
+        $directory = storage_path('framework/testing/audio-intelligence-health');
+        $modelPath = $directory.'/model.pb';
+        File::ensureDirectoryExists($directory);
+        File::put($modelPath, 'model');
+        Process::fake([
+            '*' => Process::result(output: '{"status":"error","message":"GPU unavailable"}'),
+        ]);
+
+        try {
+            $analyzer = new EssentiaDockerAudioAnalyzer(
+                image: 'sonotheque-audio-intelligence:cuda',
+                modelPath: $modelPath,
+                timeoutSeconds: 600,
+                cpuLimit: 4,
+                memoryLimit: '4g',
+                accelerator: 'cuda',
+                persistentStartupTimeoutSeconds: 180,
+            );
+
+            $this->assertSame('error', $analyzer->health()->status);
+            Process::assertRan(
+                fn (PendingProcess $process): bool =>
+                is_array($process->command)
+                && in_array('health', $process->command, true)
+                && $process->timeout === 180
+            );
+        } finally {
+            File::deleteDirectory($directory);
+        }
+    }
+
     public function test_it_mounts_comma_containing_windows_paths_with_volume_syntax(): void
     {
         $directory = storage_path('framework/testing/audio, intelligence');

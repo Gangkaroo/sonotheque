@@ -248,6 +248,10 @@ final class RecordLabelTagReader
      */
     private function decodedFrameValues(array $frame): array
     {
+        if (is_string($frame['decoded_text'] ?? null)) {
+            return preg_split('/\x00+/u', $frame['decoded_text']) ?: [];
+        }
+
         $data = $frame['data'] ?? null;
         if (! is_string($data)) {
             return $this->values($data);

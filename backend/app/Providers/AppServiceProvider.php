@@ -57,7 +57,8 @@ class AppServiceProvider extends ServiceProvider
         );
 
         $this->app->bind(AudioAnalyzer::class, function (): AudioAnalyzer {
-            $accelerator = ApplicationSetting::current()->audioIntelligenceAccelerator();
+            $settings = ApplicationSetting::current();
+            $accelerator = $settings->audioIntelligenceAccelerator();
             $configuredAccelerator = strtolower((string) config(
                 'sonotheque.audio_intelligence.accelerator',
                 'cpu',
@@ -81,9 +82,7 @@ class AppServiceProvider extends ServiceProvider
                     timeoutSeconds: (int) config('sonotheque.audio_intelligence.timeout_seconds'),
                     cpuLimit: (float) config('sonotheque.audio_intelligence.cpu_limit'),
                     memoryLimit: (string) config('sonotheque.audio_intelligence.memory_limit'),
-                    preparationWorkers: (int) config(
-                        'sonotheque.audio_intelligence.preparation_workers',
-                    ),
+                    preparationWorkers: $settings->audioIntelligencePreparationWorkers(),
                     accelerator: $accelerator,
                     persistent: (bool) config('sonotheque.audio_intelligence.persistent'),
                     persistentContainerName: (string) config(

@@ -24,6 +24,9 @@ describe('audio intelligence settings store', () => {
       },
       analyzerSelection: {
         selected: 'cpu',
+        preparationWorkers: 2,
+        chunkSize: 5,
+        tuningConfigured: false,
         recommended: null,
         methods: { cpu: 'unchecked', cuda: 'unchecked' },
       },
@@ -85,6 +88,43 @@ describe('audio intelligence settings store', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/settings/audio-intelligence/validation-runs', expect.objectContaining({
       method: 'POST',
     }))
+  })
+
+  it('applies the server-stored benchmark recommendation and updates all tuning values', async () => {
+    const store = useAudioIntelligenceSettingsStore()
+    const updated = {
+      ...store.settings,
+      analyzerSelection: {
+        ...store.settings.analyzerSelection,
+        selected: 'cuda', preparationWorkers: 3, chunkSize: 15, tuningConfigured: true,
+      },
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(updated), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await store.applyBenchmarkRecommendation(9)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/settings/audio-intelligence/benchmarks/9/apply',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(store.settings.analyzerSelection).toEqual(updated.analyzerSelection)
+    expect(store.saving).toBe(false)
+    expect(store.error).toBeNull()
+  })
+
+  it('preserves the configuration when applying a recommendation is rejected', async () => {
+    const store = useAudioIntelligenceSettingsStore()
+    const previous = { ...store.settings.analyzerSelection }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      message: 'Pause the active analysis first.',
+    }), { status: 409 })))
+
+    await expect(store.applyBenchmarkRecommendation(9)).rejects.toThrow()
+
+    expect(store.settings.analyzerSelection).toEqual(previous)
+    expect(store.error).toContain('Pause the active analysis first.')
+    expect(store.saving).toBe(false)
   })
 
   it('requests cancellation for a running analysis', async () => {

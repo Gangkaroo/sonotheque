@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AudioAnalyzerBenchmark from '@/components/AudioAnalyzerBenchmark.vue'
@@ -71,6 +72,7 @@ describe('AudioAnalyzerBenchmark', () => {
     }
     const testAnalyzer = vi.spyOn(store, 'testAnalyzer').mockResolvedValue()
     const startBenchmark = vi.spyOn(store, 'startBenchmark').mockResolvedValue()
+    const applyConfiguration = vi.spyOn(store, 'applyBenchmarkRecommendation').mockResolvedValue()
     const wrapper = mount(AudioAnalyzerBenchmark, {
       global: { plugins: [pinia, i18n, vuetify] },
     })
@@ -81,9 +83,36 @@ describe('AudioAnalyzerBenchmark', () => {
 
     await findButton(wrapper.element, 'Check analyzer')?.click()
     await findButton(wrapper.element, 'Run benchmark')?.click()
+    await findButton(wrapper.element, 'Apply recommended configuration')?.click()
 
     expect(testAnalyzer).toHaveBeenCalledOnce()
     expect(startBenchmark).toHaveBeenCalledOnce()
+    expect(applyConfiguration).toHaveBeenCalledExactlyOnceWith(9)
+
+    store.saving = true
+    await nextTick()
+    expect(findButton(wrapper.element, 'Apply recommended configuration')?.disabled).toBe(true)
+    store.saving = false
+    store.settings.activeRun = {
+      id: 5, kind: 'collection', phase: 'analysis', status: 'running',
+      requestedTrackCount: 100, selectedTrackCount: 100,
+      summary: { eligibleTrackCount: 100, eligibleRootCount: 1 },
+      resumable: false, libraryRoot: null, profile: null,
+      startedAt: null, finishedAt: null, cancelRequestedAt: null,
+      pauseRequestedAt: null, createdAt: '2026-09-14T08:00:00Z',
+    }
+    await nextTick()
+    expect(findButton(wrapper.element, 'Apply recommended configuration')?.disabled).toBe(true)
+    store.settings.activeRun = null
+    store.settings.analyzerSelection.selected = 'cuda'
+    await nextTick()
+    expect(findButton(wrapper.element, 'Apply recommended configuration')?.disabled).toBe(false)
+    store.settings.analyzerSelection.chunkSize = 8
+    await nextTick()
+    expect(findButton(wrapper.element, 'Apply recommended configuration')?.disabled).toBe(false)
+    store.settings.analyzerSelection.tuningConfigured = true
+    await nextTick()
+    expect(findButton(wrapper.element, 'Configuration applied')?.disabled).toBe(true)
   })
 })
 

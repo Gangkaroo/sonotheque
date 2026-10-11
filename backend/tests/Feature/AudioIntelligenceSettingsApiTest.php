@@ -248,6 +248,119 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         );
     }
 
+    public function test_verified_benchmark_configuration_is_saved_and_used_by_the_analyzer(): void
+    {
+        config()->set('sonotheque.audio_intelligence.driver', 'essentia_docker');
+        config()->set('sonotheque.audio_intelligence.preparation_workers', 1);
+        config()->set('sonotheque.audio_intelligence.chunk_size', 5);
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $benchmark = $this->createVerifiedBenchmark();
+        Cache::put('sonotheque:audio-intelligence:analyzer-health:v2', ['status' => 'ready']);
+
+        $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+            ->assertOk()
+            ->assertJsonPath('enabled', true)
+            ->assertJsonPath('analyzerSelection.selected', 'cuda')
+            ->assertJsonPath('analyzerSelection.preparationWorkers', 3)
+            ->assertJsonPath('analyzerSelection.tuningConfigured', true)
+            ->assertJsonPath('analyzerSelection.chunkSize', 15);
+
+        $settings = ApplicationSetting::current();
+        $this->assertSame('cuda', $settings->audioIntelligenceAccelerator());
+        $this->assertSame(3, $settings->audioIntelligencePreparationWorkers());
+        $this->assertSame(15, $settings->audioIntelligenceChunkSize());
+        $this->assertNull(Cache::get('sonotheque:audio-intelligence:analyzer-health:v2'));
+        $analyzer = app(AudioAnalyzer::class);
+        $this->assertSame(3, (new \ReflectionProperty($analyzer, 'preparationWorkers'))->getValue($analyzer));
+        $this->getJson('/api/settings/audio-intelligence')
+            ->assertOk()
+            ->assertJsonPath('analyzerSelection.preparationWorkers', 3)
+            ->assertJsonPath('analyzerSelection.chunkSize', 15);
+    }
+
+    public function test_benchmark_configuration_cannot_be_applied_during_active_work(): void
+    {
+        $benchmark = $this->createVerifiedBenchmark();
+        $run = AudioAnalysisRun::create([
+            'kind' => 'collection',
+            'phase' => 'analysis',
+            'status' => 'running',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+        ]);
+
+        foreach (['running', 'queued', 'fingerprinting'] as $status) {
+            $run->update(['status' => $status]);
+            $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+                ->assertStatus(409);
+        }
+        $run->update(['status' => 'paused']);
+        $activeBenchmark = AudioAnalyzerBenchmark::create(['status' => 'queued', 'sample_size' => 15]);
+        foreach (['queued', 'running'] as $status) {
+            $activeBenchmark->update(['status' => $status]);
+            $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+                ->assertStatus(409);
+        }
+        $settings = ApplicationSetting::current();
+        $this->assertNull($settings->audio_intelligence_preparation_workers);
+        $this->assertNull($settings->audio_intelligence_chunk_size);
+    }
+
+    public function test_only_finished_verified_benchmark_recommendations_can_be_applied(): void
+    {
+        $benchmark = $this->createVerifiedBenchmark();
+        foreach (['failed', 'cancelled'] as $status) {
+            $benchmark->update(['status' => $status]);
+            $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+                ->assertStatus(409);
+        }
+        $benchmark->update(['status' => 'completed', 'recommendation' => null]);
+        $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+            ->assertStatus(409);
+
+        $recommendation = ['accelerator' => 'cuda', 'preparationWorkers' => 3, 'chunkSize' => 15];
+        foreach ([['preparationWorkers' => 0], ['preparationWorkers' => 5], ['chunkSize' => 0], ['chunkSize' => 26], ['accelerator' => 'other']] as $invalid) {
+            $benchmark->update(['recommendation' => array_merge($recommendation, $invalid)]);
+            $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+                ->assertStatus(409);
+        }
+        $benchmark->update(['recommendation' => $recommendation, 'results' => [
+            array_merge($recommendation, ['status' => 'completed', 'equivalent' => false]),
+        ]]);
+        $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+            ->assertStatus(409);
+        $benchmark->update(['status' => 'partial', 'results' => [
+            array_merge($recommendation, ['status' => 'completed', 'equivalent' => true]),
+        ]]);
+        $this->postJson("/api/settings/audio-intelligence/benchmarks/{$benchmark->id}/apply")
+            ->assertOk();
+    }
+
+    public function test_analyzer_tuning_uses_environment_defaults_until_applied(): void
+    {
+        config()->set('sonotheque.audio_intelligence.preparation_workers', 2);
+        config()->set('sonotheque.audio_intelligence.chunk_size', 5);
+        $this->getJson('/api/settings/audio-intelligence')
+            ->assertOk()
+            ->assertJsonPath('analyzerSelection.preparationWorkers', 2)
+            ->assertJsonPath('analyzerSelection.tuningConfigured', false)
+            ->assertJsonPath('analyzerSelection.chunkSize', 5);
+    }
+
+    private function createVerifiedBenchmark(): AudioAnalyzerBenchmark
+    {
+        $configuration = ['accelerator' => 'cuda', 'preparationWorkers' => 3, 'chunkSize' => 15];
+
+        return AudioAnalyzerBenchmark::create([
+            'status' => 'completed',
+            'sample_size' => 15,
+            'recommendation' => array_merge($configuration, ['tracksPerMinute' => 12.5, 'speedupVsCpu' => 3.2]),
+            'results' => [array_merge($configuration, ['status' => 'completed', 'equivalent' => true])],
+            'finished_at' => now(),
+        ]);
+    }
+
     public function test_it_starts_and_cancels_a_bounded_analyzer_benchmark(): void
     {
         Queue::fake();
@@ -519,6 +632,63 @@ class AudioIntelligenceSettingsApiTest extends TestCase
         Queue::assertNothingPushed();
         $this->assertSame(1, $analyzer->healthCalls);
         $this->assertSame([], $analyzer->requests);
+    }
+
+    public function test_paused_analysis_stays_unchanged_when_cuda_inference_is_unavailable(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $run = AudioAnalysisRun::create([
+            'phase' => 'analysis',
+            'status' => 'paused',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+            'summary' => ['analysisError' => 'Previous failure'],
+            'pause_requested_at' => now(),
+        ]);
+        $analyzer = new FakeAudioAnalyzer(new AudioAnalyzerHealth(
+            status: 'error',
+            message: 'CUDA model inference failed. Select CPU analysis.',
+        ));
+        $this->app->instance(AudioAnalyzer::class, $analyzer);
+
+        $this->postJson("/api/settings/audio-intelligence/runs/{$run->id}/resume")
+            ->assertStatus(409)
+            ->assertJsonPath('message', $analyzer->health->message);
+
+        $run->refresh();
+        $this->assertSame('paused', $run->status);
+        $this->assertNotNull($run->pause_requested_at);
+        $this->assertSame(['analysisError' => 'Previous failure'], $run->summary);
+        $this->assertSame(1, $analyzer->healthCalls);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_paused_analysis_cannot_resume_with_a_different_model_profile(): void
+    {
+        Queue::fake();
+        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        $analyzer = FakeAudioAnalyzer::ready();
+        $profile = app(AudioAnalysisProfileRegistry::class)->resolve($analyzer->health->profile);
+        $profile->update(['model_checksum' => str_repeat('b', 64)]);
+        $run = AudioAnalysisRun::create([
+            'audio_analysis_profile_id' => $profile->id,
+            'phase' => 'analysis',
+            'status' => 'paused',
+            'selection_seed' => fake()->uuid(),
+            'requested_track_count' => 1,
+            'selected_track_count' => 1,
+        ]);
+        $this->app->instance(AudioAnalyzer::class, $analyzer);
+
+        $this->postJson("/api/settings/audio-intelligence/runs/{$run->id}/resume")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'The analysis run belongs to a different analyzer profile.');
+
+        $this->assertSame('paused', $run->fresh()->status);
+        $this->assertSame($profile->id, $run->fresh()->audio_analysis_profile_id);
+        Queue::assertNothingPushed();
     }
 
     public function test_it_prepares_an_incremental_expansion_that_keeps_existing_artifacts(): void

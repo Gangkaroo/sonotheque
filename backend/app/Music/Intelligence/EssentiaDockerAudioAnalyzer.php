@@ -24,7 +24,7 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
         private readonly string $accelerator = 'cpu',
         private readonly bool $persistent = false,
         private readonly string $persistentContainerName = 'sonotheque-audio-analyzer',
-        private readonly int $persistentStartupTimeoutSeconds = 90,
+        private readonly int $persistentStartupTimeoutSeconds = 180,
         private readonly ?string $mountSourceContainer = null,
     ) {
         if (! in_array($this->accelerator, ['cpu', 'cuda'], true)) {
@@ -73,7 +73,7 @@ class EssentiaDockerAudioAnalyzer implements AudioAnalyzer
             }
         }
 
-        $result = Process::timeout(60)->run([
+        $result = Process::timeout(max(60, $this->persistentStartupTimeoutSeconds))->run([
             ...$this->baseCommand(),
             ...$this->modelMount(),
             $this->image,

@@ -13,7 +13,7 @@ import { formatDateTime } from '@/utils/formatters'
 const { locale, t } = useI18n()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+const { filters, searchInput: search, searchField, resultsTop, changePage, clearSearch } = useCatalogFilters({
   routeName: 'artists',
   storageKey: 'sonotheque:artist-filters',
   scope: () => libraryRootScope.selectedRootId,
@@ -54,7 +54,16 @@ function playCountTooltip(artist: typeof catalog.artists.items[number]) {
     :description="t('artists.description')"
     icon="mdi-account-music-outline"
   />
-  <v-text-field v-model="search" class="mb-4" clearable hide-details prepend-inner-icon="mdi-magnify" :label="t('artists.search')" />
+  <v-text-field
+    ref="searchField"
+    v-model="search"
+    class="mb-4"
+    clearable
+    hide-details
+    prepend-inner-icon="mdi-magnify"
+    :label="t('artists.search')"
+    @keydown.esc.prevent.stop="clearSearch"
+  />
   <div class="d-flex flex-wrap ga-1 mb-6">
     <v-btn size="small" :variant="initial === null ? 'flat' : 'tonal'" @click="selectInitial(null)">{{ t('artists.all') }}</v-btn>
     <v-btn

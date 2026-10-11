@@ -41,7 +41,7 @@ const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
 const playlists = usePlaylistsStore()
-const { filters, searchInput, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch } = useCatalogFilters<TrackFilters>({
+const { filters, searchInput, searchField, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch } = useCatalogFilters<TrackFilters>({
   routeName: 'tracks',
   storageKey: 'sonotheque:track-filters',
   scope: () => libraryRootScope.selectedRootId,
@@ -191,6 +191,7 @@ watch([
   </div>
   <div class="track-filter-row d-flex flex-column flex-sm-row flex-sm-wrap flex-lg-nowrap ga-3 mb-6">
     <v-text-field
+      ref="searchField"
       v-model="searchInput"
       append-inner-icon="mdi-magnify"
       clearable
@@ -199,6 +200,7 @@ watch([
       @click:append-inner="applySearch"
       @click:clear="clearSearch"
       @keyup.enter="applySearch"
+      @keydown.esc.prevent.stop="clearSearch"
     />
     <v-switch
       v-model="playStatus"

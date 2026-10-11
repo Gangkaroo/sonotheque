@@ -16,6 +16,7 @@ use App\Music\Intelligence\AudioVectorIndex;
 use App\Music\Scanning\LibraryPathGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\DB;
 use Tests\Fakes\FakeAudioAnalyzer;
 use Tests\TestCase;
 
@@ -41,7 +42,10 @@ class RunAudioAnalysisTest extends TestCase
     public function test_job_persists_results_and_marks_changed_audio_stale(): void
     {
         config()->set('sonotheque.audio_intelligence.chunk_size', 1);
-        ApplicationSetting::current()->update(['audio_intelligence_enabled' => true]);
+        ApplicationSetting::current()->update([
+            'audio_intelligence_enabled' => true,
+            'audio_intelligence_chunk_size' => 2,
+        ]);
 
         $library = Library::create(['name' => 'Analysis']);
         $root = $library->roots()->create([
@@ -119,6 +123,13 @@ class RunAudioAnalysisTest extends TestCase
             ),
         ];
 
+        $mediaFileQueries = [];
+        DB::listen(function ($query) use (&$mediaFileQueries): void {
+            if (str_contains($query->sql, 'from "media_files"')) {
+                $mediaFileQueries[] = $query->sql;
+            }
+        });
+
         (new RunAudioAnalysis($run->id))->handle(
             $analyzer,
             app(AudioVectorIndex::class),
@@ -148,10 +159,25 @@ class RunAudioAnalysisTest extends TestCase
         $this->assertSame(1, $run->summary['analyzedTrackCount']);
         $this->assertSame(1, $run->summary['staleTrackCount']);
         $this->assertSame(2, $run->summary['processedTrackCount']);
-        $this->assertSame(1, $run->summary['analysisMeasuredTrackCount']);
+        $this->assertSame(2, $run->summary['analysisMeasuredTrackCount']);
         $this->assertGreaterThan(0, $run->summary['analysisElapsedMs']);
         $this->assertCount(1, $run->summary['analysisTimingSamples']);
+        $this->assertSame(hash('sha256', json_encode([
+            'driver' => config('sonotheque.audio_intelligence.driver'),
+            'image' => config('sonotheque.audio_intelligence.docker_image'),
+            'accelerator' => 'cpu',
+            'persistent' => config('sonotheque.audio_intelligence.persistent'),
+            'cpuLimit' => config('sonotheque.audio_intelligence.cpu_limit'),
+            'memoryLimit' => config('sonotheque.audio_intelligence.memory_limit'),
+            'preparationWorkers' => ApplicationSetting::current()->audioIntelligencePreparationWorkers(),
+            'chunkSize' => 2,
+        ], JSON_THROW_ON_ERROR)), $run->summary['analysisPerformanceKey']);
         $this->assertCount(1, $analyzer->requests);
+        $this->assertNotEmpty($mediaFileQueries);
+        foreach ($mediaFileQueries as $query) {
+            $this->assertStringNotContainsString('select *', $query);
+            $this->assertStringNotContainsString('raw_metadata', $query);
+        }
         $this->assertSame(1, $analyzer->shutdownCalls);
 
         $secondRun = AudioAnalysisRun::create([

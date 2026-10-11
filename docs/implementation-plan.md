@@ -1,5 +1,7 @@
 # Sonotheque - Implementation Plan
 
+Last reviewed: 2026-10-11.
+
 ## Goal
 
 Build a local-first web application that scans configurable music folders, stores metadata in PostgreSQL, and provides a responsive browser and player for the library. The application will run on the local computer or, when explicitly enabled, on the local network. User management is outside the initial scope.
@@ -28,9 +30,10 @@ Build a local-first web application that scans configurable music folders, store
 
 - Monorepo containing backend, frontend, infrastructure, and documentation
 - PostgreSQL in Docker for local development
-- PHP running natively on Windows initially, so the scanner can access dynamically configured local folders
-- Versioned portable Windows releases using Docker Compose, nginx, Laravel,
-  queue and scheduler workers, PostgreSQL, and explicit host-folder mounts
+- Native PHP and Docker PostgreSQL for the current Windows development runtime
+- Portable Docker Compose packages for Windows and Linux/macOS, with nginx,
+  Laravel, dedicated queue and scheduler workers, PostgreSQL, and explicit
+  host-folder mounts; practical macOS/ARM64 verification remains open
 
 ## Repository Structure
 
@@ -50,8 +53,9 @@ The implemented release baseline and active roadmap include:
 - Manual and incremental library scans
 - Optional per-root filesystem monitoring with targeted scans, periodic full
   reconciliation, and a consolidated cross-root activity log
-- Removal of stale catalog records after scans, including deleted and newly
-  excluded files, while preserving records beneath unreadable paths
+- Missing or newly excluded files become unavailable after trustworthy scans;
+  their catalog and personal references remain intact until an administrator
+  explicitly purges them from Trash. Unreadable paths are preserved
 - Identity-preserving reconciliation of unambiguous externally moved files by
   tag-independent audio-content fingerprints
 - Scan status, progress, warnings, and errors
@@ -266,7 +270,11 @@ configuration with sensible defaults.
 
 ### Playback queue
 
-The active playback queue is a runtime concept owned by the frontend player store for the first milestone. It contains ordered track snapshots, the current index, playback context, playback position, and player settings. It is persisted in browser storage so a refresh can restore the current player state, but it is not yet a server-side library entity.
+The active playback queue is a runtime concept owned by the frontend player
+store. It contains ordered track snapshots, the current index, playback
+context, playback position, and player settings. It is persisted in browser
+storage so a refresh can restore the current player state, but it is not a
+server-side library entity.
 
 The queue UI should be designed as a stepping stone toward playlists:
 
@@ -378,7 +386,7 @@ Listening statistics should be database-first and always active. The app should
 record plays that happen inside the browser even when tag reading/writing and
 external integrations are disabled.
 
-Planned data model:
+Current data model and planned conflict-review extensions:
 
 - `track_play_events`: append-only play history with track ID, media file ID,
   played-at timestamp, playback source, duration listened, and whether the play
@@ -420,9 +428,9 @@ updated afterward. Unsupported formats remain database-only and record that
 result in source metadata. M4A and other formats require a preservation-tested
 writer before export can be enabled for them.
 
-Writing listening statistics back to file tags should reuse the future
-metadata-editing write path: preview changes, optionally back up files, write in
-queued jobs, re-read after writing, and report partial failures.
+Statistics write-back uses the shared MP3 tag editor in queued jobs, verifies
+the resulting file, and leaves unsupported formats database-only. A richer
+conflict-review workflow remains optional roadmap work.
 
 Last.fm support belongs in this same area but should be treated as an optional
 integration:
@@ -625,7 +633,8 @@ Completed:
 - Library-root list, create, edit, and remove workflow with canonical path, subfolder checks, and safe relative cover-path validation
 - Scan start/cancel API, queued dispatch, progress/history API, and periodically refreshed Settings UI controls
 - Structured scan diagnostics for invalid layouts, unreadable entries, malformed files, missing files, and unavailable roots
-- Stale-file removal after scans, scoped preservation beneath paths that could not be read, and orphan cleanup for albums, artists, and genres
+- Missing-file retention after scans, scoped preservation beneath unreadable
+  paths, explicit Trash purging, and orphan cleanup after permanent deletion
 - Read-only Explorer-style server folder browser for selecting library roots
 - Batched scan progress, cancellation checks, incremental fingerprints, and repeated metadata lookup caches
 - Raw tag metadata sanitation for binary ID3 payloads that PostgreSQL JSONB cannot represent
@@ -675,6 +684,9 @@ Completed:
   release year
 - Preserved list filter state for albums, tracks, and artists across route
   navigation and library-root switching
+- Search inputs focus on entering or returning to a cached list, including
+  restored search terms; Escape clears the search without resetting other
+  filters or allowing pending input to reapply the old query
 - Bounded in-memory route caching for the dashboard and top-level browse views,
   including scroll restoration and a root/filter/page-aware catalog response
   cache. Catalog mutations and scan lifecycle changes invalidate cached data;
@@ -694,10 +706,10 @@ Completed:
 - Setup and distribution documentation for the non-developer packaged runtime with
   one app URL, Docker-mounted music folders, first-run setup, health checks,
   and backup/restore workflow
-- Initial packaged Docker Compose skeleton with built Vue assets behind nginx,
-  Laravel API, queue worker, scheduler, PostgreSQL, persistent storage volumes,
-  and one configurable music-folder mount
-- Initial packaged Windows startup, shutdown, and status scripts with generated
+- Packaged Docker Compose runtime with built Vue assets behind nginx, Laravel
+  API, separate default/scan/analysis workers, scheduler, PostgreSQL,
+  persistent storage volumes, and generated multi-root mounts
+- Packaged Windows startup, shutdown, and status scripts with generated
   local secrets, migration execution, localhost binding by default, explicit
   LAN mode, and printed access URLs
 - Guarded development-to-packaged database migration helper that copies the
@@ -761,6 +773,13 @@ Completed:
   CPU preparation, plus a cancellable CPU/CUDA benchmark that records verified
   throughput and a hardware-specific recommendation without changing analysis
   artifacts or run progress
+- One-click application of verified benchmark recommendations persists the
+  method, preparation-worker count, and batch size together. The current
+  configuration remains visible beside the method selector when Advanced
+  diagnostics is collapsed; Pause and Resume share the same action position
+- Memory-safe analysis queries omit raw tag payloads and embedded artwork.
+  Native Windows queue workers explicitly set PHP's memory limit to 512 MB,
+  independently of Laravel's between-job recycling threshold
 - Optional local Collection Assistant with explicit Ollama discovery and model
   verification, root-scoped browser-local conversations, bounded context,
   guarded catalog and listening-statistics tools, verified navigation
@@ -788,6 +807,10 @@ Open roadmap work:
   Audio Intelligence provisioning, native picker fallbacks, Ubuntu smoke
   checks, and an explicit support matrix are implemented. Practical macOS
   Docker Desktop and broader ARM64 validation remain release-hardening work.
+- Release publication housekeeping: `0.4.0` has a release commit on remote
+  `master`, but `origin` has no `v0.4.0` tag. Confirm whether to tag that exact
+  commit or include subsequent development work in a later release; do not
+  describe `0.4.0` as published until its tag-driven release completes.
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
@@ -808,7 +831,15 @@ Open roadmap work:
   HTTPS gateway and remains disabled by default. This is the final deferred
   feature and starts only after all other roadmap work is complete
 
-The implementation order changed from the original phase list. The scanner and artwork pipeline were completed before the catalog frontend, and playlists/favorites were brought forward because they build naturally on the playback queue. Local operation, physically verified LAN access, packaged first-run, folder and playback workflows, and the `v0.1.0` Windows portable release are repeatable. Cross-platform command and release foundations are complete; practical macOS/ARM64 validation remains release hardening, while the browsable metadata-backup audit remains intentionally deferred.
+The implementation order changed from the original phase list. The scanner
+and artwork pipeline were completed before the catalog frontend, and
+playlists/favorites were brought forward because they build naturally on the
+playback queue. Local operation, physically verified LAN access, packaged
+first-run, and folder and playback workflows are repeatable. The initial
+Windows release and later tagged `v0.3.0` are available. Cross-platform
+command and release foundations are complete, while practical macOS/ARM64
+validation and `0.4.0` publication remain release hardening. The browsable
+metadata-backup audit remains intentionally deferred.
 
 ### 1. Project Foundation
 
@@ -1127,8 +1158,9 @@ This phase was pulled forward after the queue model became stable. It builds on 
 
 ### 5b. Metadata Editing
 
-This phase has started with a preservation-oriented MP3 track-editing slice.
-File writes remain queued and require a preview and explicit confirmation.
+The preservation-oriented MP3 track, album, and selected-track workflows are
+implemented. File writes remain queued and require a preview and explicit
+confirmation. Other audio formats need separately tested, lossless writers.
 
 - Choose and wrap a tag-writing library behind a small backend adapter.
   (Complete for the shared byte-preserving MP3 ID3v2 editor)
@@ -1190,6 +1222,9 @@ File writes remain queued and require a preview and explicit confirmation.
   candidates are shared with musician matching, include release track counts,
   and one explicit edition choice also resolves musician and album-information
   ambiguity.)
+  Decoded MP3 publisher and catalogue-number frame text is retained before raw
+  metadata sanitation, so Unicode and NULL-separated values survive read-back
+  verification rather than being misread as binary tag data.
 
 ### 5c. Listening History And Scrobbling
 
@@ -1462,7 +1497,7 @@ Last.fm integration.
   rolling wall-clock-throughput remaining-time estimates, cancellation, explicit
   pause/resume, collection/root scope, and guarded restart are complete;
   downloads remain deliberately manual. An optional, default-off CUDA image is
-  packaged and benchmarked on a GTX 1070; it preserves the existing analyzer
+  packaged and was originally benchmarked on a GTX 1070; it preserves the existing analyzer
   profile and reusable artifacts. A separately opt-in persistent, networkless
   Docker service now keeps the model loaded between chunks, uses read-only root
   mounts and an internal Unix socket, validates its image/model/resource
@@ -1476,7 +1511,12 @@ Last.fm integration.
   requests GPU devices. Model upgrades create isolated, versioned profiles and
   preserve the best-covered prior profile for similarity features until the new
   profile reaches equal coverage; completed artifacts from either generation
-  remain reusable.)
+  remain reusable. The current CUDA image uses NVIDIA TensorFlow 25.02/CUDA
+  12.8 for Blackwell support and requires driver 570 or newer; older GPU support
+  must be verified rather than inferred from historical benchmarks. CUDA
+  startup performs actual model inference and rejects unusable devices or
+  invalid outputs. Start and resume both check analyzer readiness before
+  changing a run, while the CPU image remains unchanged.)
 - Add a CPU-versus-CUDA benchmark to Advanced diagnostics. Run both analyzers
   against the same small, bounded set of readable tracks without modifying
   collection-analysis progress or stored artifacts. Report image/GPU health,
@@ -1497,6 +1537,19 @@ Last.fm integration.
   artifacts. Explain clearly when CUDA is unavailable or slower. (Complete:
   the persisted selector uses benchmark availability and recommendations,
   applies to future work, and never falls back silently.)
+- Apply a verified benchmark recommendation with one button, saving its
+  execution method, preparation-worker count, and batch size together in the
+  database. Show the current configuration and an already-applied state; require
+  active analysis and benchmarks to stop or pause first. Use environment tuning
+  as defaults until applied, and keep completed artifacts reusable without an
+  application restart. (Complete)
+- Keep analysis controls stable across run-state changes and show the current
+  method, batch size, and preparation-worker count outside Advanced diagnostics.
+  Avoid loading oversized raw metadata while iterating analysis batches, and
+  set the native worker's PHP memory allowance explicitly rather than relying
+  on Laravel's recycling option. Interrupted runs retain completed artifacts
+  and remain resumable. (Complete; regression-tested and verified on a resumed
+  collection run.)
 - Split listener-facing controls from experimental diagnostics. The normal view
   should show enablement, coverage, collection-run progress, pause/resume,
   the execution method, and actionable recommendation preferences. Analyzer
@@ -1632,18 +1685,20 @@ until higher-priority catalog, packaging, and assistant work is complete.
   scanning, folder browsing, large folder confirmation, subtree scan
   cancellation, `v0.1.0` upgrade preservation, real streaming, seeking, queue
   progression, track switching, and refresh restoration)
-- Keep the current developer runtime documented separately from the planned
-  packaged runtime. (Development runtime complete; packaged runtime plan
-  documented in `docs/setup-and-distribution.md`)
+- Keep the native developer runtime documented separately from the packaged
+  runtime. (Both are documented; packaged setup and host-specific guidance are
+  in `INSTALL.md`, `docs/setup-and-distribution.md`, and
+  `docs/platform-support.md`.)
 - Add a production Compose architecture with one user-facing HTTP port, built
-  frontend assets, backend API, queue worker, scheduler, PostgreSQL, persistent
-  storage, and configurable music-folder mounts. (Initial skeleton complete)
+  frontend assets, backend API, queue workers, scheduler, PostgreSQL, persistent
+  storage, and configurable music-folder mounts. (Complete with generated
+  multi-root mount configuration and separate queue workers.)
 - Add packaged Windows startup, shutdown, and status scripts that check Docker,
   generate missing secrets once, run migrations, print the app URL, and keep LAN
-  mode explicit. (Initial complete)
+  mode explicit. (Complete for the Windows launcher.)
 - Add a guarded migration helper for moving the current development database to
   packaged mode, including APP_KEY preservation and library-root path remapping.
-  (Initial complete)
+  (Complete for the development-to-packaged migration path.)
 - Add a first-run setup UI for runtime checks, mounted library folders, cover
   paths, scan exclusions, metadata-writing settings, optional connections, and
   the first scan. (Complete, with persisted resumable progress)
@@ -1663,14 +1718,19 @@ until higher-priority catalog, packaging, and assistant work is complete.
 
 ## Recommended Next Step
 
-Finish cross-platform release hardening with practical macOS Docker Desktop and
-removable-drive verification, then fold confirmed hardware results back into
-`docs/platform-support.md`. The shared POSIX lifecycle, roots, backup/restore,
-Audio Intelligence provisioning, native picker fallbacks, Linux ownership,
-Ollama routing, TAR release, Ubuntu smoke checks, and explicit CPU/CUDA and
-architecture support policy are now in place. Optional analysis stays disabled
-when the host cannot build or run its native analyzer; Sonotheque never silently
-uses emulation or a different accelerator.
+Finish cross-platform release hardening with practical Apple-silicon macOS
+Docker Desktop and removable-drive verification, then fold confirmed hardware
+results back into `docs/platform-support.md`. The shared POSIX lifecycle,
+roots, backup/restore, Audio Intelligence provisioning, native picker fallbacks,
+Linux ownership, Ollama routing, TAR release, Ubuntu smoke checks, and explicit
+CPU/CUDA and architecture support policy are now in place. Optional analysis
+stays disabled when the host cannot build or run its native analyzer;
+Sonotheque never silently uses emulation or a different accelerator.
+
+Before calling `0.4.0` published, resolve the missing `v0.4.0` tag on remote
+`master` under the repository's release rules. Development after that release
+commit remains on `development` and should not be silently included in a tag
+for the older release.
 
 The filesystem-monitoring milestone is complete: watcher events now create
 durable multi-path delta runs, missing files retain their catalog and playlist
@@ -1902,10 +1962,12 @@ versioned Windows portable bundle, double-click launcher, host-folder picker,
 installation guide, and release checksum are also complete. LAN verification
 was completed from a second physical device on the local network,
 with browsing and playback available and protected administration denied
-without a token. Version `v0.1.0` has
-been published as the first live GitHub Release. Repeatable release builds and
-GitHub publication are automated by a tag-driven workflow that runs backend and
-frontend validation before building and auditing the Windows portable archive.
+without a token. Version `v0.1.0` was the first live GitHub Release;
+`v0.3.0` is also tagged. The `0.4.0` release commit is on remote `master`, but
+its tag and publication are still missing. Repeatable release builds and
+GitHub publication are automated by a tag-driven workflow that runs backend
+and frontend validation before building and auditing Windows ZIP and
+Linux/macOS TAR portable archives.
 Packaged multi-root mount management uses a generated Compose override with
 stable `/music/root-N` mappings and a native Windows folder-selection flow.
 

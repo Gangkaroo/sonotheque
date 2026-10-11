@@ -14,7 +14,7 @@ class CheckAudioAnalyzerHealth implements ShouldQueue
 {
     use Queueable;
 
-    public int $timeout = 180;
+    public int $timeout = 240;
 
     public function __construct(public readonly string $requestId)
     {

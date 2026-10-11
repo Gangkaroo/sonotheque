@@ -21,7 +21,7 @@ async function setup(path = '/albums') {
         routeName: 'albums', storageKey: 'test:filters', scope: () => scope.value, parse,
         load: filters => load({ ...filters }),
       })
-      return () => h('div')
+      return () => h('input', { ref: state.searchField, value: state.searchInput.value })
     },
   })
   const router = createRouter({
@@ -33,12 +33,17 @@ async function setup(path = '/albums') {
   })
   await router.push(path)
   await router.isReady()
+  const host = document.createElement('div')
+  document.body.append(host)
   const wrapper = mount(defineComponent({
     render: () => h(RouterView, {}, {
       default: ({ Component }: { Component: ReturnType<typeof h> }) => h(KeepAlive, {}, () => Component),
     }),
-  }), { global: { plugins: [router] } })
-  cleanups.push(() => wrapper.unmount())
+  }), { attachTo: host, global: { plugins: [router] } })
+  cleanups.push(() => {
+    wrapper.unmount()
+    host.remove()
+  })
   await flushPromises()
   return { state, router, scope, load }
 }
@@ -48,6 +53,7 @@ afterEach(() => {
   cleanups.splice(0).forEach(cleanup => cleanup())
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('catalog filters', () => {
@@ -112,6 +118,55 @@ describe('catalog filters', () => {
     await router.push('/other')
     await vi.advanceTimersByTimeAsync(400)
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it('focuses search on initial navigation and when returning to a cached list', async () => {
+    const focus = vi.spyOn(HTMLInputElement.prototype, 'focus')
+    const { router } = await setup()
+    await vi.waitFor(() => expect(focus).toHaveBeenCalledOnce())
+
+    await router.push('/other')
+    await router.push('/albums')
+    await flushPromises()
+    await vi.waitFor(() => expect(focus).toHaveBeenCalledTimes(2))
+  })
+
+  it('focuses a saved search after restoring its query on return', async () => {
+    sessionStorage.setItem('test:filters', JSON.stringify({ page: 3, search: 'Metallica', genre: 2 }))
+    const { state, router } = await setup()
+    await vi.waitFor(() => expect(document.activeElement).toBe(state.searchField.value))
+    expect((document.activeElement as HTMLInputElement).value).toBe('Metallica')
+
+    await router.push('/other')
+    await router.push('/albums')
+    await vi.waitFor(() => expect(document.activeElement).toBe(state.searchField.value))
+    expect(router.currentRoute.value.query).toEqual({ page: '3', search: 'Metallica', genre: '2' })
+    expect((document.activeElement as HTMLInputElement).value).toBe('Metallica')
+  })
+
+  it('cancels pending focus when leaving a list before its next frame', async () => {
+    const focus = vi.spyOn(HTMLInputElement.prototype, 'focus')
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
+    const cancelFrame = vi.fn()
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame)
+    const { router } = await setup()
+    await router.push('/other')
+    await flushPromises()
+    expect(cancelFrame).toHaveBeenCalledWith(1)
+    expect(focus).not.toHaveBeenCalled()
+  })
+
+  it('clears an applied search and cancels pending input without changing other filters', async () => {
+    const { state, router, load } = await setup('/albums?search=Old&genre=2')
+    vi.useFakeTimers()
+    state.searchInput.value = 'Pending'
+    state.clearSearch()
+    await vi.advanceTimersByTimeAsync(400)
+    await flushPromises()
+
+    expect(state.searchInput.value).toBe('')
+    expect(load).toHaveBeenLastCalledWith({ page: 1, search: '', genre: 2, year: null })
+    expect(router.currentRoute.value.query).toEqual({ genre: '2' })
   })
 
   it('resets page for a user filter change and handles unavailable browser storage', async () => {

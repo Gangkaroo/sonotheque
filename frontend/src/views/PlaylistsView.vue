@@ -7,6 +7,7 @@ import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PlaylistImportDialog from '@/components/PlaylistImportDialog.vue'
 import TooltipIconButton from '@/components/TooltipIconButton.vue'
+import { useListSearchFocus } from '@/composables/useListSearchFocus'
 import type { PlaylistFolder, PlaylistImportResult, PlaylistSummary } from '@/stores/playlists'
 import { usePlaylistsStore } from '@/stores/playlists'
 
@@ -17,6 +18,7 @@ const router = useRouter()
 const playlists = usePlaylistsStore()
 const activeTab = ref<'playlists' | 'folders'>('playlists')
 const playlistSearch = ref('')
+const searchField = useListSearchFocus()
 const playlistSort = ref<PlaylistSort>(readPlaylistSort())
 const folderDialog = ref(false)
 const playlistDialog = ref(false)
@@ -249,6 +251,7 @@ onMounted(() => {
     <div v-if="activeTab === 'playlists'">
         <v-card-text class="playlist-toolbar d-flex flex-wrap align-center ga-3 pb-2">
           <v-text-field
+            ref="searchField"
             v-model="playlistSearch"
             class="playlist-search"
             clearable
@@ -257,6 +260,7 @@ onMounted(() => {
             :label="t('playlists.searchPlaylists')"
             prepend-inner-icon="mdi-magnify"
             variant="outlined"
+            @keydown.esc.prevent.stop="playlistSearch = ''"
           />
           <v-select
             v-model="playlistSort"

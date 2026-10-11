@@ -141,9 +141,35 @@ class TensorflowCudaEmbeddingModel:
         self.numpy = numpy
         self.essentia = essentia
         self.streaming = streaming
-        self.session = tensorflow.compat.v1.Session(graph=graph)
+        configuration = tensorflow.compat.v1.ConfigProto()
+        configuration.gpu_options.allow_growth = True
+        self.session = tensorflow.compat.v1.Session(graph=graph, config=configuration)
         self.model_input = graph.get_tensor_by_name("serving_default_melspectrogram:0")
         self.model_output = graph.get_tensor_by_name("PartitionedCall:1")
+        try:
+            if not any(device.device_type == "GPU" for device in self.session.list_devices()):
+                raise RuntimeError("TensorFlow cannot use this GPU with the installed CUDA runtime.")
+            self.validate_inference()
+        except Exception as exception:
+            self.session.close()
+            raise RuntimeError(
+                "CUDA model inference failed. Check that the NVIDIA GPU and driver "
+                "are supported by the installed analyzer image, rebuild that image "
+                "after upgrading, or select CPU analysis. "
+                f"Details: {exception}"
+            ) from exception
+
+    def validate_inference(self) -> None:
+        # Device discovery alone does not detect incompatible CUDA kernels.
+        shape = self.model_input.shape.as_list()
+        shape[0] = BATCH_SIZE
+        embeddings = self.session.run(
+            self.model_output,
+            feed_dict={self.model_input: self.numpy.zeros(shape, dtype=self.numpy.float32)},
+        )
+        if (embeddings.shape != (BATCH_SIZE, EMBEDDING_DIMENSIONS)
+                or not self.numpy.isfinite(embeddings).all()):
+            raise RuntimeError("The CUDA model returned invalid embeddings during startup.")
 
     def _patches(self, audio: Any) -> Any:
         source = self.streaming.VectorInput(audio)

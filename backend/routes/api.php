@@ -148,6 +148,10 @@ Route::post(
     [AudioIntelligenceSettingsController::class, 'cancelBenchmark'],
 );
 Route::post(
+    '/settings/audio-intelligence/benchmarks/{audioAnalyzerBenchmark}/apply',
+    [AudioIntelligenceSettingsController::class, 'applyBenchmark'],
+);
+Route::post(
     '/settings/audio-intelligence/runs/{audioAnalysisRun}/start',
     [AudioIntelligenceSettingsController::class, 'startRun'],
 );

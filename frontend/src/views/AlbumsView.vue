@@ -39,7 +39,7 @@ const favorites = useFavoritesStore()
 const libraryRootScope = useLibraryRootScopeStore()
 const libraryRoots = useLibraryRootsStore()
 const player = usePlayerStore()
-const { filters, searchInput: search, resultsTop, currentFilters, changePage } = useCatalogFilters<AlbumFilters>({
+const { filters, searchInput: search, searchField, resultsTop, currentFilters, changePage, clearSearch } = useCatalogFilters<AlbumFilters>({
   routeName: 'albums',
   storageKey: 'sonotheque:album-filters',
   scope: () => libraryRootScope.selectedRootId,
@@ -164,12 +164,14 @@ function albumDetails(album: Album) {
   </div>
   <div class="album-filter-row d-flex flex-column flex-sm-row flex-sm-wrap flex-lg-nowrap ga-3 mb-4">
     <v-text-field
+      ref="searchField"
       v-model="search"
       clearable
       density="compact"
       hide-details
       prepend-inner-icon="mdi-magnify"
       :label="t('albums.search')"
+      @keydown.esc.prevent.stop="clearSearch"
     />
     <v-autocomplete
       v-model="year"

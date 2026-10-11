@@ -167,6 +167,36 @@ class Mp3TrackMetadataWriterTest extends TestCase
         $this->assertNull($recordLabels[1]->catalogNumber);
     }
 
+    public function test_it_verifies_distinct_labels_sharing_a_catalog_number_with_sanitized_metadata(): void
+    {
+        $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'shared-catalog-number.mp3';
+        $payload = $this->frame('TIT2', "\0Track title");
+        $payload .= str_repeat("\0", 2048 - strlen($payload));
+        file_put_contents(
+            $path,
+            'ID3'.chr(3).chr(0).chr(0).$this->synchsafe(strlen($payload)).$payload
+                .str_repeat("\xFF\xFB\x90\x64", 64),
+        );
+
+        $metadata = (new Mp3TrackMetadataWriter(
+            new Mp3Id3v2TagEditor(),
+            new GetId3MetadataReader(new RawMetadataSanitizer()),
+        ))->write($path, [
+            'recordLabels' => [
+                ['name' => 'KISS Records', 'catalogNumber' => '3715020'],
+                ['name' => 'UMe', 'catalogNumber' => '3715020'],
+            ],
+        ]);
+
+        $recordLabels = (new RecordLabelTagReader())->read($metadata->rawMetadata)->items;
+
+        $this->assertCount(2, $recordLabels);
+        $this->assertSame('KISS Records', $recordLabels[0]->name);
+        $this->assertSame('3715020', $recordLabels[0]->catalogNumber);
+        $this->assertSame('UMe', $recordLabels[1]->name);
+        $this->assertSame('3715020', $recordLabels[1]->catalogNumber);
+    }
+
     public function test_it_rewrites_a_padded_id3_tag_without_copying_the_audio_payload(): void
     {
         $path = $this->temporaryDirectory.DIRECTORY_SEPARATOR.'padded.mp3';

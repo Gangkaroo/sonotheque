@@ -85,6 +85,9 @@ jobs:
         working-directory: backend
         run: php artisan test
 
+      - name: Validate audio analyzer startup and CPU compatibility
+        run: python3 -m unittest discover --start-directory audio-intelligence --verbose
+
       - name: Validate POSIX packaged commands
         run: sh scripts/test-packaged-posix.sh
 

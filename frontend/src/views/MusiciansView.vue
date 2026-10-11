@@ -13,7 +13,7 @@ import { useLibraryRootScopeStore } from '@/stores/libraryRootScope'
 const { t } = useI18n()
 const catalog = useCatalogStore()
 const libraryRootScope = useLibraryRootScopeStore()
-const { filters, searchInput: search, resultsTop, changePage } = useCatalogFilters({
+const { filters, searchInput: search, searchField, resultsTop, changePage, clearSearch } = useCatalogFilters({
   routeName: 'musicians',
   storageKey: 'sonotheque:musician-filters',
   scope: () => libraryRootScope.selectedRootId,
@@ -69,12 +69,14 @@ function selectInitial(value: string | null) {
   </v-card>
 
   <v-text-field
+    ref="searchField"
     v-model="search"
     class="mb-4"
     clearable
     hide-details
     prepend-inner-icon="mdi-magnify"
     :label="t('musicians.search')"
+    @keydown.esc.prevent.stop="clearSearch"
   />
   <div class="d-flex flex-wrap ga-1 mb-6">
     <v-btn size="small" :variant="initial === null ? 'flat' : 'tonal'" @click="selectInitial(null)">

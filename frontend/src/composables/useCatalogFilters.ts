@@ -1,6 +1,7 @@
 import { computed, nextTick, onScopeDispose, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useListSearchFocus } from '@/composables/useListSearchFocus'
 import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
 
 type FilterInput = Record<string, unknown>
@@ -39,6 +40,7 @@ export function useCatalogFilters<T extends { page: number, search: string }>(op
   const guard = createRouteQuerySyncGuard()
   let applyingRoute = false
   let searchTimer: ReturnType<typeof setTimeout> | undefined
+  let routeSync: Promise<unknown> | undefined
 
   function storedFilters(): T {
     try {
@@ -53,6 +55,7 @@ export function useCatalogFilters<T extends { page: number, search: string }>(op
 
   const filters = reactive(hasQuery() ? options.parse(route.query) : storedFilters()) as T
   const searchInput = ref(filters.search)
+  const searchField = useListSearchFocus(() => routeSync)
   const resultsTop = ref<HTMLElement | null>(null)
 
   function currentFilters(): T {
@@ -82,7 +85,7 @@ export function useCatalogFilters<T extends { page: number, search: string }>(op
     const query = queryFor(currentFilters())
     if (JSON.stringify(queryFor(options.parse(route.query))) === JSON.stringify(query)) return
     const pending = guard.mark(query)
-    void router.replace({ name: options.routeName, query }).finally(() => guard.release(pending))
+    routeSync = router.replace({ name: options.routeName, query }).finally(() => guard.release(pending))
   }
 
   function cancelSearch() {
@@ -147,5 +150,5 @@ export function useCatalogFilters<T extends { page: number, search: string }>(op
   saveFilters()
   onScopeDispose(cancelSearch)
 
-  return { filters, searchInput, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch }
+  return { filters, searchInput, searchField, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch }
 }

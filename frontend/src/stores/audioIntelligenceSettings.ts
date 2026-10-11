@@ -169,6 +169,9 @@ export interface AudioIntelligenceSettings {
   }
   analyzerSelection: {
     selected: AudioAnalyzerAccelerator
+    preparationWorkers: number
+    chunkSize: number
+    tuningConfigured: boolean
     recommended: AudioAnalyzerAccelerator | null
     methods: Record<AudioAnalyzerAccelerator, AudioAnalyzerAcceleratorStatus>
   }
@@ -329,6 +332,9 @@ const defaults: AudioIntelligenceSettings = {
   },
   analyzerSelection: {
     selected: 'cpu',
+    preparationWorkers: 2,
+    chunkSize: 5,
+    tuningConfigured: false,
     recommended: null,
     methods: {
       cpu: 'unchecked',
@@ -619,6 +625,22 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     }
   }
 
+  async function applyBenchmarkRecommendation(benchmarkId: number) {
+    saving.value = true
+    error.value = null
+    try {
+      settings.value = await apiRequest<AudioIntelligenceSettings>(
+        `/settings/audio-intelligence/benchmarks/${benchmarkId}/apply`,
+        { method: 'POST' },
+      )
+    } catch (cause) {
+      error.value = errorMessage(cause)
+      throw cause
+    } finally {
+      saving.value = false
+    }
+  }
+
   async function cancelBenchmark(benchmarkId: number) {
     cancellingBenchmark.value = true
     error.value = null
@@ -820,6 +842,7 @@ export const useAudioIntelligenceSettingsStore = defineStore('audioIntelligenceS
     prepareCollection,
     testAnalyzer,
     startBenchmark,
+    applyBenchmarkRecommendation,
     cancelBenchmark,
     startRun,
     cancelRun,

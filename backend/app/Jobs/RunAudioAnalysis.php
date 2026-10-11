@@ -72,9 +72,13 @@ class RunAudioAnalysis implements ShouldQueue
             'finished_at' => null,
             'heartbeat_at' => now(),
         ]);
-        $chunkSize = max(1, min(25, (int) config('sonotheque.audio_intelligence.chunk_size', 5)));
+        $chunkSize = $settings->audioIntelligenceChunkSize();
         $items = $run->items()
-            ->with('track.mediaFile.libraryRoot')
+            ->with([
+                'track:id,media_file_id,duration_ms',
+                'track.mediaFile:id,library_root_id,relative_path,content_fingerprint,content_fingerprint_version',
+                'track.mediaFile.libraryRoot:id,path',
+            ])
             ->whereIn('status', ['selected', 'queued'])
             ->lazyById($chunkSize);
         $lastProgressUpdate = microtime(true);
@@ -386,6 +390,7 @@ class RunAudioAnalysis implements ShouldQueue
         string $accelerator,
     ): void {
         $summary = $run->summary ?? [];
+        $settings = ApplicationSetting::current();
         $configuredAccelerator = strtolower((string) config(
             'sonotheque.audio_intelligence.accelerator',
             'cpu',
@@ -402,10 +407,8 @@ class RunAudioAnalysis implements ShouldQueue
             'persistent' => config('sonotheque.audio_intelligence.persistent'),
             'cpuLimit' => config('sonotheque.audio_intelligence.cpu_limit'),
             'memoryLimit' => config('sonotheque.audio_intelligence.memory_limit'),
-            'preparationWorkers' => config(
-                'sonotheque.audio_intelligence.preparation_workers',
-            ),
-            'chunkSize' => config('sonotheque.audio_intelligence.chunk_size'),
+            'preparationWorkers' => $settings->audioIntelligencePreparationWorkers(),
+            'chunkSize' => $settings->audioIntelligenceChunkSize(),
         ], JSON_THROW_ON_ERROR));
         $samples = ($summary['analysisPerformanceKey'] ?? null) === $performanceKey
             && is_array($summary['analysisTimingSamples'] ?? null)

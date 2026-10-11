@@ -30,6 +30,8 @@ use Illuminate\Database\Eloquent\Model;
     'audio_intelligence_enabled',
     'audio_intelligence_validation_sample_size',
     'audio_intelligence_accelerator',
+    'audio_intelligence_preparation_workers',
+    'audio_intelligence_chunk_size',
     'audio_similarity_reranking_enabled',
     'audio_similarity_tempo_influence',
     'audio_similarity_key_influence',
@@ -109,6 +111,18 @@ class ApplicationSetting extends Model
             : self::configuredAudioIntelligenceAccelerator();
     }
 
+    public function audioIntelligencePreparationWorkers(): int
+    {
+        return max(1, min(4, $this->audio_intelligence_preparation_workers
+            ?? (int) config('sonotheque.audio_intelligence.preparation_workers', 2)));
+    }
+
+    public function audioIntelligenceChunkSize(): int
+    {
+        return max(1, min(25, $this->audio_intelligence_chunk_size
+            ?? (int) config('sonotheque.audio_intelligence.chunk_size', 5)));
+    }
+
     /**
      * @return array{enabled: bool, tempoInfluence: int, keyInfluence: int, intensityInfluence: int}
      */
@@ -154,6 +168,8 @@ class ApplicationSetting extends Model
             'online_lyrics_enabled' => 'boolean',
             'audio_intelligence_enabled' => 'boolean',
             'audio_intelligence_validation_sample_size' => 'integer',
+            'audio_intelligence_preparation_workers' => 'integer',
+            'audio_intelligence_chunk_size' => 'integer',
             'audio_similarity_reranking_enabled' => 'boolean',
             'audio_similarity_tempo_influence' => 'integer',
             'audio_similarity_key_influence' => 'integer',
