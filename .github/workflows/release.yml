@@ -162,6 +162,10 @@ jobs:
       - name: Check out tagged source
         uses: actions/checkout@v4
 
+      - name: Validate Windows background-service recovery
+        shell: powershell
+        run: .\scripts\test-worker-supervision.ps1
+
       - name: Validate release version
         id: version
         shell: pwsh

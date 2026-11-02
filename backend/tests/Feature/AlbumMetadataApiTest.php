@@ -388,12 +388,16 @@ class AlbumMetadataApiTest extends TestCase
         );
     }
 
-    public function test_it_protects_synchronized_playback_statistics_tags_from_album_removal(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('synchronizedPlaybackTagNames')]
+    public function test_it_protects_synchronized_playback_statistics_tags_from_album_removal(string $tagName): void
     {
         Queue::fake();
         $album = $this->createAlbum(['01.mp3']);
         $album->tracks->first()->mediaFile->update([
-            'raw_metadata' => $this->additionalTags('Bandcamp', playCount: 12),
+            'raw_metadata' => ['id3v2' => ['TXXX' => [[
+                'description' => $tagName,
+                'data' => '12',
+            ]]]],
         ]);
         ApplicationSetting::current()->update([
             'import_play_statistics_from_tags' => true,
@@ -405,18 +409,25 @@ class AlbumMetadataApiTest extends TestCase
             'releaseYear' => 2000,
             'totalDiscs' => null,
             'genres' => [],
-            'removedTagKeys' => ['TXXX:PLAY_COUNT'],
+            'removedTagKeys' => ['TXXX:'.mb_strtoupper($tagName)],
         ];
 
         $this->getJson("/api/catalog/albums/{$album->id}")
             ->assertOk()
-            ->assertJsonPath('additionalTags.0.key', 'TXXX:PLAY_COUNT')
+            ->assertJsonPath('additionalTags.0.key', 'TXXX:'.mb_strtoupper($tagName))
             ->assertJsonPath('additionalTags.0.protectedFromRemoval', true);
 
         $this->postJson("/api/albums/{$album->id}/metadata/preview", $values)
             ->assertUnprocessable()
             ->assertJsonValidationErrors('removedTagKeys');
         Queue::assertNothingPushed();
+    }
+
+    public static function synchronizedPlaybackTagNames(): array
+    {
+        return array_map(static fn (string $name): array => [$name], [
+            'PLAY_COUNT', 'first_played_timestamp', 'First Played', 'FIRSTPLAYED',
+        ]);
     }
 
     /** @return array{albumTitle: string, albumArtist: string, releaseYear: int, totalDiscs: int, genres: list<string>} */

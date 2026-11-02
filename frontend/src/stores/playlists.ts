@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { apiRequest } from '@/api/client'
+import { ApiError, apiRequest } from '@/api/client'
 import { withLibraryRootScope } from '@/stores/libraryRootScope'
 import type { Track, TrackPlayStatistics } from '@/stores/catalog'
 
@@ -127,13 +127,18 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   const current = ref<PlaylistDetail | null>(null)
   const trackMemberships = ref<Record<number, TrackPlaylistMembership[]>>({})
   const loading = ref(false)
+  const detailLoading = ref(false)
+  const detailPlaylistId = ref<number | null>(null)
+  const detailNotFound = ref(false)
   const membershipsLoading = ref(false)
   const saving = ref(false)
   const similarityOrdering = ref(false)
   const error = ref<string | null>(null)
+  const detailError = ref<string | null>(null)
   const similarityOrderError = ref<string | null>(null)
   const membershipsError = ref<string | null>(null)
   let membershipRequestId = 0
+  let detailRequestId = 0
 
   async function loadAll() {
     loading.value = true
@@ -153,14 +158,23 @@ export const usePlaylistsStore = defineStore('playlists', () => {
   }
 
   async function loadPlaylist(id: number) {
-    loading.value = true
+    const requestId = ++detailRequestId
+    detailPlaylistId.value = id
+    detailLoading.value = true
+    detailNotFound.value = false
+    detailError.value = null
     error.value = null
     try {
-      current.value = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${id}`))
+      const playlist = await apiRequest<PlaylistDetail>(withLibraryRootScope(`/playlists/${id}`))
+      if (requestId === detailRequestId) current.value = playlist
     } catch (cause) {
-      error.value = errorMessage(cause)
+      if (requestId !== detailRequestId) return
+
+      current.value = null
+      detailNotFound.value = cause instanceof ApiError && cause.status === 404
+      detailError.value = detailNotFound.value ? null : errorMessage(cause)
     } finally {
-      loading.value = false
+      if (requestId === detailRequestId) detailLoading.value = false
     }
   }
 
@@ -686,10 +700,14 @@ export const usePlaylistsStore = defineStore('playlists', () => {
     current,
     trackMemberships,
     loading,
+    detailLoading,
+    detailPlaylistId,
+    detailNotFound,
     membershipsLoading,
     saving,
     similarityOrdering,
     error,
+    detailError,
     similarityOrderError,
     membershipsError,
     loadAll,

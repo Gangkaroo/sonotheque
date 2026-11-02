@@ -381,7 +381,13 @@ class CatalogBrowseController extends Controller
                 ->count();
         }
 
-        return $this->artistCatalogBaseQuery($libraryRootId)
+        $query = $this->artistCatalogBaseQuery($libraryRootId);
+        if (filled($filters['search'] ?? null) && mb_strlen(trim($filters['search'])) < 3) {
+            // Broad short searches must not repeat relationship probes for every artist.
+            $query = Artist::query()->whereIn('artists.id', $this->artistCatalogIds($libraryRootId));
+        }
+
+        return $query
             ->when(
                 $filters['search'] ?? null,
                 fn (Builder $query, string $search) => $query->where(
@@ -582,7 +588,7 @@ class CatalogBrowseController extends Controller
             ->select('searchable_artist_albums.id')
             ->where('searchable_album_artists.name', 'ilike', $pattern);
 
-        return $titleMatches->unionAll($artistMatches);
+        return $titleMatches->union($artistMatches);
     }
 
     private function albumCatalogTotal(?int $libraryRootId): int
@@ -762,7 +768,8 @@ class CatalogBrowseController extends Controller
                                 "to_tsvector('simple', coalesce(searchable_tracks.title, '')) @@ to_tsquery('simple', quote_literal(?) || ':*')",
                                 [$term],
                             )
-                            ->unionAll(
+                            // Explicit deduplication gives the planner a realistic candidate-set estimate.
+                            ->union(
                                 DB::table('artist_track as searchable_artist_tracks')
                                     ->select('searchable_artist_tracks.track_id')
                                     ->join('artists as searchable_artists', 'searchable_artists.id', '=', 'searchable_artist_tracks.artist_id')

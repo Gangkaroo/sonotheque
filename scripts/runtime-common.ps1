@@ -515,13 +515,31 @@ function Stop-AudioAnalyzerContainers {
 }
 
 function Get-PostgresStatus {
+    param([ValidateRange(1, 30)][int]$TimeoutSeconds = 5)
+
+    $process = New-Object System.Diagnostics.Process
     try {
-        $running = (& docker inspect --format '{{.State.Running}}' sonotheque-postgres 2>$null | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or $running -ne 'true') {
+        $process.StartInfo.FileName = (Get-Command docker -ErrorAction Stop).Source
+        $process.StartInfo.Arguments = 'inspect --format "{{json .State}}" sonotheque-postgres'
+        $process.StartInfo.UseShellExecute = $false
+        $process.StartInfo.CreateNoWindow = $true
+        $process.StartInfo.RedirectStandardOutput = $true
+        $process.StartInfo.RedirectStandardError = $true
+        if (-not $process.Start()) { return 'Unavailable' }
+        $output = $process.StandardOutput.ReadToEndAsync()
+        $errors = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $process.Kill()
+            $null = $process.WaitForExit(1000)
+            return 'Unavailable'
+        }
+        if ($process.ExitCode -ne 0) { return 'Unavailable' }
+        $state = $output.GetAwaiter().GetResult() | ConvertFrom-Json
+        $null = $errors.GetAwaiter().GetResult()
+        if (-not $state.Running) {
             return 'Stopped'
         }
-
-        $health = (& docker inspect --format '{{.State.Health.Status}}' sonotheque-postgres 2>$null | Out-String).Trim()
+        $health = if ($state.PSObject.Properties.Name -contains 'Health') { $state.Health.Status } else { 'unknown' }
         if ($health -eq 'healthy') {
             return 'Healthy'
         }
@@ -530,6 +548,9 @@ function Get-PostgresStatus {
     }
     catch {
         return 'Unavailable'
+    }
+    finally {
+        $process.Dispose()
     }
 }
 
@@ -635,6 +656,61 @@ function Start-QueueWorker {
         -StandardOutputPath (Join-Path $script:RuntimeLogDirectory "$($Definition.Name).out.log") `
         -StandardErrorPath (Join-Path $script:RuntimeLogDirectory "$($Definition.Name).err.log") `
         -EnvironmentVariables $EnvironmentVariables
+}
+
+function Start-RuntimeScheduler {
+    param(
+        [Parameter(Mandatory)][string]$PhpPath,
+        [Parameter(Mandatory)][hashtable]$EnvironmentVariables
+    )
+
+    return Start-ManagedProcess `
+        -Name 'scheduler' -FilePath $PhpPath `
+        -ArgumentList @('artisan', 'schedule:work') `
+        -WorkingDirectory $script:BackendDirectory `
+        -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'scheduler.out.log') `
+        -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'scheduler.err.log') `
+        -EnvironmentVariables $EnvironmentVariables
+}
+
+function Start-WorkerSupervisor {
+    $existing = Get-ManagedProcess -Name 'worker-supervisor'
+    if ($null -ne $existing) { return $existing }
+
+    Remove-StaleProcessState -Name 'worker-supervisor'
+    $outputPath = Join-Path $script:RuntimeLogDirectory 'worker-supervisor.out.log'
+    $errorPath = Join-Path $script:RuntimeLogDirectory 'worker-supervisor.err.log'
+    Move-ExistingRuntimeLog -Path $outputPath
+    Move-ExistingRuntimeLog -Path $errorPath
+    $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+    $supervisorScript = Join-Path $script:RepositoryRoot 'scripts/supervise-workers.ps1'
+    $command = "& '$($supervisorScript.Replace("'", "''"))' 1>> '$($outputPath.Replace("'", "''"))' 2>> '$($errorPath.Replace("'", "''"))'"
+    $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
+    $arguments = @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand)
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+
+    # The Windows broker keeps supervision outside a terminal's process/job lifetime.
+    $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = ('"{0}" {1}' -f $powershell, ($arguments -join ' '))
+        CurrentDirectory = $script:RepositoryRoot
+        ProcessStartupInformation = $startup
+    }
+    if ($result.ReturnValue -ne 0) {
+        throw "Worker supervisor could not start through the Windows process broker (code $($result.ReturnValue))."
+    }
+    $process = Get-Process -Id ([int]$result.ProcessId) -ErrorAction Stop
+    Start-Sleep -Milliseconds 750
+    $process.Refresh()
+    if ($process.HasExited) { throw "Worker supervisor stopped during startup. Check $errorPath." }
+    @{
+        processId = $process.Id
+        startTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+        executable = $powershell
+        workingDirectory = $script:RepositoryRoot
+        arguments = $arguments
+    } | ConvertTo-Json -Depth 3 | Set-Content `
+        -LiteralPath (Get-ProcessStatePath -Name 'worker-supervisor') -Encoding utf8
+    return $process
 }
 
 function Get-RuntimeStatus {

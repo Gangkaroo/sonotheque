@@ -213,16 +213,16 @@ class TrackMetadataApiTest extends TestCase
         Queue::assertPushed(ApplyTrackMetadataEdit::class);
     }
 
-    public function test_it_protects_synchronized_playback_statistics_tags_from_track_removal(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('synchronizedPlaybackTagNames')]
+    public function test_it_protects_synchronized_playback_statistics_tags_from_track_removal(string $tagName): void
     {
         Queue::fake();
         $track = $this->createTrack('track.mp3');
         $track->mediaFile->update([
             'raw_metadata' => [
                 'id3v2' => [
-                    'comments' => ['play_count' => ['12']],
                     'TXXX' => [[
-                        'description' => 'PLAY_COUNT',
+                        'description' => $tagName,
                         'data' => '12',
                     ]],
                 ],
@@ -242,7 +242,7 @@ class TrackMetadataApiTest extends TestCase
             'trackNumber' => 1,
             'discNumber' => 1,
             'year' => 2000,
-            'removedTagKeys' => ['TXXX:PLAY_COUNT'],
+            'removedTagKeys' => ['TXXX:'.mb_strtoupper($tagName)],
         ];
 
         $this->getJson("/api/catalog/tracks/{$track->id}")
@@ -253,6 +253,13 @@ class TrackMetadataApiTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors('removedTagKeys');
         Queue::assertNothingPushed();
+    }
+
+    public static function synchronizedPlaybackTagNames(): array
+    {
+        return array_map(static fn (string $name): array => [$name], [
+            'PLAY_COUNT', 'first_played_timestamp', 'First Played', 'FIRSTPLAYED',
+        ]);
     }
 
     public function test_it_rejects_catalogue_number_removal_through_custom_tags(): void

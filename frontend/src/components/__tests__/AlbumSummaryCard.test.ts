@@ -7,6 +7,7 @@ import AlbumSummaryCard from '@/components/AlbumSummaryCard.vue'
 import { i18n } from '@/plugins/i18n'
 import { vuetify } from '@/plugins/vuetify'
 import type { AlbumDetail } from '@/stores/catalog'
+import { formatDateTime } from '@/utils/formatters'
 
 const album: AlbumDetail = {
   id: 42,
@@ -104,6 +105,77 @@ describe('AlbumSummaryCard', () => {
     })
 
     expect(wrapper.text()).toContain('V2 -b32 --lowpass 18600 / V1 -b32')
+  })
+
+  it('shows the earliest first-played date and updates when track statistics change', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/albums', name: 'albums', component: { template: '<div />' } },
+        { path: '/artists/:id', name: 'artist-detail', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/')
+    const track = album.tracks[0]!
+    const firstPlayedAt = '2015-03-04T12:00:00Z'
+    const lastPlayedAt = '2026-10-26T14:00:00Z'
+    const ratedAlbum: AlbumDetail = {
+      ...album,
+      trackCount: 3,
+      tracks: [
+        { ...track, playStatistics: { playCount: 0 } },
+        { ...track, id: 12, playStatistics: { playCount: 2, firstPlayedAt: lastPlayedAt, lastPlayedAt } },
+        { ...track, id: 13, playStatistics: { playCount: 1, firstPlayedAt } },
+      ],
+    }
+    const wrapper = mount(AlbumSummaryCard, {
+      props: { album: ratedAlbum, artistCountry: null },
+      global: { plugins: [createPinia(), router, i18n, vuetify] },
+    })
+    const stats = () => wrapper.findAll('.album-stat-tile').map(tile => tile.text())
+
+    expect(stats()).toContain(`First played${formatDateTime(firstPlayedAt, 'en')}`)
+    expect(stats()).toContain(`Last played${formatDateTime(lastPlayedAt, 'en')}`)
+
+    const earlierDate = '2010-01-02T08:00:00Z'
+    await wrapper.setProps({ album: {
+      ...ratedAlbum,
+      tracks: [{ ...track, playStatistics: { playCount: 1, firstPlayedAt: earlierDate } }],
+    } })
+    expect(stats()).toContain(`First played${formatDateTime(earlierDate, 'en')}`)
+    i18n.global.locale.value = 'de'
+    await wrapper.vm.$nextTick()
+    expect(stats()).toContain(`Erstmals gespielt${formatDateTime(earlierDate, 'de')}`)
+    wrapper.unmount()
+  })
+
+  it('shows an imported first-played date even without a play count and hides empty statistics', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/albums', name: 'albums', component: { template: '<div />' } },
+        { path: '/artists/:id', name: 'artist-detail', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/')
+    const wrapper = mount(AlbumSummaryCard, {
+      props: { album, artistCountry: null },
+      global: { plugins: [createPinia(), router, i18n, vuetify] },
+    })
+    expect(wrapper.find('.album-stat-grid').exists()).toBe(false)
+
+    await wrapper.setProps({ album: {
+      ...album,
+      tracks: [{ ...album.tracks[0]!, playStatistics: {
+        playCount: 0,
+        firstPlayedAt: '2015-03-04T12:00:00Z',
+      } }],
+    } })
+    expect(wrapper.find('.album-stat-grid').text()).toContain('First played')
+    expect(wrapper.find('.album-stat-grid').text()).toContain(formatDateTime('2015-03-04T12:00:00Z', 'en'))
+    wrapper.unmount()
   })
 })
 

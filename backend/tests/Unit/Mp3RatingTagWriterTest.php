@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Music\Metadata\Mp3Id3v2TagEditor;
 use App\Music\Ratings\Mp3RatingTagWriter;
 use App\Music\Ratings\RatingTagReader;
+use App\Music\Scanning\RawMetadataSanitizer;
 use PHPUnit\Framework\TestCase;
 
 class Mp3RatingTagWriterTest extends TestCase
@@ -80,6 +81,35 @@ class Mp3RatingTagWriterTest extends TestCase
             ]]],
         ]);
         $this->assertSame(9, $custom->trackHalfSteps);
+    }
+
+    public function test_it_reads_sanitized_utf16_ratings_from_the_matching_decoded_field(): void
+    {
+        $metadata = ['id3v2' => [
+            'TXXX' => [
+                ['description' => 'RATING', 'encodingid' => 1, 'data' => "\xff\xfe".mb_convert_encoding('4.5', 'UTF-16LE', 'UTF-8')],
+                ['description' => 'SONOTHEQUE_ALBUM_RATING', 'encodingid' => 1, 'data' => "\xfe\xff".mb_convert_encoding('3.5', 'UTF-16BE', 'UTF-8')],
+            ],
+            'comments' => ['text' => ['RATING' => '4.5', 'SONOTHEQUE_ALBUM_RATING' => '3.5', 'SOURCE' => '200']],
+        ]];
+        $reader = new RatingTagReader();
+        foreach ([$metadata, (new RawMetadataSanitizer())->sanitize($metadata)] as $input) {
+            $rating = $reader->read($input);
+            $this->assertSame(9, $rating->trackHalfSteps);
+            $this->assertSame(7, $rating->albumHalfSteps);
+            $this->assertSame([], $rating->warnings);
+        }
+    }
+
+    public function test_a_numeric_rating_on_an_unknown_scale_is_not_misreported_as_binary_or_imported(): void
+    {
+        $metadata = ['id3v2' => [
+            'TXXX' => [['description' => 'RATING', 'data' => '[binary data omitted: 8 bytes]', 'encodingid' => 1]],
+            'comments' => ['text' => ['RATING' => '200', 'FMPS_RATING' => '1']],
+        ]];
+        $rating = (new RatingTagReader())->read($metadata);
+        $this->assertNull($rating->trackHalfSteps);
+        $this->assertSame(['The track rating tag must use half-star steps between 0.5 and 5.'], $rating->warnings);
     }
 
     private function frame(string $name, string $payload): string

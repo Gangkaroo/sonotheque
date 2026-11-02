@@ -122,7 +122,7 @@ final class RatingTagReader
                 continue;
             }
 
-            $value = $this->userTextValue($frame);
+            $value = $this->userTextValue($frame, $metadata);
             if ($value === null || $value === '0') {
                 return [null, true];
             }
@@ -145,8 +145,11 @@ final class RatingTagReader
         return [null, false];
     }
 
-    /** @param array<string, mixed> $frame */
-    private function userTextValue(array $frame): ?string
+    /**
+     * @param  array<string, mixed>  $frame
+     * @param  array<string, mixed>  $metadata
+     */
+    private function userTextValue(array $frame, array $metadata): ?string
     {
         $data = $frame['data'] ?? null;
         if (! is_scalar($data)) {
@@ -154,10 +157,24 @@ final class RatingTagReader
         }
 
         $value = (string) $data;
-        if ((int) ($frame['encodingid'] ?? 0) === 1 && str_contains($value, "\0")) {
-            $value = mb_convert_encoding($value, 'UTF-8', 'UTF-16LE');
-        }
         $description = (string) ($frame['description'] ?? '');
+        if (str_starts_with($value, '[binary data omitted:')) {
+            foreach ([$metadata['id3v2']['comments']['text'] ?? [], $metadata['comments']['text'] ?? []] as $values) {
+                foreach ((array) $values as $name => $decoded) {
+                    if (is_string($name) && mb_strtoupper(trim($name)) === mb_strtoupper(trim($description))) {
+                        $decoded = is_array($decoded) ? reset($decoded) : $decoded;
+                        if (is_scalar($decoded)) {
+                            return trim((string) $decoded);
+                        }
+                    }
+                }
+            }
+        }
+        $encoding = (int) ($frame['encodingid'] ?? 0);
+        if (in_array($encoding, [1, 2], true) && str_contains($value, "\0")) {
+            $source = $encoding === 2 || str_starts_with($value, "\xFE\xFF") ? 'UTF-16BE' : 'UTF-16LE';
+            $value = mb_convert_encoding($value, 'UTF-8', $source);
+        }
         if (str_starts_with($value, $description)) {
             $value = substr($value, strlen($description));
         }

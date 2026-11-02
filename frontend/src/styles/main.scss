@@ -15,3 +15,9 @@ body {
 a {
   color: inherit;
 }
+
+.album-artwork-dialog,
+.player-artwork-dialog {
+  -webkit-backdrop-filter: grayscale(1);
+  backdrop-filter: grayscale(1);
+}

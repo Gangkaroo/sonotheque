@@ -154,6 +154,123 @@ class CatalogBrowseApiTest extends TestCase
             ->assertJsonPath('total', 1);
     }
 
+    public function test_track_prefix_search_deduplicates_overlapping_title_and_artist_matches(): void
+    {
+        [$artist, $album, $track] = $this->createCatalog();
+        $artist->update(['name' => 'Love Band']);
+        $track->update(['title' => 'Love Song']);
+        $guest = Artist::create(['name' => 'Lovely Guest', 'sort_name' => 'Lovely Guest', 'browse_initial' => 'L']);
+        $track->artists()->attach($guest, ['role' => 'featured', 'position' => 1]);
+        $missingTrack = $this->createTrackForAlbum($album->libraryRoot, $album, 'missing.mp3');
+        $missingTrack->update(['title' => 'Love Lost']);
+        $missingTrack->mediaFile->update(['status' => MediaFileStatus::Missing]);
+
+        DB::enableQueryLog();
+        try {
+            $this->getJson('/api/catalog/tracks?search=lo')
+                ->assertOk()
+                ->assertJsonCount(1, 'items')
+                ->assertJsonPath('total', 1)
+                ->assertJsonPath('items.0.id', $track->id);
+
+            $searchQueries = collect(DB::getQueryLog())
+                ->pluck('query')
+                ->filter(fn (string $sql): bool => str_contains($sql, 'searchable_tracks'));
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+        }
+
+        $this->assertCount(2, $searchQueries);
+        foreach ($searchQueries as $sql) {
+            $this->assertStringContainsString(' union ', $sql);
+            $this->assertStringNotContainsString(' union all ', $sql);
+        }
+
+        $this->getJson('/api/catalog/tracks?search=ba%20so')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $track->id);
+    }
+
+    public function test_media_file_maintenance_runs_before_large_dead_row_batches_accumulate(): void
+    {
+        $options = collect(DB::select(
+            "SELECT option_name, option_value FROM pg_class "
+            .'CROSS JOIN LATERAL pg_options_to_table(reloptions) '
+            ."WHERE oid = 'media_files'::regclass",
+        ))->pluck('option_value', 'option_name');
+
+        $this->assertSame('0.02', $options['autovacuum_vacuum_scale_factor']);
+        $this->assertSame('0.02', $options['autovacuum_analyze_scale_factor']);
+    }
+
+    public function test_short_artist_search_counts_primary_and_track_only_artists_once(): void
+    {
+        [$artist, $album, $track] = $this->createCatalog();
+        $guest = Artist::create(['name' => 'Zelda', 'sort_name' => 'Zelda', 'browse_initial' => 'Z']);
+        $track->artists()->attach($guest, ['role' => 'featured', 'position' => 1]);
+        Artist::create(['name' => 'Archive', 'sort_name' => 'Archive', 'browse_initial' => 'A']);
+        $missingArtist = Artist::create(['name' => 'Missing Artist', 'sort_name' => 'Missing Artist', 'browse_initial' => 'M']);
+        $missing = $this->createTrackForAlbum($album->libraryRoot, $album, 'missing.mp3');
+        $missing->artists()->attach($missingArtist, ['role' => 'primary', 'position' => 0]);
+        $missing->mediaFile->update(['status' => MediaFileStatus::Missing]);
+
+        DB::enableQueryLog();
+        try {
+            $this->getJson('/api/catalog/artists?search=a')
+                ->assertOk()
+                ->assertJsonPath('total', 2)
+                ->assertJsonCount(2, 'items')
+                ->assertJsonPath('items.0.id', $artist->id)
+                ->assertJsonPath('items.1.id', $guest->id);
+            $countQuery = collect(DB::getQueryLog())->pluck('query')
+                ->first(fn (string $sql): bool => str_starts_with($sql, 'select count('));
+        } finally {
+            DB::disableQueryLog();
+            DB::flushQueryLog();
+        }
+
+        $this->assertStringContainsString('total_artist_tracks', $countQuery);
+        $this->assertStringNotContainsString('exists (', $countQuery);
+        $this->getJson('/api/catalog/artists?search=a&initial=A&libraryRoot='.$album->library_root_id)
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.id', $artist->id);
+    }
+
+    public function test_album_search_deduplicates_overlapping_artist_and_title_matches(): void
+    {
+        [$artist, $album] = $this->createCatalog();
+        $album->update(['title' => 'Artist Album']);
+        $this->getJson('/api/catalog/albums?search=Artist')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.id', $album->id);
+        $this->getJson('/api/catalog/albums?search=Artist%20Album')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.primaryArtist.id', $artist->id);
+    }
+
+    public function test_catalog_relationship_index_covers_file_and_album_links(): void
+    {
+        $index = DB::selectOne(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() "
+            ."AND indexname = 'tracks_catalog_relationships_index'",
+        );
+        $this->assertNotNull($index);
+        $this->assertStringContainsString('(id) INCLUDE (media_file_id, album_id)', $index->indexdef);
+        $options = collect(DB::select(
+            "SELECT option_name, option_value FROM pg_class "
+            .'CROSS JOIN LATERAL pg_options_to_table(reloptions) '
+            ."WHERE oid = 'tracks'::regclass",
+        ))->pluck('option_value', 'option_name');
+        $this->assertSame('0.02', $options['autovacuum_vacuum_scale_factor']);
+        $this->assertSame('0.02', $options['autovacuum_analyze_scale_factor']);
+    }
+
     public function test_album_detail_returns_album_metadata_and_tracks(): void
     {
         [$artist, $album, $track] = $this->createCatalog();
@@ -957,9 +1074,9 @@ class CatalogBrowseApiTest extends TestCase
         return [$artist, $album, $track, $genre];
     }
 
-    private function createTrackForAlbum(LibraryRoot $root, Album $album): Track
+    private function createTrackForAlbum(LibraryRoot $root, Album $album, string $filename = 'track.mp3'): Track
     {
-        $relativePath = $album->relative_path.'/track.mp3';
+        $relativePath = $album->relative_path.'/'.$filename;
         $mediaFile = MediaFile::create([
             'library_root_id' => $root->id,
             'album_id' => $album->id,

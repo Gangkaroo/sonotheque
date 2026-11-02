@@ -20,12 +20,17 @@ const player = usePlayerStore()
 const libraryRootScope = useLibraryRootScopeStore()
 
 const playlistId = computed(() => Number(route.params.id))
+const validPlaylistId = computed(() => Number.isInteger(playlistId.value) && playlistId.value > 0)
+const matchingRequest = computed(() => playlists.detailPlaylistId === playlistId.value)
+const playlistLoading = computed(() => validPlaylistId.value && (!matchingRequest.value || playlists.detailLoading))
+const playlistNotFound = computed(() => !validPlaylistId.value || (matchingRequest.value && playlists.detailNotFound))
+const playlistError = computed(() => matchingRequest.value ? playlists.detailError : null)
 const targetPlaylistItemId = computed(() => {
   const value = typeof route.query.playlistItem === 'string' ? Number(route.query.playlistItem) : NaN
 
   return Number.isInteger(value) && value > 0 ? value : null
 })
-const playlist = computed(() => playlists.current)
+const playlist = computed(() => playlists.current?.id === playlistId.value ? playlists.current : null)
 const tracks = computed(() => playlist.value?.items.map(item => item.track) ?? [])
 const playableTracks = computed(() => tracks.value.filter(track => track.available !== false))
 const playlistPlayingTime = computed(() => {
@@ -97,7 +102,7 @@ function handlePlaylistExported(result: PlaylistFileExportResult) {
 
 watch(playlistId, id => {
   if (Number.isInteger(id) && id > 0) void playlists.loadPlaylist(id)
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <template>
@@ -105,11 +110,11 @@ watch(playlistId, id => {
     {{ t('playlists.back') }}
   </v-btn>
 
-  <v-alert v-if="playlists.error" type="error" variant="tonal">
-    {{ playlists.error }}
+  <v-alert v-if="playlistError || playlists.error" class="mb-4" type="error" variant="tonal">
+    {{ playlistError || playlists.error }}
   </v-alert>
 
-  <v-skeleton-loader v-else-if="playlists.loading" type="card, list-item-three-line@8" />
+  <v-skeleton-loader v-if="playlistLoading" type="card, list-item-three-line@8" />
 
   <template v-else-if="playlist">
     <v-card class="mb-6" border rounded="xl">
@@ -175,7 +180,7 @@ watch(playlistId, id => {
   </template>
 
   <EmptyCatalogState
-    v-else
+    v-else-if="playlistNotFound"
     :title="t('playlists.notFoundTitle')"
     :description="t('playlists.notFoundDescription')"
     icon="mdi-playlist-remove"

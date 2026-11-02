@@ -30,6 +30,61 @@ describe('playlists store', () => {
     expect(store.loading).toBe(false)
   })
 
+  it('keeps playlist detail loading independent from playlist choices', async () => {
+    let resolveDetail!: (response: Response) => void
+    const detailResponse = new Promise<Response>(resolve => { resolveDetail = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/playlists/7') return detailResponse
+      if (url === '/api/playlist-folders' || url === '/api/playlists') return jsonResponse({ items: [] })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    const store = usePlaylistsStore()
+    const detailRequest = store.loadPlaylist(7)
+
+    expect(store.detailLoading).toBe(true)
+    expect(store.loading).toBe(false)
+    await store.loadAll()
+    expect(store.detailLoading).toBe(true)
+    expect(store.loading).toBe(false)
+
+    resolveDetail(jsonResponse({ id: 7, name: 'Mix', trackCount: 0, items: [] }))
+    await detailRequest
+
+    expect(store.current?.id).toBe(7)
+    expect(store.detailLoading).toBe(false)
+    expect(store.detailError).toBeNull()
+  })
+
+  it('reports playlist detail failures independently from playlist choice errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Playlist unavailable')))
+    const store = usePlaylistsStore()
+    await store.loadPlaylist(7)
+
+    expect(store.detailError).toBe('Playlist unavailable')
+    expect(store.detailNotFound).toBe(false)
+    expect(store.error).toBeNull()
+    expect(store.detailLoading).toBe(false)
+    expect(store.loading).toBe(false)
+  })
+
+  it('does not replace a newer playlist with a late response from an older request', async () => {
+    let resolveFirst!: (response: Response) => void
+    const first = new Promise<Response>(resolve => { resolveFirst = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/playlists/7'
+      ? first
+      : jsonResponse({ id: 8, name: 'New playlist', trackCount: 0, items: [] })))
+    const store = usePlaylistsStore()
+    const firstRequest = store.loadPlaylist(7)
+    await store.loadPlaylist(8)
+    resolveFirst(jsonResponse({ id: 7, name: 'Old playlist', trackCount: 0, items: [] }))
+    await firstRequest
+
+    expect(store.current?.id).toBe(8)
+    expect(store.detailPlaylistId).toBe(8)
+    expect(store.detailNotFound).toBe(false)
+    expect(store.detailLoading).toBe(false)
+  })
+
   it('loads playlist memberships for several tracks in one request', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === '/api/playlists/memberships?trackIds%5B%5D=1&trackIds%5B%5D=2') {

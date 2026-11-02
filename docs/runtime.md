@@ -10,12 +10,14 @@ setup, and backup story, see `docs/setup-and-distribution.md`.
 
 ## Services
 
-The development stack has five moving parts:
+The development stack has these services:
 
 - PostgreSQL 18 in Docker, exposed on `127.0.0.1:5433`.
 - Laravel API on `http://127.0.0.1:8000`.
-- Laravel database queue worker for scans.
+- Dedicated Laravel database queue workers for interactive jobs, scans, and
+  audio analysis.
 - Laravel scheduler for maintenance tasks and health heartbeats.
+- Background-service supervisor for worker and scheduler recovery.
 - Vue/Vite frontend on `http://127.0.0.1:5173`.
 
 The frontend proxies `/api` requests to `http://127.0.0.1:8000`.
@@ -547,13 +549,40 @@ recorded identity still matches. Services that were started manually are shown
 as `external` and are left untouched. The named PostgreSQL Compose service is
 stopped by default unless `-KeepDatabase` is used.
 
-Local and LAN startup also launches a lightweight queue-worker supervisor. It
-checks the `default`, `scans`, and `analysis` workers every 30 seconds and
-restarts only a worker whose process has actually exited. Busy workers are not
-restarted merely because their database heartbeat is old. Deliberate shutdown
-stops the supervisor first so it cannot recreate workers while the app is
-stopping. The packaged Docker runtime provides the equivalent behavior through
-the queue services' `restart: unless-stopped` policy.
+Local and LAN startup also launches a lightweight background-service supervisor.
+It checks the `default`, `scans`, and `analysis` workers and scheduler every
+30 seconds, restarting only a process that has actually exited. Busy workers
+are never restarted merely because their database heartbeat is old.
+
+The supervisor is launched through the Windows process broker in a hidden
+window, independently of the terminal or tool that started the app. Closing
+that terminal does not take supervision and its replacement workers down with
+it. This does not install a Windows service, login task, or automatic startup.
+Deliberate shutdown still stops the supervisor first so it cannot recreate
+workers while the app is stopping.
+
+### Temporary Database Outages
+
+Laravel deliberately exits a worker after losing its database connection; the
+supervisor starts a fresh process with fresh connections. While Docker Desktop
+or PostgreSQL is unavailable, missing background services wait instead of
+repeatedly starting and immediately crashing. Docker health inspection has a
+five-second timeout. Once PostgreSQL is healthy again, missing workers and the
+scheduler restart on the next check, normally within 30 seconds. Unexpected
+inspection/state-read failures are logged and retried rather than terminating
+the supervisor. Repeated startup failures use a backoff capped at 60 seconds.
+
+PostgreSQL uses `restart: unless-stopped`, so an active database returns after a
+Docker engine restart. Explicitly stopping Sonotheque still stops its database;
+the policy does not override an intentional stop. Packaged queue, scheduler,
+backend, and web services use the same Docker restart policy.
+
+Queued jobs remain in PostgreSQL and are picked up after recovery. A job
+interrupted while already running can still fail or require an explicit retry;
+the supervisor does not blindly replay file writes, reset job attempts, or
+change scan/analysis checkpoints. Inspect the operation's error details before
+retrying it. These recovery checks do not interrupt running jobs or restart the
+API/frontend.
 
 If the local PowerShell execution policy blocks repository scripts, invoke them
 without changing the system-wide policy:
@@ -751,6 +780,26 @@ and scan warnings/errors while retaining optional links to the original root
 and scan. Entries are retained for 90 days by default; override
 `LIBRARY_ACTIVITY_RETENTION_DAYS` when a different diagnostic window is needed.
 
+## Scan Diagnostics
+
+Scanning never removes bytes from music files. For MP3 files, a bounded check
+recognizes complete secondary ID3v2.3/v2.4 blocks between the primary tag and
+the detected audio stream. The primary tag remains authoritative; secondary
+values are not merged into it. The scan omits only sync/size warnings fully
+explained by those blocks. Original parser warnings and the ignored ranges
+remain in stored raw metadata (`sonotheque_diagnostics`). Incomplete blocks,
+unknown bytes, malformed frames, and independent size discrepancies remain
+warnings. Existing scan logs are historical and are not rewritten.
+
+UTF-16 custom ratings use their matching decoded text when the raw frame was
+replaced by a binary-data placeholder. A `RATING` value on a different scale
+(for example `200`) is not automatically interpreted as stars.
+
+Removing extra data from source files is not part of scanning. A future explicit
+cleanup workflow must preview exact ranges, require a recoverable backup, and
+verify that the retained audio bytes are unchanged. Unknown data must not be
+deleted merely because a parser calls it garbage.
+
 ## Playback Statistics Synchronization
 
 Listening-statistics synchronization is disabled by default in Settings. When
@@ -856,9 +905,16 @@ When a managed process is started again, non-empty output and error logs from
 its previous process are timestamped before the new log files are opened. The
 supervisor event log records the time, queue, and new PID for automatic worker
 restarts. Use `scripts/status.ps1` to confirm that the supervisor and all three
-workers are running.
+workers plus scheduler are running. The supervisor heartbeat also records the
+database state and `waiting-for-database` for missing services during an outage.
 
 ## Verification
+
+Windows supervisor recovery checks (simulated outages, no real services stopped):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-worker-supervision.ps1
+```
 
 Backend checks:
 
@@ -1109,3 +1165,43 @@ rejection plus valid-token acceptance.
 
 Use `scripts/status.ps1` to see the recorded runtime mode and active app URL.
 If DHCP assigns a different address later, stop the app and start LAN mode again.
+
+## Catalog Search Performance
+
+Track searches run after a 300 ms typing pause and cancel superseded browser
+requests. Cached results can return immediately. Canceling a browser request
+does not necessarily stop a database query already executing in the local PHP
+server, so slow queries can delay subsequent requests.
+
+Word-prefix searches use the existing PostgreSQL GIN indexes on track titles
+and artist names. Matching IDs are combined with `UNION` rather than
+`UNION ALL`, keeping duplicate matches out of the candidate set and avoiding
+severely underestimated join sizes for common prefixes.
+Album substring searches also deduplicate their title/artist candidates. Artist
+totals for one- and two-character searches use one catalog-membership set
+instead of repeating relationship checks for every matching artist. Playlist
+search filters the already loaded list locally and sends no typing requests.
+
+Artist, genre, musician, and trash queries can use the covering
+`tracks_catalog_relationships_index` for track-to-file/album lookups, avoiding
+unnecessary track-table reads. Existing substring matching and root/availability
+filters are unchanged.
+
+File availability checks also depend on PostgreSQL's automatic vacuuming.
+Scans update `media_files` frequently, and metadata changes update `tracks`;
+dead row versions can force nominally index-only checks to read many table
+pages. Both tables use vacuum and analyze scale factors of `0.02`, so automatic
+maintenance starts after a smaller batch
+of changes than PostgreSQL's defaults. Autovacuum must remain enabled.
+
+After restoring a large database or diagnosing unusually slow searches, a
+database administrator can run normal maintenance (not `VACUUM FULL`):
+
+```sql
+VACUUM (ANALYZE, PROCESS_TOAST false) media_files;
+VACUUM (PROCESS_TOAST false) tracks;
+```
+
+This reclaims dead row versions and refreshes planner statistics without
+deleting catalog records or taking the exclusive table lock of `VACUUM FULL`.
+Run it outside a transaction and allow time for larger databases to finish.

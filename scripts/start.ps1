@@ -115,14 +115,7 @@ try {
 
     if ($null -eq (Get-ManagedProcess -Name 'scheduler') -and $null -eq (Find-ExternalScheduler)) {
         Write-Host 'Starting scheduler...'
-        Start-ManagedProcess `
-            -Name 'scheduler' `
-            -FilePath $php `
-            -ArgumentList @('artisan', 'schedule:work') `
-            -WorkingDirectory $script:BackendDirectory `
-            -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'scheduler.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'scheduler.err.log') `
-            -EnvironmentVariables $backendEnvironment | Out-Null
+        Start-RuntimeScheduler -PhpPath $php -EnvironmentVariables $backendEnvironment | Out-Null
         $startedServices.Add('scheduler')
     }
     else {
@@ -172,22 +165,7 @@ try {
 
     if ($null -eq (Get-ManagedProcess -Name 'worker-supervisor')) {
         Write-Host 'Starting queue worker supervisor...'
-        $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
-        $supervisorScript = Join-Path $PSScriptRoot 'supervise-workers.ps1'
-        Start-ManagedProcess `
-            -Name 'worker-supervisor' `
-            -FilePath $powershell `
-            -ArgumentList @(
-                '-NoProfile',
-                '-NonInteractive',
-                '-ExecutionPolicy',
-                'Bypass',
-                '-File',
-                "`"$supervisorScript`""
-            ) `
-            -WorkingDirectory $script:RepositoryRoot `
-            -StandardOutputPath (Join-Path $script:RuntimeLogDirectory 'worker-supervisor.out.log') `
-            -StandardErrorPath (Join-Path $script:RuntimeLogDirectory 'worker-supervisor.err.log') | Out-Null
+        Start-WorkerSupervisor | Out-Null
         $startedServices.Add('worker-supervisor')
     }
 

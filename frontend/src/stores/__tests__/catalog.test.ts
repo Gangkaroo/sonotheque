@@ -186,6 +186,32 @@ describe('catalog store', () => {
     },
   )
 
+  it('aborts superseded track searches and ignores their late results', async () => {
+    let resolveOld!: (response: Response) => void
+    let oldSignal: AbortSignal | null | undefined
+    const fresh = { items: [], total: 3, page: 1, perPage: 50, lastPage: 1 }
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_url: string, options: RequestInit) => {
+        oldSignal = options.signal
+        return new Promise<Response>(resolve => { resolveOld = resolve })
+      })
+      .mockResolvedValue(new Response(JSON.stringify(fresh), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCatalogStore()
+    const old = store.loadTracks({ search: 'lo' })
+    await store.loadTracks({ search: 'love song' })
+
+    expect(oldSignal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/catalog/tracks?page=1&search=love+song', expect.any(Object))
+    resolveOld(new Response(JSON.stringify({ ...fresh, total: 15_000 }), { status: 200 }))
+    await old
+
+    expect(store.tracks.total).toBe(3)
+    expect(store.tracksLoading).toBe(false)
+    expect(store.tracksError).toBeNull()
+  })
+
   it('does not restore invalidated metrics from an older pending response', async () => {
     let resolveOld!: (response: Response) => void
     const fresh = { artists: 1, musicians: 2, albums: 3, tracks: 4, genres: 5, playedAlbums: 0, playedTracks: 0 }

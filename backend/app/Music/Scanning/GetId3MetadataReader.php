@@ -34,10 +34,24 @@ class GetId3MetadataReader implements AudioMetadataReader
     public function read(string $absolutePath): AudioMetadata
     {
         $information = $this->analyze($absolutePath);
+        $mp3Diagnostics = new Mp3MetadataDiagnostics();
+        $secondaryTags = $mp3Diagnostics->secondaryTags($absolutePath, $information);
+        $diagnosticInformation = $information;
+        if ($secondaryTags !== []) {
+            $information['sonotheque_diagnostics']['ignored_secondary_id3_tags'] = $secondaryTags;
+            $diagnosticInformation['warning'] = array_values(array_filter(
+                (array) ($information['warning'] ?? []),
+                static fn (mixed $warning): bool => ! $mp3Diagnostics->explainedBySecondaryTags(
+                    (string) $warning,
+                    $information,
+                    $secondaryTags,
+                ),
+            ));
+        }
         $errors = array_values((array) ($information['error'] ?? []));
         $fallback = $errors === [] ? null : $this->fallback($absolutePath, $errors);
         $comments = $this->preferredComments($information, $fallback);
-        $warnings = $this->diagnostics($information, $errors, $fallback !== null);
+        $warnings = $this->diagnostics($diagnosticInformation, $errors, $fallback !== null);
         [$trackNumber] = $this->fraction(
             $this->first($comments, ['track_number', 'tracknumber']),
             'track',

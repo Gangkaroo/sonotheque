@@ -1,6 +1,6 @@
 # Sonotheque - Implementation Plan
 
-Last reviewed: 2026-10-11.
+Last reviewed: 2026-11-02.
 
 ## Goal
 
@@ -726,6 +726,11 @@ Completed:
 - Optional MP3 statistics synchronization using foo_playcount-compatible tags, with queued coalesced write-back
 - Defensive play-count import that normalizes non-standard ID3 counters and
   excludes ambiguous global popularity values from per-track totals
+- Conservative MP3 scan diagnostics recognize complete secondary ID3 blocks,
+  keep the primary metadata authoritative, and omit only warnings fully
+  explained by those blocks. Raw parser diagnostics remain available; scans
+  never remove bytes. Custom UTF-16 ratings use matching decoded values rather
+  than binary placeholders, without guessing unsupported rating scales.
 - Previewed and queued MP3 track/album metadata editing with verification, conflict fingerprints, and optional durable backups
 - Track, album, and artist detail timestamps for when catalog records were added
   and last updated, plus track- and album-level cleanup of additional ID3v2
@@ -807,10 +812,12 @@ Open roadmap work:
   Audio Intelligence provisioning, native picker fallbacks, Ubuntu smoke
   checks, and an explicit support matrix are implemented. Practical macOS
   Docker Desktop and broader ARM64 validation remain release-hardening work.
-- Release publication housekeeping: `0.4.0` has a release commit on remote
-  `master`, but `origin` has no `v0.4.0` tag. Confirm whether to tag that exact
-  commit or include subsequent development work in a later release; do not
-  describe `0.4.0` as published until its tag-driven release completes.
+- Release publication uses `0.5.0`, including the unpublished `0.4.0`
+  checkpoint and subsequent improvements. Do not create a retroactive `0.4.0`
+  tag for newer development.
+- Opt-in MP3 extra-data cleanup with a byte-range preview, mandatory backup,
+  conflict checks, and unchanged-audio verification. Scans already recognize
+  secondary tags non-destructively; removal is a separate planned action.
 - Browsable metadata-backup audit (deferred; the command-based recovery
   workflow is sufficient for now)
 - Optional playback-statistics conflict review and detailed unsupported-codec
@@ -838,7 +845,8 @@ playback queue. Local operation, physically verified LAN access, packaged
 first-run, and folder and playback workflows are repeatable. The initial
 Windows release and later tagged `v0.3.0` are available. Cross-platform
 command and release foundations are complete, while practical macOS/ARM64
-validation and `0.4.0` publication remain release hardening. The browsable
+validation remain release hardening. Version `0.5.0` includes the previously
+unpublished package improvements. The browsable
 metadata-backup audit remains intentionally deferred.
 
 ### 1. Project Foundation
@@ -1225,6 +1233,18 @@ confirmation. Other audio formats need separately tested, lossless writers.
   Decoded MP3 publisher and catalogue-number frame text is retained before raw
   metadata sanitation, so Unicode and NULL-separated values survive read-back
   verification rather than being misread as binary tag data.
+
+- Add an explicit, opt-in MP3 extra-data cleanup workflow, separate from scans.
+  Preview each removable byte range and its classification; never interpret
+  "unreadable" as proof that data is disposable. The initial scope should be
+  structurally verified secondary ID3 blocks, with confirmation of primary-tag
+  precedence and any differing secondary fields. Require a durable backup,
+  unchanged-file fingerprint, queued execution, active-stream coordination,
+  byte-identical retained-audio verification, atomic replacement, and catalog
+  refresh that preserves track identity. Unknown regions, damaged artwork,
+  overlapping audio, and ambiguous tag boundaries must remain unsupported
+  rather than being deleted automatically. (Planned; no source-file cleanup
+  action is implemented yet.)
 
 ### 5c. Listening History And Scrobbling
 
@@ -1706,8 +1726,13 @@ until higher-priority catalog, packaging, and assistant work is complete.
   storage, mounted roots, stale scans, and failed queue jobs. (Complete for
   database and queue state, scheduler heartbeat, storage, mounted roots, active
   and failed scans, and failed queue jobs. Native local/LAN startup now also
-  supervises and automatically restarts exited queue workers while preserving
-  their prior logs; packaged queue services use Docker restart policies.)
+  supervises and automatically restarts exited queue workers and the scheduler
+  while preserving prior logs. Supervision is detached from the launching
+  terminal, survives transient checks, waits for PostgreSQL during Docker
+  updates, and resumes missing services on recovery. Docker health probes are
+  bounded; native recovery is regression-tested on Windows. Active packaged
+  database, API, web, queue, and scheduler services use Docker restart policies,
+  while intentional shutdown remains manual.)
 - Add manual backup and restore commands for PostgreSQL data and application
   storage. (Complete with checksummed development and packaged bundles,
   APP_KEY preservation, safety backups, and Settings status. Settings > System
@@ -1727,10 +1752,11 @@ CPU/CUDA and architecture support policy are now in place. Optional analysis
 stays disabled when the host cannot build or run its native analyzer;
 Sonotheque never silently uses emulation or a different accelerator.
 
-Before calling `0.4.0` published, resolve the missing `v0.4.0` tag on remote
-`master` under the repository's release rules. Development after that release
-commit remains on `development` and should not be silently included in a tag
-for the older release.
+Release `0.5.0` includes the previously unpublished `0.4.0` work and subsequent
+development. Do not retroactively tag that newer work as `0.4.0`. The `0.5.0`
+checkpoint is validated on `development`, merged into `master`, and tagged only
+after that exact commit is on remote `master`; the tag-driven workflow validates
+and publishes the portable packages.
 
 The filesystem-monitoring milestone is complete: watcher events now create
 durable multi-path delta runs, missing files retain their catalog and playlist
@@ -1963,8 +1989,8 @@ installation guide, and release checksum are also complete. LAN verification
 was completed from a second physical device on the local network,
 with browsing and playback available and protected administration denied
 without a token. Version `v0.1.0` was the first live GitHub Release;
-`v0.3.0` is also tagged. The `0.4.0` release commit is on remote `master`, but
-its tag and publication are still missing. Repeatable release builds and
+`v0.3.0` is also tagged. The untagged `0.4.0` checkpoint is superseded by the
+`0.5.0` release, whose notes include its unpublished features. Repeatable release builds and
 GitHub publication are automated by a tag-driven workflow that runs backend
 and frontend validation before building and auditing Windows ZIP and
 Linux/macOS TAR portable archives.

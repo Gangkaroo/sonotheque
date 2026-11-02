@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-11-02
+
+- Include the previously unpublished 0.4.0 work: Linux/macOS portable packaging,
+  optional packaged Audio Intelligence, recent playlist destinations, and player
+  position and volume fixes. Apple-silicon hardware verification remains pending.
+- Add half-star album and track ratings with optional, disabled-by-default MP3
+  tag synchronization, compact responsive controls, and protected managed tags.
+- Add normalized record labels and catalogue numbers with embedded-tag import,
+  album editing, provider suggestions, provenance, and label-filtered playback.
+  Share exact MusicBrainz release selection across labels, musicians, and album
+  information, and show release track counts when choosing an edition.
+- Create and restore checksummed backups from Settings with queued progress,
+  confirmation, maintenance mode, safety backups, and rollback on restore failure.
+- Improve metadata editing for case-only artist corrections, inconsistent album
+  tags, custom-tag value separation, publisher verification, and managed-tag
+  removal protection.
+- Show catalog added/updated dates, album first-played dates, artist origin, and
+  clearer encoding information, including historical LAME preset labels.
+- Improve random-album selection and playback recovery, preserve search focus
+  when restoring filters, and show progressive album artwork loading with a
+  bottom progress bar. Enlarged artwork has a grayscale background.
+- Speed up large-catalog search and relationship lookups with improved query
+  plans, a covering index, and more frequent PostgreSQL table maintenance.
+- Fix add-to-playlist dialogs inside playlists, isolate list/detail loading,
+  ignore stale detail responses, and show loading instead of a premature
+  playlist-not-found message.
+- Recover queue workers and the scheduler after temporary PostgreSQL outages or
+  Docker Desktop restarts. Detach native supervision from the launching
+  terminal, bound Docker health checks, and respect intentional manual shutdown.
+- Update Audio Intelligence for newer CUDA hardware, retain CPU compatibility,
+  persist benchmark tuning, expose the selected configuration, and improve
+  analysis startup and resume behavior.
+- Recognize complete secondary ID3 blocks without importing their older values
+  or reporting their bytes as unexplained garbage. Preserve raw diagnostics and
+  warnings for genuinely malformed regions; scans never remove source bytes.
+  Correct UTF-16 rating decoding without guessing unsupported rating scales.
+- Refactor frontend detail, player, and settings workflows into focused shared
+  components and composables, with expanded regression coverage and Windows
+  background-service recovery checks in the release workflow.
+
 ## 0.4.0 - 2026-08-17
 
 - Allow album playlist exports to use either the album folder or any configured

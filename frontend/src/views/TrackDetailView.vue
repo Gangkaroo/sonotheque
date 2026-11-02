@@ -186,7 +186,7 @@ const nextNavigationLabel = computed(() => {
 const navigationLoading = computed(() => {
   if (backAlbumId.value) return catalog.albumDetailLoading
   if (backArtistId.value) return artistNavigationLoading.value
-  return playlists.loading
+  return playlists.detailLoading
 })
 const playlistTracks = computed(() => track.value ? [track.value] : [])
 const additionalMetadataTags = computed(() => track.value?.mediaFile?.additionalTags ?? [])

@@ -117,15 +117,18 @@ const albumPlaybackStats = computed(() => {
     (total, track) => total + track.playStatistics.playCount,
     0,
   )
-  if (!totalTrackPlays) return []
-
   const playedTracks = tracks.value
     .filter(track => track.playStatistics.playCount > 0)
     .length
+  const firstPlayedAt = tracks.value
+    .map(track => track.playStatistics.firstPlayedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null
   const lastPlayedAt = tracks.value
     .map(track => track.playStatistics.lastPlayedAt)
     .filter((value): value is string => Boolean(value))
     .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null
+  if (!totalTrackPlays && !firstPlayedAt && !lastPlayedAt) return []
 
   return [
     {
@@ -142,6 +145,12 @@ const albumPlaybackStats = computed(() => {
         total: tracks.value.length,
       }),
       icon: 'mdi-music-note-outline',
+    },
+    {
+      key: 'firstPlayedAt',
+      label: t('tracks.firstPlayedAt'),
+      value: formatDateTime(firstPlayedAt, locale.value),
+      icon: 'mdi-calendar-start',
     },
     {
       key: 'lastPlayedAt',
