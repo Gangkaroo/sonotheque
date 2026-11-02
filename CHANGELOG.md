@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-## 0.5.0 - 2026-11-02
+## 0.5.1 - 2026-11-02
+
+- Supersede the unpublished 0.5.0 candidate without rewriting its existing tag.
+  Make packaged playback assertions target the visible accessible track link
+  rather than also matching a hidden responsive copy of the title.
 
 - Include the previously unpublished 0.4.0 work: Linux/macOS portable packaging,
   optional packaged Audio Intelligence, recent playlist destinations, and player
@@ -41,6 +45,12 @@
 - Refactor frontend detail, player, and settings workflows into focused shared
   components and composables, with expanded regression coverage and Windows
   background-service recovery checks in the release workflow.
+
+## 0.5.0 - 2026-11-02
+
+- Unpublished release candidate. Application validation passed, but packaged
+  playback verification found ambiguous responsive-title test selectors.
+  Superseded by 0.5.1, which includes all of its features and fixes.
 
 ## 0.4.0 - 2026-08-17
 

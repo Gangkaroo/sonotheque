@@ -812,9 +812,10 @@ Open roadmap work:
   Audio Intelligence provisioning, native picker fallbacks, Ubuntu smoke
   checks, and an explicit support matrix are implemented. Practical macOS
   Docker Desktop and broader ARM64 validation remain release-hardening work.
-- Release publication uses `0.5.0`, including the unpublished `0.4.0`
+- Release publication uses `0.5.1`, including the unpublished `0.4.0`
   checkpoint and subsequent improvements. Do not create a retroactive `0.4.0`
-  tag for newer development.
+  tag for newer development. The unpublished `0.5.0` candidate is retained as
+  an immutable tag; `0.5.1` corrects its packaged playback test selectors.
 - Opt-in MP3 extra-data cleanup with a byte-range preview, mandatory backup,
   conflict checks, and unchanged-audio verification. Scans already recognize
   secondary tags non-destructively; removal is a separate planned action.
@@ -845,7 +846,7 @@ playback queue. Local operation, physically verified LAN access, packaged
 first-run, and folder and playback workflows are repeatable. The initial
 Windows release and later tagged `v0.3.0` are available. Cross-platform
 command and release foundations are complete, while practical macOS/ARM64
-validation remain release hardening. Version `0.5.0` includes the previously
+validation remain release hardening. Version `0.5.1` includes the previously
 unpublished package improvements. The browsable
 metadata-backup audit remains intentionally deferred.
 
@@ -1752,8 +1753,8 @@ CPU/CUDA and architecture support policy are now in place. Optional analysis
 stays disabled when the host cannot build or run its native analyzer;
 Sonotheque never silently uses emulation or a different accelerator.
 
-Release `0.5.0` includes the previously unpublished `0.4.0` work and subsequent
-development. Do not retroactively tag that newer work as `0.4.0`. The `0.5.0`
+Release `0.5.1` includes the previously unpublished `0.4.0` work and subsequent
+development. Do not retroactively tag that newer work as `0.4.0`. The `0.5.1`
 checkpoint is validated on `development`, merged into `master`, and tagged only
 after that exact commit is on remote `master`; the tag-driven workflow validates
 and publishes the portable packages.
@@ -1990,7 +1991,7 @@ was completed from a second physical device on the local network,
 with browsing and playback available and protected administration denied
 without a token. Version `v0.1.0` was the first live GitHub Release;
 `v0.3.0` is also tagged. The untagged `0.4.0` checkpoint is superseded by the
-`0.5.0` release, whose notes include its unpublished features. Repeatable release builds and
+`0.5.1` release, whose notes include its unpublished features. Repeatable release builds and
 GitHub publication are automated by a tag-driven workflow that runs backend
 and frontend validation before building and auditing Windows ZIP and
 Linux/macOS TAR portable archives.

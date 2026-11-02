@@ -26,7 +26,7 @@ test('streams, seeks, pauses, and resumes a packaged track', async ({ page }) =>
 
   const player = page.locator('.player-footer')
   const audio = player.locator('audio')
-  await expect(player.getByText('01 - Fixture Track', { exact: true })).toBeVisible()
+  await expect(player.getByRole('link', { name: '01 - Fixture Track', exact: true })).toBeVisible()
   await expect.poll(() => mediaState(audio, 'paused')).toBe(false)
   await expect.poll(() => mediaTime(audio)).toBeGreaterThan(0.25)
 
@@ -50,12 +50,12 @@ test('progresses the queue after seeking and restores playback after refresh', a
 
   const player = page.locator('.player-footer')
   const audio = player.locator('audio')
-  await expect(player.getByText('01 - Fixture Track', { exact: true })).toBeVisible()
+  await expect(player.getByRole('link', { name: '01 - Fixture Track', exact: true })).toBeVisible()
   await expect(player.getByRole('button', { name: 'Next track' })).toBeEnabled()
 
   await seekToSecond(player, 10)
   await expect.poll(() => mediaTime(audio)).toBeGreaterThanOrEqual(9)
-  await expect(player.getByText('02 - Second Fixture Track', { exact: true })).toBeVisible({ timeout: 5_000 })
+  await expect(player.getByRole('link', { name: '02 - Second Fixture Track', exact: true })).toBeVisible({ timeout: 5_000 })
   await expect.poll(() => mediaState(audio, 'paused')).toBe(false)
   await expect.poll(() => mediaTime(audio)).toBeGreaterThan(0.25)
 
@@ -66,16 +66,16 @@ test('progresses the queue after seeking and restores playback after refresh', a
 
   const restoredPlayer = page.locator('.player-footer')
   const restoredAudio = restoredPlayer.locator('audio')
-  await expect(restoredPlayer.getByText('02 - Second Fixture Track', { exact: true })).toBeVisible()
+  await expect(restoredPlayer.getByRole('link', { name: '02 - Second Fixture Track', exact: true })).toBeVisible()
   await expect.poll(() => mediaTime(restoredAudio)).toBeGreaterThanOrEqual(positionBeforeRefresh - 1.5)
   await expect.poll(() => mediaState(restoredAudio, 'paused')).toBe(false)
 
   await restoredPlayer.getByRole('button', { name: 'Previous track' }).click()
-  await expect(restoredPlayer.getByText('01 - Fixture Track', { exact: true })).toBeVisible()
+  await expect(restoredPlayer.getByRole('link', { name: '01 - Fixture Track', exact: true })).toBeVisible()
   await expect.poll(() => mediaState(restoredAudio, 'paused')).toBe(false)
 
   await restoredPlayer.getByRole('button', { name: 'Next track' }).click()
-  await expect(restoredPlayer.getByText('02 - Second Fixture Track', { exact: true })).toBeVisible()
+  await expect(restoredPlayer.getByRole('link', { name: '02 - Second Fixture Track', exact: true })).toBeVisible()
   await expect.poll(() => mediaState(restoredAudio, 'paused')).toBe(false)
 })
 
