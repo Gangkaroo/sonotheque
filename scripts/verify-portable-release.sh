@@ -45,6 +45,11 @@ if grep -E '(^|/)\.git/|(^|/)\.env\.packaged$|(^|/)compose\.packaged\.override\.
     exit 1
 fi
 
+if grep -F "$ARCHIVE_NAME/backend/storage/" "$CONTENTS_PATH" | grep -Ev '/$|/\.gitignore$' >/dev/null; then
+    printf 'Release archive contains private application storage.\n' >&2
+    exit 1
+fi
+
 mode=$(tar -tvzf "$ARCHIVE_PATH" "$ARCHIVE_NAME/sonotheque" | awk '{ print $1 }')
 case "$mode" in
     *x*) ;;

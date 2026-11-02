@@ -2,11 +2,15 @@
 
 ## Unreleased
 
-## 0.5.1 - 2026-11-02
+## 0.5.2 - 2026-11-02
 
-- Supersede the unpublished 0.5.0 candidate without rewriting its existing tag.
+- Supersede the unpublished 0.5.0 and 0.5.1 candidates without rewriting their tags.
   Make packaged playback assertions target the visible accessible track link
   rather than also matching a hidden responsive copy of the title.
+- Correct portable archive auditing so backup implementation classes are not
+  mistaken for private backup files, while rejecting actual private storage.
+  Exclude all backend runtime storage, local packaged secrets, and downloaded
+  analysis models from Docker build contexts.
 
 - Include the previously unpublished 0.4.0 work: Linux/macOS portable packaging,
   optional packaged Audio Intelligence, recent playlist destinations, and player
@@ -45,6 +49,12 @@
 - Refactor frontend detail, player, and settings workflows into focused shared
   components and composables, with expanded regression coverage and Windows
   background-service recovery checks in the release workflow.
+
+## 0.5.1 - 2026-11-02
+
+- Unpublished candidate with corrected packaged playback selectors. Archive
+  auditing incorrectly classified backup source code as private data;
+  superseded by 0.5.2.
 
 ## 0.5.0 - 2026-11-02
 

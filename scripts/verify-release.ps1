@@ -61,7 +61,9 @@ try {
         $_ -match '(^|/)packaged-roots\.json$' -or
         $_ -match '(^|/)node_modules/' -or
         $_ -match '(^|/)vendor/' -or
-        $_ -match '(^|/)backups/' -or
+        $_ -match ('^' + [regex]::Escape($prefix) + 'backups/') -or
+        ($_ -match ('^' + [regex]::Escape($prefix) + 'backend/storage/') -and
+            $_ -notmatch '/$|/\.gitignore$') -or
         $_ -match '(^|/)runtime-logs/' -or
         $_ -match '(^|/)AGENTS\.md$'
     })

@@ -4,19 +4,16 @@
 runtime-logs
 backups
 dist
+.env.packaged
+audio-intelligence/models
+audio-intelligence/__pycache__
 compose.packaged.override.yaml
 packaged-roots.json
 
 backend/.env
 backend/.env.testing
 backend/vendor
-backend/storage/app/artwork
-backend/storage/app/metadata-backups
-backend/storage/framework/cache
-backend/storage/framework/sessions
-backend/storage/framework/testing
-backend/storage/framework/views
-backend/storage/logs
+backend/storage
 backend/bootstrap/cache/*.php
 backend/.phpunit.result.cache
 
