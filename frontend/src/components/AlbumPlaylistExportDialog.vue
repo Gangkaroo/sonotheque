@@ -69,10 +69,7 @@ const destination = computed(() => {
     return configuration.value.locations.find((location) => location.id === locationId)?.path ?? ''
   }
 
-  return [
-    configuration.value.directory.libraryRoot,
-    configuration.value.directory.relativePath,
-  ].filter(Boolean).join(' / ')
+  return configuration.value.directory.relativePath
 })
 
 watch(() => props.modelValue, (open) => {
@@ -177,7 +174,10 @@ async function save() {
                 ? t('albums.playlistAlbumFolder')
                 : t('albums.playlistConfiguredFolder') }}
             </div>
-            <div class="font-weight-medium">{{ destination }}</div>
+            <div class="font-weight-medium">
+              <strong v-if="destinationValue === 'album' && configuration.directory.libraryRoot">{{ configuration.directory.libraryRoot }}</strong>
+              <span>{{ destinationValue === 'album' && configuration.directory.libraryRoot && destination ? '/' : '' }}{{ destination }}</span>
+            </div>
           </v-alert>
           <v-select
             :items="formatItems"

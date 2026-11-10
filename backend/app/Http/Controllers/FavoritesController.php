@@ -6,7 +6,6 @@ use App\Models\Album;
 use App\Models\FavoriteAlbum;
 use App\Models\FavoriteTrack;
 use App\Models\Track;
-use App\Support\CatalogPayloads;
 use App\Support\LibraryRootScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +14,7 @@ use Illuminate\Http\Request;
 class FavoritesController extends Controller
 {
     public function __construct(
-        private readonly CatalogPayloads $payloads,
+        private readonly CatalogBrowseController $catalog,
         private readonly LibraryRootScope $libraryRootScope,
     ) {
     }
@@ -40,28 +39,16 @@ class FavoritesController extends Controller
 
     public function tracks(Request $request): JsonResponse
     {
-        $libraryRootId = $this->libraryRootScope->id($request);
-        $favorites = FavoriteTrack::query()
-            ->whereHas('track', fn (Builder $tracks) => $this->libraryRootScope->tracks($tracks, $libraryRootId))
-            ->with(['track.album:id,title,original_release_year,artwork_id', 'track.album.personalMetadata', 'track.album.ownedCopies', 'track.artists:id,name'])
-            ->orderByDesc('created_at')
-            ->paginate(50);
+        $request->merge(['favorites' => true]);
 
-        return response()->json($this->payloads->paginated($favorites, fn (FavoriteTrack $favorite) => $this->payloads->trackSummary($favorite->track)));
+        return $this->catalog->tracks($request);
     }
 
     public function albums(Request $request): JsonResponse
     {
-        $libraryRootId = $this->libraryRootScope->id($request);
-        $favorites = FavoriteAlbum::query()
-            ->whereHas('album', fn (Builder $albums) => $this->libraryRootScope->albums($albums, $libraryRootId))
-            ->with(['album' => fn ($query) => $query
-                ->with(['primaryArtist:id,name', 'artwork:id', 'personalMetadata', 'ownedCopies'])
-                ->withCount('tracks')])
-            ->orderByDesc('created_at')
-            ->paginate(24);
+        $request->merge(['favorites' => true]);
 
-        return response()->json($this->payloads->paginated($favorites, fn (FavoriteAlbum $favorite) => $this->payloads->albumSummary($favorite->album)));
+        return $this->catalog->albums($request);
     }
 
     public function addTrack(Track $track): JsonResponse

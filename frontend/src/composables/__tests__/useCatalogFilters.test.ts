@@ -120,6 +120,29 @@ describe('catalog filters', () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
+  it('does not replace the list URL while another page is opening', async () => {
+    const { state, router, load } = await setup('/albums?search=Applied')
+    let finishNavigation!: () => void
+    let enterGuard!: () => void
+    const guardEntered = new Promise<void>(resolve => { enterGuard = resolve })
+    router.beforeEach(to => {
+      if (to.name !== 'other') return
+      enterGuard()
+      return new Promise<void>(resolve => { finishNavigation = resolve })
+    })
+
+    vi.useFakeTimers()
+    state.searchInput.value = 'Pending'
+    const navigation = router.push('/other')
+    await guardEntered
+    await vi.advanceTimersByTimeAsync(300)
+    finishNavigation()
+    await navigation
+
+    expect(router.currentRoute.value.name).toBe('other')
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it('focuses search on initial navigation and when returning to a cached list', async () => {
     const focus = vi.spyOn(HTMLInputElement.prototype, 'focus')
     const { router } = await setup()

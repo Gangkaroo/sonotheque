@@ -1,5 +1,5 @@
 import { computed, nextTick, onScopeDispose, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
 import { useListSearchFocus } from '@/composables/useListSearchFocus'
 import { createRouteQuerySyncGuard } from '@/utils/routeQuerySyncGuard'
@@ -148,6 +148,7 @@ export function useCatalogFilters<T extends { page: number, search: string }>(op
   }, { immediate: true })
 
   saveFilters()
+  onBeforeRouteLeave(cancelSearch)
   onScopeDispose(cancelSearch)
 
   return { filters, searchInput, searchField, resultsTop, isActive, currentFilters, changePage, applySearch, clearSearch }

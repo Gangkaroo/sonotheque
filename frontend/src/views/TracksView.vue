@@ -249,8 +249,15 @@ watch([
       :key="track.id"
       class="track-list-item"
       :class="{ 'current-track': player.currentTrack?.id === track.id }"
-      prepend-icon="mdi-music-note"
     >
+      <template #prepend>
+        <div class="d-flex me-4">
+          <v-avatar rounded="lg" size="64">
+            <v-img v-if="track.album?.artworkThumbnailUrl" :src="track.album.artworkThumbnailUrl" cover />
+            <v-icon v-else icon="mdi-album" />
+          </v-avatar>
+        </div>
+      </template>
       <v-list-item-title class="font-weight-bold">
         <RouterLink class="track-meta-link" :to="{ name: 'track-detail', params: { id: track.id } }">
           {{ track.title }}

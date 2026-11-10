@@ -62,6 +62,25 @@ class FavoritesApiTest extends TestCase
             ->assertJsonPath('albums', []);
     }
 
+    public function test_favorites_search_and_totals_only_include_matching_favorites(): void
+    {
+        [, $album, $track] = $this->createCatalog();
+
+        $this->getJson('/api/favorites/albums')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/favorites/tracks')->assertOk()->assertJsonPath('total', 0);
+        $this->postJson("/api/favorites/albums/{$album->id}")->assertCreated();
+        $this->postJson("/api/favorites/tracks/{$track->id}")->assertCreated();
+
+        $this->getJson('/api/favorites/albums?search=Artist%20Album')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('items.0.id', $album->id);
+        $this->getJson('/api/favorites/tracks?search=Artist%20Track')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('items.0.id', $track->id);
+        $this->getJson('/api/favorites/albums?search=Missing')
+            ->assertOk()->assertJsonPath('total', 0)->assertJsonPath('items', []);
+        $this->getJson('/api/favorites/tracks?search=Missing')
+            ->assertOk()->assertJsonPath('total', 0)->assertJsonPath('items', []);
+    }
+
     /** @return array{Artist, Album, Track, Genre} */
     private function createCatalog(): array
     {

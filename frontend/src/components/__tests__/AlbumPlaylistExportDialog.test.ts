@@ -87,7 +87,8 @@ describe('AlbumPlaylistExportDialog', () => {
 
     await flushPromises()
 
-    expect(document.body.textContent).toContain('Music Archive / Artist/Album')
+    expect(document.body.textContent).toContain('Music Archive/Artist/Album')
+    expect(document.body.querySelector('.v-alert strong')?.textContent).toBe('Music Archive')
     expect([...document.body.querySelectorAll<HTMLInputElement>('input[type="text"]')]
       .some((input) => input.value === 'Album Artist - Album Title.m3u8'))
       .toBe(true)
@@ -154,6 +155,7 @@ describe('AlbumPlaylistExportDialog', () => {
     await destinationSelect.setValue('location:7')
     await flushPromises()
     expect(document.body.textContent).toContain('P:/Playlists')
+    expect(document.body.querySelector('.v-alert strong')).toBeNull()
 
     const saveButton = [...document.body.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.trim() === 'Save')

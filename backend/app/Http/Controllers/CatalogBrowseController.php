@@ -127,6 +127,7 @@ class CatalogBrowseController extends Controller
         ]);
 
         $albums = $this->filteredAlbumQuery($libraryRootId, $filters)
+            ->when($request->boolean('favorites'), fn (Builder $query) => $query->whereIn('albums.id', \App\Models\FavoriteAlbum::query()->select('album_id')))
             ->leftJoin('artists as primary_artists', 'primary_artists.id', '=', 'albums.primary_artist_id')
             ->select([
                 'albums.id',
@@ -143,7 +144,7 @@ class CatalogBrowseController extends Controller
         $albums = $this->applyAlbumSort($albums, $this->albumSort($filters))
             ->paginate(
                 perPage: 24,
-                total: $this->albumPaginationTotal($libraryRootId, $filters),
+                total: $request->boolean('favorites') ? null : $this->albumPaginationTotal($libraryRootId, $filters),
             );
 
         $musicianId = isset($filters['musician']) ? (int) $filters['musician'] : null;
@@ -239,12 +240,15 @@ class CatalogBrowseController extends Controller
         ]);
 
         $filteredTracks = $this->filteredTrackQuery($libraryRootId, $filters);
+        if ($request->boolean('favorites')) {
+            $filteredTracks->whereIn('tracks.id', \App\Models\FavoriteTrack::query()->select('track_id'));
+        }
         $tracks = $this->trackBrowseQuery($filteredTracks);
 
         $tracks = $this->applyTrackSort($tracks, $filters['sort'] ?? 'album')
             ->paginate(
                 perPage: 50,
-                total: fn (): int => $this->trackCatalogTotal($libraryRootId, $filters, $filteredTracks),
+                total: $request->boolean('favorites') ? null : fn (): int => $this->trackCatalogTotal($libraryRootId, $filters, $filteredTracks),
             );
 
         return response()->json($this->payloads->paginated($tracks, fn (Track $track) => $this->payloads->trackSummary($track)));

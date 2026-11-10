@@ -1,6 +1,6 @@
 # Sonotheque - Implementation Plan
 
-Last reviewed: 2026-11-02.
+Last reviewed: 2026-11-10.
 
 ## Goal
 
@@ -80,6 +80,13 @@ The implemented release baseline and active roadmap include:
   root/search/genre/year/ownership/sort scope for subsequent choices
 - Visible current playback queue with album and track queue actions
 - Favorite tracks and favorite albums with browse sections
+- Favorites use the main catalog's default ordering and search behavior, with
+  independent album/track searches and paginated, search-filtered totals.
+- Compact editable album ratings in favorites; cover thumbnails in favorite
+  albums/tracks, the main track list, and playlist rows (with artwork placeholders).
+- Pending list searches are canceled when leaving a view so they cannot interrupt
+  playlist navigation. Album playlist export paths emphasize the library root
+  and use path separators without extra spaces.
 - Personal half-star ratings from 0.5 to 5 stars for albums and tracks
 - Custom playlists, playlist folders, ordered playlist items, queue-to-playlist
   actions, M3U/M3U8 import and export, and optional background file

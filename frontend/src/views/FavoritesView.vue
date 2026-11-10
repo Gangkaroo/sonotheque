@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import EmptyCatalogState from '@/components/EmptyCatalogState.vue'
@@ -17,6 +17,22 @@ const player = usePlayerStore()
 const activeTab = ref<'albums' | 'tracks'>('albums')
 const albumPage = ref(1)
 const trackPage = ref(1)
+const albumSearch = ref('')
+const trackSearch = ref('')
+let albumSearchTimer: ReturnType<typeof setTimeout> | undefined
+let trackSearchTimer: ReturnType<typeof setTimeout> | undefined
+watch(albumSearch, () => {
+  clearTimeout(albumSearchTimer)
+  albumSearchTimer = setTimeout(() => loadAlbumPage(1), 300)
+})
+watch(trackSearch, () => {
+  clearTimeout(trackSearchTimer)
+  trackSearchTimer = setTimeout(() => loadTrackPage(1), 300)
+})
+onScopeDispose(() => {
+  clearTimeout(albumSearchTimer)
+  clearTimeout(trackSearchTimer)
+})
 
 function albumDetails(album: Album) {
   if (album.originalReleaseYear === undefined || album.originalReleaseYear === null) {
@@ -41,12 +57,12 @@ function toggleTrack(track: Track) {
 
 function loadAlbumPage(page = albumPage.value) {
   albumPage.value = page
-  void favorites.loadAlbums(page)
+  void favorites.loadAlbums(page, albumSearch.value)
 }
 
 function loadTrackPage(page = trackPage.value) {
   trackPage.value = page
-  void favorites.loadTracks(page)
+  void favorites.loadTracks(page, trackSearch.value)
 }
 
 onMounted(() => {
@@ -71,22 +87,38 @@ onMounted(() => {
 
     <v-window v-model="activeTab">
       <v-window-item value="albums">
+        <v-text-field v-model="albumSearch" class="ma-4" clearable hide-details :label="t('albums.search')" prepend-inner-icon="mdi-magnify" @keydown.esc="albumSearch = ''" />
         <v-skeleton-loader v-if="favorites.albumsLoading" type="list-item-three-line@4" />
         <v-list v-else-if="favorites.albums.items.length" lines="two">
           <v-list-item
             v-for="album in favorites.albums.items"
             :key="album.id"
-            :to="{ name: 'album-detail', params: { id: album.id } }"
           >
             <template #prepend>
-              <v-avatar rounded="lg">
-                <v-img v-if="album.artworkThumbnailUrl" :src="album.artworkThumbnailUrl" cover />
-                <v-icon v-else icon="mdi-album" />
-              </v-avatar>
+              <RouterLink class="d-flex me-4" :to="{ name: 'album-detail', params: { id: album.id } }" :aria-label="album.title">
+                <v-avatar rounded="lg" size="64">
+                  <v-img v-if="album.artworkThumbnailUrl" :src="album.artworkThumbnailUrl" cover />
+                  <v-icon v-else icon="mdi-album" />
+                </v-avatar>
+              </RouterLink>
             </template>
-            <v-list-item-title class="font-weight-bold">{{ album.title }}</v-list-item-title>
+            <v-list-item-title class="font-weight-bold">
+              <RouterLink class="favorite-link" :to="{ name: 'album-detail', params: { id: album.id } }">
+                {{ album.title }}
+              </RouterLink>
+            </v-list-item-title>
             <v-list-item-subtitle>{{ album.primaryArtist?.name ?? t('catalog.unknownArtist') }}</v-list-item-subtitle>
-            <v-list-item-subtitle>{{ albumDetails(album) }}</v-list-item-subtitle>
+            <div class="d-flex align-center flex-wrap ga-2">
+              <v-list-item-subtitle>{{ albumDetails(album) }}</v-list-item-subtitle>
+              <CatalogRating
+                :entity-id="album.id"
+                entity-type="album"
+                compact
+                :model-value="album.rating"
+                size="18"
+                @update:model-value="album.rating = $event"
+              />
+            </div>
             <template #append>
               <TooltipIconButton
                 :text="t('favorites.removeAlbum')"
@@ -108,6 +140,7 @@ onMounted(() => {
       </v-window-item>
 
       <v-window-item value="tracks">
+        <v-text-field v-model="trackSearch" class="ma-4" clearable hide-details :label="t('tracks.search')" prepend-inner-icon="mdi-magnify" @keydown.esc="trackSearch = ''" />
         <v-skeleton-loader v-if="favorites.tracksLoading" type="list-item-three-line@6" />
         <v-list v-else-if="favorites.tracks.items.length" lines="three">
           <v-list-item
@@ -116,6 +149,14 @@ onMounted(() => {
             class="track-list-item"
             :class="{ 'current-track': player.currentTrack?.id === track.id }"
           >
+            <template #prepend>
+              <div class="d-flex me-4">
+                <v-avatar rounded="lg" size="64">
+                  <v-img v-if="track.album?.artworkThumbnailUrl" :src="track.album.artworkThumbnailUrl" cover />
+                  <v-icon v-else icon="mdi-album" />
+                </v-avatar>
+              </div>
+            </template>
             <v-list-item-title class="font-weight-bold">
               <RouterLink class="favorite-link" :to="{ name: 'track-detail', params: { id: track.id } }">
                 {{ track.title }}

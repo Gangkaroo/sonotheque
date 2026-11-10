@@ -378,6 +378,15 @@ onBeforeUnmount(stopDragAutoScroll)
               </template>
             </v-tooltip>
           </div>
+          <v-avatar class="me-4" rounded="lg" size="64">
+            <v-img
+              v-if="item.track.album?.artworkThumbnailUrl"
+              :src="item.track.album.artworkThumbnailUrl"
+              cover
+              draggable="false"
+            />
+            <v-icon v-else icon="mdi-album" />
+          </v-avatar>
         </template>
 
         <v-list-item-title class="font-weight-bold" :class="{ 'text-primary': player.currentTrack?.id === item.track.id }">

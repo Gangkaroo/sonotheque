@@ -52,11 +52,11 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  async function loadTracks(page = 1) {
+  async function loadTracks(page = 1, search = '') {
     tracksLoading.value = true
     error.value = null
     try {
-      tracks.value = await apiRequest<CatalogPage<Track>>(withLibraryRootScope(`/favorites/tracks?page=${page}`))
+      tracks.value = await apiRequest<CatalogPage<Track>>(withLibraryRootScope(`/favorites/tracks?page=${page}${search ? `&search=${encodeURIComponent(search)}` : ''}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
@@ -64,11 +64,11 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  async function loadAlbums(page = 1) {
+  async function loadAlbums(page = 1, search = '') {
     albumsLoading.value = true
     error.value = null
     try {
-      albums.value = await apiRequest<CatalogPage<Album>>(withLibraryRootScope(`/favorites/albums?page=${page}`))
+      albums.value = await apiRequest<CatalogPage<Album>>(withLibraryRootScope(`/favorites/albums?page=${page}${search ? `&search=${encodeURIComponent(search)}` : ''}`))
     } catch (cause) {
       error.value = errorMessage(cause)
     } finally {
